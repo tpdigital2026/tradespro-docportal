@@ -22,6 +22,8 @@ export const fjcTenant: Tenant = {
   companyNo: '13855379',
   vatNo: 'GB 408094403',
   tagline: 'Covering Your Home, Protecting Your Family',
+  ownerName: 'Ben Cunningham',
+  ownerTitle: 'Director',
 };
 
 export const fjcColours = {

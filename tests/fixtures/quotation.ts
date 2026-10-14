@@ -6,7 +6,6 @@ export const quotationFixture: QuotationInput = {
   validityDays: 30,
   customer: { name: 'Mr John Smith', email: 'john.smith@example.com', phone: '07700 900123' },
   property: '123 Bromley Road, BR2 8BG',
-  preparedBy: 'Ben Cunningham, FJC Roofing Ltd',
   coverEyebrow: 'Residential · Flat Roof Installation Quotation',
   coverTitle: 'Flat Roof Installation Quotation',
   coverSub: 'Complete flat roof installation, full scope of works and pricing',

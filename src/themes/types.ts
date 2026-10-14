@@ -7,6 +7,8 @@ export interface Tenant {
   companyNo: string;
   vatNo: string | null;
   tagline: string;
+  ownerName: string;
+  ownerTitle: string;
 }
 
 export interface BrandAssets {

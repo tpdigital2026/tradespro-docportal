@@ -1,5 +1,4 @@
 import { html, type Raw } from '../lib/html';
-import { formatGBP } from '../lib/money';
 import type { Brand, Tenant } from '../themes/types';
 
 export const pad2 = (n: number): string => String(n).padStart(2, '0');
@@ -42,7 +41,7 @@ export function coverHero(
   b: Brand,
   c: { eyebrow: string; title: string; sub: string; strip: [string, string][] },
 ): Raw {
-  return html`<div class="cover-hero"><div class="ph" style="background-image:url(${b.assets.coverPhoto})"></div><div class="shade"></div><div class="in"><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}"><div class="contact">${t.addressLine}<br>${t.phone} · ${t.email}<br>Company No. ${t.companyNo}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
+  return html`<div class="cover-hero"><div class="ph" style="background-image:url(&quot;${b.assets.coverPhoto}&quot;)"></div><div class="shade"></div><div class="in"><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}"><div class="contact">${t.addressLine}<br>${t.phone} · ${t.email}<br>Company No. ${t.companyNo}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
 }
 
 export interface PriceRow {
@@ -65,5 +64,3 @@ export function totalsBlock(rows: [string, string][], grandLabel: string, grand:
 export function signBlock(b: Brand, name: string, role: string, nameLine: string, date: string): Raw {
   return html`<div class="sign"><div class="s"><img src="${b.assets.signature}" alt="Signature of ${name}"><div class="line"><div class="nm">${name}</div><div class="rl">${role}</div></div></div><div class="small" style="padding-bottom:1mm">${nameLine}<br>${date}</div></div>`;
 }
-
-export const money = formatGBP;
