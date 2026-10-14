@@ -47,6 +47,7 @@ Terms, due labels and guarantee wording belong to each business. They live in `t
 ### Server code rules
 
 - Finalise must `select ... for update` the document row before checking its status and writing the version.
+- Every save that inserts a document version must also `select ... for update` the document row first, and the server retries once on deadlock (40P01). Without that, two saves of the same draft (a double submit) can deadlock against the draft check, which reads the document row with `for share`.
 - Finalising and sending run on a service connection with no app JWT. Never run them through a `SECURITY DEFINER` function that carries a user JWT: the draft lock will refuse it, by design.
 - Server code that acts as a user on a pooled connection must reset `request.jwt.claims` afterwards, or the next borrower inherits that identity.
 - Archive bank accounts, never delete them, once a finalised version references them.

@@ -19,7 +19,7 @@ async function main() {
   const db = await connect();
   try {
     const r = await inviteUser({ admin: supabase.auth.admin, db }, args);
-    console.log(`Invited ${args.email} to ${args.tenantName} as ${args.role} (user ${r.userId}).`);
+    console.log(`Invited ${args.email} to ${args.tenantId ? 'tenant ' + args.tenantId : args.tenantName} as ${args.role} (user ${r.userId}).`);
   } finally {
     await db.end();
   }
