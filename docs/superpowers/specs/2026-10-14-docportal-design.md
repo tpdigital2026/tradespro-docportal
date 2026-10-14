@@ -21,7 +21,7 @@ Phase 1 is a single-tenant MVP for FJC Roofing Ltd, but the data model is multi-
 Six document types: quotation, deposit invoice, balance invoice, receipt, guarantee certificate, survey report. Completion certificate and CIS labour invoice are deferred to Phase 3. A second and third client (Top Choice, G Scott) come in Phase 2 once their brand assets and business details exist.
 
 ### Stack
-Next.js (App Router) and TypeScript, Supabase (Postgres, Auth, Storage), zod, Vitest, Playwright/Chromium for PDFs and snapshots, Anthropic API server-side only, email via Resend or Postmark on the existing domain.
+Next.js (App Router) and TypeScript, Supabase (Postgres, Auth, Storage), zod, Vitest, Playwright/Chromium for PDFs and snapshots, Anthropic API server-side only, no email sending in Phase 1 (a Send-to-customer button and a sending domain come later).
 
 ### Quote number is the job key
 - The owner types the quote number when creating a quote. The system suggests the next one. It must be unique per tenant.
@@ -41,7 +41,7 @@ Next.js (App Router) and TypeScript, Supabase (Postgres, Auth, Storage), zod, Vi
 2. New document, pick the type, select an existing customer or add one.
 3. Short form: customer, date, scope notes, price ex VAT, VAT yes/no, extras, discount, guarantee years, bank account.
 4. Generate. The AI drafts the wording. The owner sees a live preview and edits inline. The AI lists `corrections[]` and `uncertain[]` for review before finalising.
-5. Finalise. The PDF is created and saved to the job. A Download button saves to the phone (share sheet on mobile). A ready-written covering email appears with Copy and Send to customer. Sending is never automatic.
+5. Finalise. The PDF is created and saved to the job. A **Download** button saves it to the phone (share sheet on mobile). A ready-written covering email appears with a **Copy** button. Nothing is emailed by DocPortal in Phase 1 (decision 2026-10-14): the owner downloads the document or copies the email text and sends it themselves. The owner can tailor the email by typing or dictating what they want to say (for example "start date is Monday the 3rd"); the AI redrafts the email using only what they said plus the document's own facts, and never invents dates, prices or promises.
 
 ## Architecture
 
@@ -124,6 +124,13 @@ RLS: every policy is `tenant_id = current_tenant_id()` plus a restrictive policy
 ## Open items before step 3
 
 - Supabase hosted dev project created and keys placed in `.env.local`.
-- Resend or Postmark account and API key.
+- Email sending (Resend or Postmark) is deferred; not needed for Phase 1.
 - Vercel Pro (commercial use and function duration).
 - Data Processing Agreement and privacy notice for clients (they become controllers, TradesPro a processor). A solicitor should review.
+
+## Decisions update, 2026-10-14
+
+- **Email:** no sending in Phase 1. The finished document is a Download button (and the customer-facing share link). The covering email is shown as text with Copy. The owner can refine it by typing or dictating; dictation uses the device's own speech-to-text (phone keyboard microphone or the browser's speech recognition) to fill a text box, and the AI only ever sees text.
+- **Login:** invite-only, email one-time code, no passwords (see Auth above).
+- **Payment and document wording** (terms, due labels, disclaimers) are tenant data, not code: stored per tenant in `tenant_defaults.terms` (jsonb keyed by document wording) and `disclaimer_text`.
+- **Database access:** the browser and the signed-in app role can only read and write through row level security. Sensitive writes (bank accounts, customer deletion, invites, audit entries) are server-only using the service role, after a step-up code check.
