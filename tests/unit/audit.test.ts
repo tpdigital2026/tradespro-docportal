@@ -40,6 +40,13 @@ describe('assertNoPersonalData bypass attempts', () => {
     ['phone value with +44', { note: '+44 7700 900123' }],
     ['postcode value', { note: 'BR1 1AA' }],
     ['postcode value lowercase', { note: 'sw1a 1aa' }],
+    ['bracketed phone', { note: '(07700) 900123' }],
+    ['0044 phone', { note: '0044 7700 900123' }],
+    ['+44 (0) phone', { note: '+44 (0)7700 900123' }],
+    ['dotted phone', { note: '07700.900.123' }],
+    ['full-width digit phone', { note: '０７７００ ９００１２３' }],
+    ['full-width at sign email', { note: 'ben＠example.com' }],
+    ['addr key', { addr: 'x' }],
     ['email in nested array', { list: [{ x: 'a@b.co' }] }],
   ];
   for (const [label, meta] of rejected) {
@@ -87,6 +94,26 @@ describe('assertNoPersonalData bypass attempts', () => {
         path: 'tenant/pdfs/QT-JS-001-v1.pdf',
       }),
     ).not.toThrow();
+  });
+});
+
+describe('writeAudit stores exactly what was checked', () => {
+  it('uses one serialisation even if a getter or toJSON changes between calls', async () => {
+    let n = 0;
+    const meta = { get a() { n += 1; return n === 1 ? 'fine' : 'ben@example.com'; } };
+    let m = 0;
+    const meta2 = { toJSON: () => { m += 1; return m === 1 ? { ok: 1 } : { email: 'x@y.co' }; } };
+    for (const object of [meta, meta2]) {
+      const calls: { params?: unknown[] }[] = [];
+      const db = { query: async (_s: string, params?: unknown[]) => (calls.push({ params }), { rows: [] }) };
+      await writeAudit(db, { tenantId: 't', userId: 'u', action: 'x', meta: object as never });
+      const stored = String(calls[0].params![8]);
+      expect(stored).not.toMatch(/@/);
+      expect(['{"a":"fine"}', '{"ok":1}']).toContain(stored);
+    }
+  });
+  it('assertNoPersonalData returns the checked JSON', () => {
+    expect(assertNoPersonalData({ a: 1 })).toBe('{"a":1}');
   });
 });
 

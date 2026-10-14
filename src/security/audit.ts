@@ -8,10 +8,11 @@ const MAX_DEPTH = 8;
 // closed: file_name, brand_name and token_hash style keys are rejected too. Use ids instead.
 const PERSONAL_TERMS = [
   'firstname', 'lastname', 'surname', 'fullname', 'email', 'emails', 'mail', 'phone', 'mobile', 'tel', 'telephone',
-  'address', 'postcode', 'zip', 'recipient', 'sortcode', 'accountnumber', 'accountno', 'iban', 'password', 'token', 'secret',
+  'address', 'addr', 'postcode', 'zip', 'recipient', 'sortcode', 'accountnumber', 'accountno', 'iban', 'password', 'token', 'secret',
 ];
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-const UK_PHONE = /(?:\+44\s?|\b0)(?:\d[\s-]?){9,10}\b/;
+// 0, +44, 0044 or +44 (0) prefixes; brackets and dots are stripped before matching.
+const UK_PHONE = /(?:(?:\+|\b00)44[\s-]?0?|\b0)(?:\d[\s-]?){9,10}\b/;
 const UK_POSTCODE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
 
 export interface AuditEntry {
@@ -42,9 +43,10 @@ function checkKey(key: string): void {
 }
 
 /** Checks one string value (also used for the top-level action, entity and entityId). */
-export function assertNoPersonalValue(value: string): void {
+export function assertNoPersonalValue(raw: string): void {
+  const value = raw.normalize('NFKC'); // full-width digits and @ become plain ASCII
   if (EMAIL_PATTERN.test(value)) fail('email address found');
-  if (UK_PHONE.test(value.replace(/\s+/g, ' '))) fail('phone number found');
+  if (UK_PHONE.test(value.replace(/[().]/g, '').replace(/\s+/g, ' '))) fail('phone number found');
   if (UK_POSTCODE.test(value)) fail('postcode found');
 }
 
@@ -60,8 +62,11 @@ function walk(value: unknown, depth: number): void {
   }
 }
 
-/** The audit trail records what happened, never who the customers are. */
-export function assertNoPersonalData(meta: unknown): void {
+/**
+ * The audit trail records what happened, never who the customers are.
+ * Returns the exact JSON string that was checked; store that string, never a second serialisation.
+ */
+export function assertNoPersonalData(meta: unknown): string {
   let json: string | undefined;
   try {
     json = JSON.stringify(meta);
@@ -72,15 +77,15 @@ export function assertNoPersonalData(meta: unknown): void {
   if (json.length > MAX_JSON_LENGTH) throw new Error(`Audit data is too large (over ${MAX_JSON_LENGTH} characters)`);
   // Check what will actually be stored: the parsed JSON, so toJSON tricks cannot hide anything.
   walk(JSON.parse(json), 0);
+  return json;
 }
 
 export async function writeAudit(db: Db, e: AuditEntry): Promise<void> {
-  const meta = e.meta ?? {};
-  assertNoPersonalData(meta);
+  const metaJson = assertNoPersonalData(e.meta ?? {});
   for (const v of [e.action, e.entity, e.entityId]) if (typeof v === 'string') assertNoPersonalValue(v);
   await db.query(
     `insert into public.audit_log (tenant_id, user_id, impersonator_id, action, entity, entity_id, ip, user_agent, meta)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [e.tenantId, e.userId, e.impersonatorId ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.ip ?? null, e.userAgent ?? null, JSON.stringify(meta)],
+    [e.tenantId, e.userId, e.impersonatorId ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.ip ?? null, e.userAgent ?? null, metaJson],
   );
 }
