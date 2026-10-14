@@ -44,4 +44,11 @@
   --icon: 22px;
   --textarea-min: 112px;
   --skip-offset: -100px;
+  --logo-h: 30px;
+  --measure-wide: 64rem;
+  --label-col: 11rem;
+  --tick-h: 4px;
+  --tick-h-now: 8px;
+  --tick-gap: 3px;
+  --stage-w: 12rem;
 }

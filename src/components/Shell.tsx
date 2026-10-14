@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -16,6 +17,15 @@ function Icon({ name }: { name: keyof typeof icons }) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {icons[name]}
     </svg>
+  );
+}
+
+function Brand({ businessName }: { businessName: string }) {
+  return (
+    <div className="brand">
+      <Image src="/tradespro-logo.png" width={704} height={355} alt="TradesPro Digital" className="brand-logo" priority />
+      <p className="brand-name"><small>DocPortal</small>{businessName}</p>
+    </div>
   );
 }
 
@@ -71,7 +81,7 @@ export function Shell({
 
       <aside className="rail">
         <div>
-          <p className="brand"><small>DocPortal</small>{businessName}</p>
+          <Brand businessName={businessName} />
           <nav aria-label="Main">
             <Nav path={path} />
           </nav>
@@ -84,7 +94,7 @@ export function Shell({
 
       <div>
         <div className="topbar">
-          <p className="brand"><small>DocPortal</small>{businessName}</p>
+          <Brand businessName={businessName} />
         </div>
         <main id="main" tabIndex={-1} className="main">
           {children}
