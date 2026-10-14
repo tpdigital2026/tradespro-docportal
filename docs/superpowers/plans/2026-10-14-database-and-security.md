@@ -1706,10 +1706,10 @@ async function customerWithJob(c: import('pg').Client, tenantId: string, ref: st
   const job = await c.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3) returning id`, [tenantId, cust.rows[0].id, ref]);
   // jobs trigger pushed purge_at out; set it back for the test
   await c.query(`update public.customers set purge_at = ${purgeAtSql} where id = $1`, [cust.rows[0].id]);
-  const doc = await c.query(`insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'quotation', $3, $4) returning id`, [tenantId, job.rows[0].id, ref, `pdfs/${ref}.pdf`]);
+  const doc = await c.query(`insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'quotation', $3, $4) returning id`, [tenantId, job.rows[0].id, ref, `${tenantId}/pdfs/${ref}.pdf`]);
   await c.query(`update public.customers set purge_at = ${purgeAtSql} where id = $1`, [cust.rows[0].id]);
-  const v = await c.query(`insert into public.document_versions (tenant_id, document_id, version, pdf_path, finalised_at) values ($1, $2, 1, $3, now()) returning id`, [tenantId, doc.rows[0].id, `pdfs/${ref}-v1.pdf`]);
-  await c.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [tenantId, job.rows[0].id, `photos/${ref}.jpg`]);
+  const v = await c.query(`insert into public.document_versions (tenant_id, document_id, version, pdf_path, finalised_at) values ($1, $2, 1, $3, now()) returning id`, [tenantId, doc.rows[0].id, `${tenantId}/pdfs/${ref}-v1.pdf`]);
+  await c.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [tenantId, job.rows[0].id, `${tenantId}/photos/${ref}.jpg`]);
   await c.query(`update public.customers set purge_at = ${purgeAtSql} where id = $1`, [cust.rows[0].id]);
   return { customerId: cust.rows[0].id as string, jobId: job.rows[0].id as string, versionId: v.rows[0].id as string };
 }
@@ -1723,7 +1723,7 @@ describe.skipIf(!dbAvailable)('purge and erase', () => {
       const expired = await c.query(`select id from private.expired_customers(now())`);
       expect(expired.rows.map((r) => r.id)).toEqual([old.customerId]);
       const paths = await c.query(`select * from private.customer_storage_paths($1::uuid[])`, [[old.customerId]]);
-      expect(paths.rows.map((r) => r.customer_storage_paths).sort()).toEqual(['pdfs/QT-OLD-001-v1.pdf', 'pdfs/QT-OLD-001.pdf', 'photos/QT-OLD-001.jpg']);
+      expect(paths.rows.map((r) => r.customer_storage_paths).sort()).toEqual([`${t.tenantId}/pdfs/QT-OLD-001-v1.pdf`, `${t.tenantId}/pdfs/QT-OLD-001.pdf`, `${t.tenantId}/photos/QT-OLD-001.jpg`]);
     });
   });
 
