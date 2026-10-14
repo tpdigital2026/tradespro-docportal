@@ -25,8 +25,8 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
   if (existing.rows.length > 0) return { tenantId: existing.rows[0].id, created: false };
 
   const t = await db.query(
-    `insert into public.tenants (name, trade_type, company_number, vat_registered, vat_number, address_lines, phone, email, website, tagline, owner_name, owner_title)
-     values ('FJC Roofing Ltd', 'roofing', '13855379', true, 'GB 408094403', $1, '07596115834', 'Ben@fjcroofingltd.com', 'www.fjcroofingltd.co.uk',
+    `insert into public.tenants (slug, name, trade_type, company_number, vat_registered, vat_number, address_lines, phone, email, website, tagline, owner_name, owner_title)
+     values ('fjc', 'FJC Roofing Ltd', 'roofing', '13855379', true, 'GB 408094403', $1, '07596115834', 'Ben@fjcroofingltd.com', 'www.fjcroofingltd.co.uk',
              'Covering Your Home, Protecting Your Family', 'Ben Cunningham', 'Director')
      returning id`,
     [['Rochester', 'United Kingdom', 'ME3 9UD']],
@@ -40,10 +40,17 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
   for (const [key, label, years] of JOB_TYPES) {
     await db.query(`insert into public.job_types (tenant_id, key, label, guarantee_years) values ($1, $2, $3, $4)`, [tenantId, key, label, years]);
   }
-  await db.query(`insert into public.brand_kits (tenant_id, theme_key, colours, fonts) values ($1, 'fjc', $2, $3)`, [
+  const kit = await db.query(`insert into public.brand_kits (tenant_id, theme_key, colours, fonts) values ($1, 'fjc', $2, $3) returning id`, [
     tenantId,
     JSON.stringify(FJC_COLOURS),
     JSON.stringify({ heading: 'Playfair Display', body: 'Inter', mono: 'JetBrains Mono' }),
   ]);
+  // The two real logo files live in public/brands/fjc until storage buckets exist.
+  for (const [kind, file] of [['logo_colour', 'logo.png'], ['logo_white', 'logo_white.png']] as const) {
+    await db.query(
+      `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt) values ($1, $2, $3, $4, 1036, 439, 'FJC Roofing logo')`,
+      [tenantId, kit.rows[0].id, kind, `${tenantId}/${file}`],
+    );
+  }
   return { tenantId, created: true };
 }

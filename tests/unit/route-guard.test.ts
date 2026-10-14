@@ -37,8 +37,15 @@ describe('guardRequest', () => {
     expect(isNext(await guardRequest(req(p), deps()))).toBe(true);
   });
   it('does not treat lookalike paths as public', async () => {
-    expect((await guardRequest(req('/loginx'), deps())).status).toBe(307);
+    expect((await guardRequest(req('/login/x'), deps())).status).toBe(307);
+    expect((await guardRequest(req('/fjc/extra'), deps())).status).toBe(307);
     expect((await guardRequest(req('/api/authx'), deps())).status).toBe(401);
+  });
+  it.each(['/fjc', '/some-business', '/loginx'])('lets the business sign-in address %s through, signed out', async (p) => {
+    expect(isNext(await guardRequest(req(p), deps()))).toBe(true);
+  });
+  it.each(['/customers', '/documents', '/dev', '/admin', '/s', '/_next', '/FJC', '/a'])('keeps the reserved or malformed %s behind sign-in', async (p) => {
+    expect((await guardRequest(req(p), deps())).status).toBe(307);
   });
   it('lets a request with a live access token through without calling Supabase', async () => {
     const refresh = vi.fn();

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, SESSION_MAX_AGE_SECONDS, startCookieName, tokenExpiresAt } from './auth-cookies';
 import { isDemo } from './demo';
+import { isValidSlug } from './slug';
 import { isSameOrigin, SAFE_METHODS } from './same-origin';
 
 export interface Refreshed {
@@ -15,7 +16,10 @@ export interface GuardDeps {
   sessionSecret(): string;
 }
 
-const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/');
+// A single lower-case segment that is not a reserved word is a business's public sign-in address (/fjc).
+// The page itself shows the plain sign-in for an unknown one, and sends a signed-in person home.
+const isSigninSlug = (path: string) => /^\/[^/]+$/.test(path) && isValidSlug(path.slice(1));
+const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/') || isSigninSlug(path);
 const REFRESH_SKEW_SECONDS = 30;
 
 function clearCookies(res: NextResponse) {

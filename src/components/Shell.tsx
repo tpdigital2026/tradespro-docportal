@@ -4,6 +4,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+import type { TenantBrand } from '../lib/brand-core';
+import { PoweredBy } from './PoweredBy';
 
 const icons = {
   home: <path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" />,
@@ -20,11 +22,12 @@ function Icon({ name }: { name: keyof typeof icons }) {
   );
 }
 
-function Brand({ businessName }: { businessName: string }) {
+function Brand({ brand }: { brand: TenantBrand }) {
+  const logo = brand.logoDark;
   return (
     <div className="brand">
-      <Image src="/tradespro-logo.png" width={704} height={355} alt="TradesPro Digital" className="brand-logo" priority />
-      <p className="brand-name"><small>DocPortal</small>{businessName}</p>
+      <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      <p className="brand-name"><small>DocPortal</small>{brand.name}</p>
     </div>
   );
 }
@@ -66,11 +69,11 @@ function LogOut() {
 }
 
 export function Shell({
-  businessName,
+  brand,
   userName,
   children,
 }: {
-  businessName: string;
+  brand: TenantBrand;
   userName: string;
   children: ReactNode;
 }) {
@@ -81,12 +84,13 @@ export function Shell({
 
       <aside className="rail">
         <div>
-          <Brand businessName={businessName} />
+          <Brand brand={brand} />
           <nav aria-label="Main">
             <Nav path={path} />
           </nav>
         </div>
         <div className="rail-foot">
+          {brand.isOwnBrand ? null : <PoweredBy variant="rail" />}
           <p>{userName}</p>
           <LogOut />
         </div>
@@ -94,7 +98,13 @@ export function Shell({
 
       <div>
         <div className="topbar">
-          <Brand businessName={businessName} />
+          <Brand brand={brand} />
+          {brand.isOwnBrand ? null : (
+            <p className="topbar-powered">
+              <span>Powered by</span>
+              <Image src="/tradespro-logo.png" width={704} height={355} alt="TradesPro Digital" />
+            </p>
+          )}
         </div>
         <main id="main" tabIndex={-1} className="main">
           {children}

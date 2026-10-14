@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest';
+import type { Client } from 'pg';
+import { brandFromRow } from '../../src/lib/brand';
+import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
+
+async function expectFail(c: Client, sql: string, params: unknown[], pattern: RegExp) {
+  await c.query('savepoint x');
+  try {
+    await expect(c.query(sql, params)).rejects.toThrow(pattern);
+  } finally {
+    await c.query('rollback to savepoint x');
+  }
+}
+
+describe.skipIf(!dbAvailable)('tenant slug and public brand', () => {
+  it('slug is unique, lower-case and not reserved', async () => {
+    await withRollback(async (c) => {
+      const a = await createTenantWithUser(c, 'Slug A');
+      const b = await createTenantWithUser(c, 'Slug B');
+      await c.query(`update public.tenants set slug = 'slug-test-a' where id = $1`, [a.tenantId]);
+      await expectFail(c, `update public.tenants set slug = 'slug-test-a' where id = $1`, [b.tenantId], /duplicate key|unique/i);
+      for (const bad of ['Slug-Test', 'login', 'api', 'dev', 's', 'a', 'a--b', '-abc', 'has space', '../x']) {
+        await expectFail(c, `update public.tenants set slug = $2 where id = $1`, [b.tenantId, bad], /check constraint/i);
+      }
+    });
+  });
+
+  it('public_brand returns the public face by slug or id, and nothing for an unknown slug', async () => {
+    await withRollback(async (c) => {
+      const t = await createTenantWithUser(c, 'Brand Co');
+      await c.query(`update public.tenants set slug = 'brand-co-test' where id = $1`, [t.tenantId]);
+      const kit = await c.query(
+        `insert into public.brand_kits (tenant_id, colours) values ($1, '{"blue":"#2f6fbf"}') returning id`,
+        [t.tenantId],
+      );
+      await c.query(
+        `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height) values ($1, $2, 'logo_colour', $3, 10, 5)`,
+        [t.tenantId, kit.rows[0].id, `${t.tenantId}/logo.png`],
+      );
+      const bySlug = await c.query(`select * from private.public_brand('brand-co-test', null)`);
+      expect(bySlug.rows).toHaveLength(1);
+      expect(bySlug.rows[0]).toMatchObject({ name: 'Brand Co', accent: '#2f6fbf', logo_colour_path: `${t.tenantId}/logo.png`, logo_white_path: null });
+      const byId = await c.query(`select * from private.public_brand(null, $1)`, [t.tenantId]);
+      expect(byId.rows[0].slug).toBe('brand-co-test');
+      expect((await c.query(`select * from private.public_brand('no-such-business', null)`)).rowCount).toBe(0);
+      // nothing about people leaves this function
+      expect(Object.keys(bySlug.rows[0]).sort()).toEqual(
+        ['accent', 'logo_colour_h', 'logo_colour_path', 'logo_colour_w', 'logo_white_h', 'logo_white_path', 'logo_white_w', 'name', 'slug', 'tenant_id'],
+      );
+      const brand = brandFromRow(bySlug.rows[0], () => true);
+      expect(brand.accent).toBe('#2f6fbf');
+      expect(brand.logoLight?.url).toBe('/brands/brand-co-test/logo.png');
+    });
+  });
+
+  it('is not callable by the app or anonymous roles', async () => {
+    await withRollback(async (c) => {
+      for (const role of ['anon', 'authenticated']) {
+        await c.query(`set local role ${role}`);
+        await expectFail(c, `select * from private.public_brand('x', null)`, [], /permission denied/i);
+        await c.query('reset role');
+      }
+    });
+  });
+});

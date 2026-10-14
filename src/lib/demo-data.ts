@@ -7,7 +7,7 @@ export const demoSession = {
   role: 'owner' as const,
   email: 'owner@demo.invalid',
   fullName: 'Demo Owner',
-  businessName: 'Demo Roofing Ltd',
+  businessName: 'FJC Roofing Ltd',
 };
 
 export type DemoCustomer = {

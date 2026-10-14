@@ -7,7 +7,19 @@
   --w: #ffffff;
   --steel-400: #9db8cc;
   --rule: rgba(63, 179, 239, 0.28);
-  --danger: #ff8f8f;
+
+  /* light theme: semantic roles, so a dark variant only has to redefine these */
+  --paper: #ffffff;
+  --paper-alt: #eef4f9;
+  --ink: var(--navy-900);
+  --ink-muted: #3a536a; /* 8.0:1 on paper, 7.2:1 on paper-alt: safe for large muted headlines too */
+  --line: #d4e0ea; /* decorative hairlines */
+  --line-input: #6b8296; /* input borders, 4.0:1 on paper */
+  --accent-ink: #0869a8; /* the brand blue deepened for text, links and rings on white: 5.8:1 */
+  --on-accent: var(--w); /* white on the brand blue is the approved button exception */
+  --danger-ink: #b42318; /* 6.6:1 on paper */
+  --on-dark: var(--w);
+  --on-dark-muted: var(--steel-400); /* 8.0:1 on navy */
 
   /* type */
   --font-head: 'Outfit', system-ui, sans-serif;
@@ -36,9 +48,6 @@
   --rail-w: 248px;
   --measure: 40rem;
   --radius: 8px;
-  --ring: 0 0 0 3px rgba(11, 155, 234, 0.55);
-  --accent-hover: #0a8cd4;
-  --accent-tint: rgba(11, 155, 234, 0.08);
   --hairline: 1px;
   --stroke: 2px;
   --icon: 22px;
@@ -55,4 +64,17 @@
   --form-w: 28rem;
   --recent-num-w: 12rem;
   --recent-date-w: 4rem;
+  --split-w: 30rem;
+  --sample-w: 26rem;
+  --code-h: 64px;
+  --badge-h: 56px;
+}
+
+/* Derived from --accent and --accent-ink, so they are declared on every element that may override those
+   two (the app layout root and the sign-in root add .brandroot). A custom property that uses var() is
+   resolved where it is declared, not where it is used. */
+:root, .brandroot {
+  --focus: var(--accent-ink);
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, black);
+  --accent-tint: color-mix(in srgb, var(--accent) 9%, transparent);
 }

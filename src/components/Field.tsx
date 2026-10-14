@@ -1,19 +1,19 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, Ref, TextareaHTMLAttributes } from 'react';
 
 type Base = { id: string; label: string; hint?: string; error?: string };
 
 export function Field(
-  props: Base & { multiline?: false } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id'>,
+  props: Base & { multiline?: false; ref?: Ref<HTMLInputElement> } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id'>,
 ): React.JSX.Element;
 export function Field(
   props: Base & { multiline: true } & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'id'>,
 ): React.JSX.Element;
 export function Field(all: Base & { multiline?: boolean } & Record<string, unknown>) {
-  const { id, label, hint, error, multiline, ...rest } = all;
+  const { id, label, hint, error, multiline, className, ...rest } = all;
   const describedBy = [hint ? `${id}-hint` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined;
   const common = {
     id,
-    className: 'input',
+    className: `input${className ? ` ${String(className)}` : ''}`,
     'aria-invalid': error ? true : undefined,
     'aria-describedby': describedBy,
   };

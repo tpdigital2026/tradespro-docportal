@@ -29,8 +29,8 @@ export default async function Home() {
       <header className="home-head">
         <p className="eyebrow">{demo ? 'Demo mode, dummy data' : `Hello, ${firstName}`}</p>
         <h1>
-          <span className="muted">What do you</span>
-          need to make?
+          <span className="muted">Let&rsquo;s make some money.</span>
+          What documents do you need?
         </h1>
       </header>
 
@@ -40,6 +40,7 @@ export default async function Home() {
 
       <section aria-labelledby="jobs-h" className="home-section">
         <h2 id="jobs-h" className="section-title">Jobs in progress</h2>
+        <p className="section-sub">What is next for each job, with the most urgent first.</p>
         {jobs.length ? (
           <ul className="jobs">
             {jobs.map((j, i) => (
@@ -47,7 +48,7 @@ export default async function Home() {
             ))}
           </ul>
         ) : (
-          <p className="empty">No jobs yet. Start with a quotation and the next step will appear here.</p>
+          <p className="empty">No jobs yet. Send a quotation and the next step for that job shows up here.</p>
         )}
       </section>
 
@@ -66,7 +67,7 @@ export default async function Home() {
             ))}
           </ul>
         ) : (
-          <p className="empty">Documents you make will be listed here.</p>
+          <p className="empty">Documents you make are listed here.</p>
         )}
       </section>
     </div>
