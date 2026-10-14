@@ -1,4 +1,4 @@
-import { html, type Raw } from '../lib/html';
+import { html, raw, type Raw } from '../lib/html';
 import type { Brand, Tenant } from '../themes/types';
 
 export const pad2 = (n: number): string => String(n).padStart(2, '0');
@@ -7,8 +7,8 @@ export function runningHeader(t: Tenant, b: Brand, label: string, ref: string): 
   return html`<div class="rh"><img src="${b.assets.logoColour}" alt="${t.name}"><div class="meta"><span class="eyebrow">${label}</span><div class="ref">${ref}</div></div></div>`;
 }
 
-export function runningFooter(t: Tenant, n: number, total: number): Raw {
-  return html`<div class="rf"><span class="tag">${t.tagline}</span><span>${t.name} · Company No. ${t.companyNo}</span><span class="pg">Page ${pad2(n)} / ${pad2(total)}</span></div>`;
+export function runningFooter(t: Tenant, n: number, total: number, reserved = false): Raw {
+  return html`<div class="rf"${reserved ? raw(' data-reserved') : null}><span class="tag">${t.tagline}</span><span>${t.name} · Company No. ${t.companyNo}</span><span class="pg">Page ${pad2(n)} / ${pad2(total)}</span></div>`;
 }
 
 export function page(inner: Raw, head: Raw | null, foot: Raw | null): Raw {
@@ -41,7 +41,7 @@ export function coverHero(
   b: Brand,
   c: { eyebrow: string; title: string; sub: string; strip: [string, string][] },
 ): Raw {
-  return html`<div class="cover-hero"><div class="ph" style="background-image:url(&quot;${b.assets.coverPhoto}&quot;)"></div><div class="shade"></div><div class="in"><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}"><div class="contact">${t.addressLine}<br>${t.phone} · ${t.email}<br>Company No. ${t.companyNo}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
+  return html`<div class="cover-hero"><div class="ph" style="background-image:url(&quot;${b.assets.coverPhoto}&quot;)"></div><div class="shade"></div><div class="in" data-fit><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}"><div class="contact">${t.addressLine}<br>${t.phone} · ${t.email}<br>Company No. ${t.companyNo}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
 }
 
 export interface PriceRow {
@@ -57,8 +57,8 @@ export function priceTable(rows: PriceRow[], showVat: boolean): Raw {
   return html`<table class="px"><thead><tr><th>Description</th><th>Type</th><th class="r">Qty</th><th class="r">Unit cost</th>${showVat ? html`<th class="r">VAT</th>` : null}<th class="r">Total</th></tr></thead><tbody>${rows.map((r) => html`<tr><td>${r.description}</td><td><span class="t">${r.kind}</span></td><td class="r">${r.qty}</td><td class="r">${r.unit}</td>${showVat ? html`<td class="r">${r.vat}</td>` : null}<td class="r">${r.total}</td></tr>`)}</tbody></table>`;
 }
 
-export function totalsBlock(rows: [string, string][], grandLabel: string, grand: string): Raw {
-  return html`<div class="totals">${rows.map(([a, b]) => html`<div class="row"><span>${a}</span><span>${b}</span></div>`)}<div class="grand"><span>${grandLabel}</span><span>${grand}</span></div></div>`;
+export function totalsBlock(rows: [string, string][], grandLabel: string, grand: string, after: [string, string][] = []): Raw {
+  return html`<div class="totals">${rows.map(([a, b]) => html`<div class="row"><span>${a}</span><span>${b}</span></div>`)}<div class="grand"><span>${grandLabel}</span><span>${grand}</span></div>${after.map(([a, b]) => html`<div class="row sub"><span>${a}</span><span>${b}</span></div>`)}</div>`;
 }
 
 export function signBlock(b: Brand, name: string, role: string, nameLine: string, date: string): Raw {

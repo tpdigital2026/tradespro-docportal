@@ -1,13 +1,11 @@
 import type { Page } from 'playwright-core';
-import { html, raw, type Raw } from '../lib/html';
+import { html, raw } from '../lib/html';
 import { computeTotals, formatGBP, type MoneyLine } from '../lib/money';
-import { fontFaceCss } from '../pdf/assets';
 import { documentShell } from '../pdf/document';
-import { measureFragments, PX_PER_MM } from '../pdf/measure';
-import { paginate } from '../pdf/paginate';
-import { loadBaseCss, themeVarsCss } from '../themes/theme';
 import type { Brand, Tenant } from '../themes/types';
+import { documentCss } from './css';
 import * as P from './parts';
+import { flowScope } from './scope-flow';
 
 export interface QuotationInput {
   ref: string;
@@ -34,12 +32,9 @@ export interface QuotationInput {
 
 const BODY_MM = 297 - 27 - 19; // .body: top 27mm, bottom 19mm in base.css
 const BODY_WIDTH_MM = 210 - 2 * 16;
-const SAFETY_PX = 12;
-// Each measured .scope-sec matches :first-of-type (no border); on the page every later one gains a 0.3mm top border.
-const SECTION_BORDER_PX = 0.3 * PX_PER_MM;
 
 export async function buildQuotation(page: Page, input: QuotationInput, tenant: Tenant, brand: Brand): Promise<string> {
-  const css = [fontFaceCss(), loadBaseCss(), themeVarsCss(brand.colours)].join('\n');
+  const css = documentCss(brand);
   const totals = computeTotals(input.lines, input.vatRateBp);
   const showVat = input.lines.some((l) => l.vatApplies);
   if (input.scope.length === 0) throw new Error('Quotation scope must contain at least one section');
@@ -48,13 +43,19 @@ export async function buildQuotation(page: Page, input: QuotationInput, tenant: 
   // 1. Measure the scope so it can be split across pages without clipping.
   const sectionFrags = input.scope.map((s, i) => P.scopeSection(i + 1, s));
   const band = input.guarantee ? P.guaranteeBand(input.guarantee.years, input.guarantee.text) : null;
-  const items: Raw[] = band ? [...sectionFrags, band] : sectionFrags;
   const headFirst = html`<span class="eyebrow">Scope of works</span><h2>${input.scopeHeading}</h2><div class="rule"></div>`;
   const headRest = html`<span class="eyebrow">Scope of works, continued</span><div style="height:3mm"></div>`;
-  const [hFirst, hRest, ...measured] = await measureFragments(page, css, BODY_WIDTH_MM, [headFirst, headRest, ...items]);
-  const heights = measured.map((h, i) => (i < sectionFrags.length ? h + SECTION_BORDER_PX : h));
-  const bodyPx = BODY_MM * PX_PER_MM;
-  const groups = paginate(heights, { first: bodyPx - hFirst - SAFETY_PX, rest: bodyPx - hRest - SAFETY_PX });
+  const { items, groups } = await flowScope({
+    page,
+    css,
+    widthMm: BODY_WIDTH_MM,
+    firstAreaMm: BODY_MM,
+    restAreaMm: BODY_MM,
+    headFirst,
+    headRest,
+    sections: sectionFrags,
+    trailing: band ? [band] : [],
+  });
 
   const total = 2 + groups.length + 1;
   const firstScopePage = 3;

@@ -27,8 +27,8 @@ export async function assertNoOverflow(page: Page): Promise<void> {
       if (pg.scrollHeight > pg.clientHeight + tol) problems.push(`page ${n}: content overflows the page`);
       if (body && body.scrollHeight > body.clientHeight + tol) problems.push(`page ${n}: content overflows .body`);
 
-      // Clipping boxes: anything that hides its overflow, plus the cover-hero content layer.
-      const clipped = new Set<HTMLElement>(pg.querySelectorAll<HTMLElement>('.cover-hero .in'));
+      // Clipping boxes: anything that hides its overflow, plus every [data-fit] box.
+      const clipped = new Set<HTMLElement>(pg.querySelectorAll<HTMLElement>('[data-fit]'));
       pg.querySelectorAll<HTMLElement>('*').forEach((el) => {
         const cs = getComputedStyle(el);
         if (cs.overflow !== 'visible' || cs.overflowY !== 'visible') clipped.add(el);
