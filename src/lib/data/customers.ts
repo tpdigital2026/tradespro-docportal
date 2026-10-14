@@ -167,7 +167,7 @@ export function demoErase(id: string): boolean {
 
 // ---------------------------------------------------------------- the functions the screens call
 
-async function ownerClient(): Promise<DataClient> {
+export async function ownerClient(): Promise<DataClient> {
   const jar = await cookies();
   const token = jar.get(accessCookieName())?.value;
   if (!token) throw new DataError();

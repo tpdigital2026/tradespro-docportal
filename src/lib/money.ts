@@ -36,7 +36,9 @@ export function mulDivRound(value: number, num: number, den: number): number {
   if (num < 0) throw new RangeError('numerator must not be negative');
   const sign = value < 0 ? -1 : 1;
   const abs = Math.abs(value);
-  const rounded = Math.floor((abs * num * 2 + den) / (den * 2));
+  const scaled = abs * num * 2 + den;
+  if (!Number.isSafeInteger(scaled)) throw new RangeError('amount too large to calculate exactly');
+  const rounded = Math.floor(scaled / (den * 2));
   // Avoid returning -0 for negative values that round to zero.
   return rounded === 0 ? 0 : sign * rounded;
 }
@@ -109,4 +111,232 @@ export function balanceStatement(
   };
   if (balance.grossPence < 0) throw new RangeError('The deposit is larger than the total');
   return { quote, adjustments, deposit, balance, totalGrossPence: all.grossPence };
+}
+
+// ------------------------------------------------------------------ payment plans
+
+/** One part of the job's bill. Index is 1-based. All three amounts are whole pence and net + VAT = gross. */
+export interface Instalment {
+  index: number;
+  label: string;
+  netPence: Pence;
+  vatPence: Pence;
+  grossPence: Pence;
+}
+
+/** A stage of a staged plan: a label and either a share of the job (basis points of 100%) or a fixed gross amount. */
+export type PlanStage = { label: string } & ({ mode: 'pct'; pctBp: number } | { mode: 'amount'; grossPence: Pence });
+
+export type PaymentPlan =
+  | { kind: 'deposit'; pctBp: number }
+  | { kind: 'full' }
+  | { kind: 'staged'; stages: PlanStage[] };
+
+export const MIN_STAGES = 2;
+export const MAX_STAGES = 10;
+export const STAGE_LABEL_MAX = 80;
+/** Deposits move in half-percent steps (50 basis points) from 1% to 99%. */
+export const DEPOSIT_STEP_BP = 50;
+export const DEPOSIT_MIN_BP = 100;
+export const DEPOSIT_MAX_BP = 9900;
+
+export interface PlanProblem {
+  /** Zero-based stage the problem belongs to, or null when it is about the plan as a whole. */
+  stage: number | null;
+  message: string;
+}
+
+export interface PlanCheck {
+  ok: boolean;
+  /** Present only when the plan is complete and adds up exactly. */
+  instalments: Instalment[] | null;
+  /** What each stage works out at as typed (gross pence), or null where it cannot be worked out yet. */
+  declaredPerStage: (Pence | null)[];
+  /** What the owner has placed so far. For an all-percentage plan this is the job gross times the percentages entered. */
+  declaredPence: Pence;
+  /** Job gross minus declaredPence. Positive means money still to place, negative means over-allocated. */
+  remainingPence: Pence;
+  problems: PlanProblem[];
+}
+
+export class PlanError extends RangeError {
+  constructor(
+    message: string,
+    readonly stage: number | null = null,
+  ) {
+    super(message);
+    this.name = 'PlanError';
+  }
+}
+
+/** 3000 -> "30", 3250 -> "32.5", 3333 -> "33.33". Never uses floats. */
+export function formatPct(bp: number): string {
+  assertInt(bp, 'percentage');
+  const whole = Math.trunc(bp / 100);
+  const frac = String(bp % 100).padStart(2, '0').replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : String(whole);
+}
+
+type Share = { netPence: Pence; vatPence: Pence; grossPence: Pence };
+
+/**
+ * What a stage is worth taken on its own.
+ * Percentage: that share of the job's net and of its VAT, each rounded half away from zero (the same rule as depositOf).
+ * Fixed amount: entered as gross; its VAT is the job's VAT share of that amount (amount x job VAT / job gross, rounded
+ * half away from zero) and the net is the rest, so the split follows the job's own VAT mix.
+ */
+function shareOf(totals: Totals, stage: PlanStage): Share {
+  if (stage.mode === 'pct') {
+    const netPence = mulDivRound(totals.netPence, stage.pctBp, 10000);
+    const vatPence = mulDivRound(totals.vatPence, stage.pctBp, 10000);
+    return { netPence, vatPence, grossPence: netPence + vatPence };
+  }
+  const vatPence = mulDivRound(stage.grossPence, totals.vatPence, totals.grossPence);
+  return { netPence: stage.grossPence - vatPence, vatPence, grossPence: stage.grossPence };
+}
+
+const isWholePence = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n);
+
+function finish(
+  totals: Totals,
+  parts: { label: string; share: Share }[],
+  declaredPerStage: (Pence | null)[],
+  declaredPence: Pence,
+  problems: PlanProblem[],
+): PlanCheck {
+  if (problems.length > 0) {
+    return { ok: false, instalments: null, declaredPerStage, declaredPence, remainingPence: totals.grossPence - declaredPence, problems };
+  }
+  const instalments = parts.map((p, i) => ({ index: i + 1, label: p.label, ...p.share }));
+  return { ok: true, instalments, declaredPerStage, declaredPence, remainingPence: totals.grossPence - declaredPence, problems };
+}
+
+/** Everything the UI and the server need to know about a plan against a job's totals. Never throws for bad plans. */
+export function checkPlan(totals: Totals, plan: PaymentPlan): PlanCheck {
+  const problems: PlanProblem[] = [];
+  const gross = totals.grossPence;
+  if (!isWholePence(gross) || !isWholePence(totals.netPence) || !isWholePence(totals.vatPence)) {
+    return { ok: false, instalments: null, declaredPerStage: [], declaredPence: 0, remainingPence: 0, problems: [{ stage: null, message: 'The job total is not valid yet.' }] };
+  }
+  if (gross <= 0 || totals.netPence < 0 || totals.vatPence < 0) {
+    return { ok: false, instalments: null, declaredPerStage: [], declaredPence: 0, remainingPence: gross, problems: [{ stage: null, message: 'The job total must be more than zero before you choose how it is paid.' }] };
+  }
+
+  if (plan.kind === 'full') {
+    const share = { netPence: totals.netPence, vatPence: totals.vatPence, grossPence: gross };
+    return finish(totals, [{ label: 'Invoice', share }], [gross], gross, problems);
+  }
+
+  if (plan.kind === 'deposit') {
+    const bp = plan.pctBp;
+    if (!isWholePence(bp) || bp < DEPOSIT_MIN_BP || bp > DEPOSIT_MAX_BP || bp % DEPOSIT_STEP_BP !== 0) {
+      return {
+        ok: false,
+        instalments: null,
+        declaredPerStage: [null, null],
+        declaredPence: 0,
+        remainingPence: gross,
+        problems: [{ stage: 0, message: 'The deposit must be between 1% and 99%, in steps of half a percent.' }],
+      };
+    }
+    const dep = depositOf(totals, bp);
+    const bal = { netPence: totals.netPence - dep.netPence, vatPence: totals.vatPence - dep.vatPence, grossPence: gross - dep.grossPence };
+    if (dep.grossPence <= 0) problems.push({ stage: 0, message: 'That deposit works out at nothing. Choose a larger percentage.' });
+    if (bal.grossPence <= 0) problems.push({ stage: 1, message: 'The deposit leaves nothing for the balance. Choose a smaller percentage.' });
+    return finish(
+      totals,
+      [
+        { label: `Deposit (${formatPct(bp)}%)`, share: dep },
+        { label: 'Balance', share: bal },
+      ],
+      [dep.grossPence, bal.grossPence],
+      gross,
+      problems,
+    );
+  }
+
+  // staged
+  const stages = plan.stages;
+  const n = stages.length;
+  if (n < MIN_STAGES || n > MAX_STAGES) {
+    problems.push({ stage: null, message: `A staged plan has between ${MIN_STAGES} and ${MAX_STAGES} stages.` });
+  }
+  const declared: (Pence | null)[] = stages.map(() => null);
+  const shares: (Share | null)[] = stages.map(() => null);
+  stages.forEach((s, i) => {
+    const label = typeof s.label === 'string' ? s.label.trim() : '';
+    if (label === '') problems.push({ stage: i, message: 'Give this stage a name, like "Scaffold up and strip complete".' });
+    else if (label.length > STAGE_LABEL_MAX) problems.push({ stage: i, message: `Keep the stage name to ${STAGE_LABEL_MAX} characters or fewer.` });
+    if (s.mode === 'pct') {
+      if (!isWholePence(s.pctBp) || s.pctBp < 1 || s.pctBp > 9999) {
+        problems.push({ stage: i, message: 'A stage percentage must be more than 0% and less than 100%.' });
+        return;
+      }
+    } else if (s.mode === 'amount') {
+      if (!isWholePence(s.grossPence) || s.grossPence < 1) {
+        problems.push({ stage: i, message: 'Enter an amount above £0.00 for this stage.' });
+        return;
+      }
+      if (s.grossPence >= gross) {
+        problems.push({ stage: i, message: 'One stage cannot be the whole job. Split it across the stages.' });
+        return;
+      }
+    } else {
+      problems.push({ stage: i, message: 'Choose a percentage or an amount for this stage.' });
+      return;
+    }
+    shares[i] = shareOf(totals, s);
+    declared[i] = shares[i]!.grossPence;
+  });
+
+  const allPct = stages.every((s) => s.mode === 'pct');
+  const bpSum = allPct ? stages.reduce((sum, s) => sum + (s.mode === 'pct' && isWholePence(s.pctBp) ? s.pctBp : 0), 0) : 0;
+  const declaredPence = allPct
+    ? mulDivRound(gross, bpSum, 10000)
+    : declared.reduce<number>((sum, d) => sum + (d ?? 0), 0);
+
+  if (problems.length > 0) {
+    return { ok: false, instalments: null, declaredPerStage: declared, declaredPence, remainingPence: gross - declaredPence, problems };
+  }
+
+  // Every stage but the last is worked out on its own; the last takes whatever is left, so the sum is exact.
+  const head = shares.slice(0, n - 1) as Share[];
+  head.forEach((h, i) => {
+    if (h.grossPence <= 0) problems.push({ stage: i, message: 'This stage works out at £0.00. Raise its percentage or amount.' });
+  });
+  const last: Share = {
+    netPence: totals.netPence - head.reduce((s, h) => s + h.netPence, 0),
+    vatPence: totals.vatPence - head.reduce((s, h) => s + h.vatPence, 0),
+    grossPence: gross - head.reduce((s, h) => s + h.grossPence, 0),
+  };
+  if (last.grossPence <= 0 || last.netPence < 0 || last.vatPence < 0) {
+    problems.push({ stage: n - 1, message: 'The earlier stages already use the whole job. Lower them so the last stage has something left.' });
+  } else if (allPct) {
+    if (bpSum !== 10000) {
+      const diff = bpSum - 10000;
+      problems.push({ stage: null, message: diff > 0 ? `The stages add up to ${formatPct(bpSum)}%, which is ${formatPct(diff)}% too much. They must total 100%.` : `The stages add up to ${formatPct(bpSum)}%. ${formatPct(-diff)}% is still to place so they total 100%.` });
+    }
+  } else if (declared[n - 1] !== last.grossPence) {
+    const diff = last.grossPence - (declared[n - 1] as number);
+    problems.push({
+      stage: null,
+      message:
+        diff > 0
+          ? `The stages leave ${formatGBP(diff)} of the job unplaced. They must add up to ${formatGBP(gross)}.`
+          : `The stages are ${formatGBP(-diff)} over the job total of ${formatGBP(gross)}.`,
+    });
+  }
+
+  const parts = stages.map((s, i) => ({ label: s.label.trim(), share: i === n - 1 ? last : (shares[i] as Share) }));
+  return finish(totals, parts, declared, declaredPence, problems);
+}
+
+/**
+ * The instalments a plan produces for a job. Throws PlanError when the plan is incomplete or does not add up.
+ * The instalments always sum to the job's net, VAT and gross exactly: the balance, or the last stage, is taken by subtraction.
+ */
+export function buildSchedule(totals: Totals, plan: PaymentPlan): Instalment[] {
+  const c = checkPlan(totals, plan);
+  if (!c.ok || !c.instalments) throw new PlanError(c.problems[0]?.message ?? 'The payment plan is not complete.', c.problems[0]?.stage ?? null);
+  return c.instalments;
 }

@@ -1,8 +1,10 @@
+import Link from 'next/link';
 import { DocTypeList } from '../../components/DocTypeList';
 import { JobRow, type Job } from '../../components/JobRow';
 import { demoJobs, demoRecentDocs, type DemoRecentDoc } from '../../lib/demo-data';
 import { isDemo } from '../../lib/demo';
 import { byUrgency, type DocType } from '../../lib/job-stage';
+import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
 import { requireSession } from '../../lib/session';
 
 const TYPE_NAMES: Record<DocType, string> = {
@@ -16,8 +18,17 @@ const TYPE_NAMES: Record<DocType, string> = {
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await requireSession();
+  const sp = await searchParams;
+  const savedRaw = sp.quote;
+  const saved = typeof savedRaw === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{1,39}$/.test(savedRaw) ? savedRaw : null;
+  let drafts: DraftListItem[] = [];
+  try {
+    drafts = await listDraftQuotes();
+  } catch {
+    drafts = [];
+  }
   const demo = isDemo();
   // Real job and document reads arrive with the data layer; until then only demo mode has rows.
   const jobs: Job[] = demo ? byUrgency(demoJobs) : [];
@@ -34,9 +45,33 @@ export default async function Home() {
         </h1>
       </header>
 
+      {saved ? (
+        <p className="cust-flash" role="status">Quote {saved} is saved. You can carry on with it below.</p>
+      ) : null}
+
       <section className="home-section">
         <DocTypeList />
       </section>
+
+      {drafts.length > 0 ? (
+        <section aria-labelledby="drafts-h" className="home-section">
+          <h2 id="drafts-h" className="section-title">Quotes to finish</h2>
+          <p className="section-sub">Drafts save as you type. Pick one up where you left off.</p>
+          <ul className="rows">
+            {drafts.map((d) => (
+              <li key={d.jobId}>
+                <Link href={`/documents/new?type=quotation&draft=${d.jobId}`} className="cust-row">
+                  <span className="cust-main">
+                    <span className="row-title">{d.customerName}</span>
+                    <span className="row-meta">Quote {d.quoteNumber}</span>
+                  </span>
+                  <span className="cust-kept">Continue</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-labelledby="jobs-h" className="home-section">
         <h2 id="jobs-h" className="section-title">Jobs in progress</h2>
