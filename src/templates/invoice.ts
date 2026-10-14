@@ -1,6 +1,6 @@
 import type { Page } from 'playwright-core';
 import { html, raw } from '../lib/html';
-import { balanceStatement, computeTotals, depositOf, formatGBP, type MoneyLine, type Pence } from '../lib/money';
+import { balanceDue, balanceStatement, computeTotals, depositOf, formatGBP, type MoneyLine, type Pence } from '../lib/money';
 import { documentShell } from '../pdf/document';
 import type { Brand, Tenant } from '../themes/types';
 import { documentCss } from './css';
@@ -113,7 +113,7 @@ export function buildDepositInvoice(page: Page, input: DepositInvoiceInput, tena
   const showVat = input.quoteLines.some((l) => l.vatApplies);
   const pct = `${input.depositPctBp / 100}%`;
   const rate = `${input.vatRateBp / 100}%`;
-  const balance = quote.grossPence - dep.grossPence;
+  const balance = balanceDue(quote.grossPence, [dep.grossPence]);
   return renderInvoice(page, tenant, brand, {
     title: 'Deposit Invoice',
     invoiceNo: input.invoiceNo,

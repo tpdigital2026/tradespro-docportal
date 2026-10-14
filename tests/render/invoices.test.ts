@@ -82,18 +82,10 @@ describe('deposit invoice', () => {
   });
 
   it('fails closed when the pricing page would collide with the disclaimer', async () => {
-    const lines = Array.from({ length: 14 }, (_, i) => ({
-      description: `Extra line ${i + 1} with a reasonably long description so it wraps`,
-      kind: 'Work',
-      qty: 1,
-      unitNetPence: 10000,
-      vatApplies: true,
-    }));
-    const input = { ...depositInvoiceFixture, quoteLines: lines };
-    await expect(renderPdf(page, await buildDepositInvoice(page, input, fakeTenant, fakeBrand))).resolves.toBeDefined();
-    // Deposit invoices show one row whatever the quote holds, so the collision risk is the notes below it. A long note must trip the guard.
     const long = { ...depositInvoiceFixture, disclaimer: 'x '.repeat(4000) };
-    await expect(renderPdf(page, await buildDepositInvoice(page, long, fakeTenant, fakeBrand))).rejects.toBeInstanceOf(PageOverflowError);
+    const run = renderPdf(page, await buildDepositInvoice(page, long, fakeTenant, fakeBrand));
+    await expect(run).rejects.toBeInstanceOf(PageOverflowError);
+    await expect(run).rejects.toThrow(/overlaps the reserved|overflows/);
   });
 });
 
