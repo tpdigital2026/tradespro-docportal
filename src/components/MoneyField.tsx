@@ -6,6 +6,7 @@ export function MoneyField({
   label,
   hint,
   error,
+  announce = true,
   prefix = '£',
   ref,
   className,
@@ -15,6 +16,7 @@ export function MoneyField({
   label: string;
   hint?: string;
   error?: string;
+  announce?: boolean;
   prefix?: string;
   ref?: Ref<HTMLInputElement>;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'type' | 'inputMode'>) {
@@ -38,7 +40,7 @@ export function MoneyField({
           {...rest}
         />
       </div>
-      {error ? <p className="error" id={`${id}-error`} role="alert">{error}</p> : null}
+      {error ? <p className="error" id={`${id}-error`} role={announce ? 'alert' : undefined}>{error}</p> : null}
     </div>
   );
 }

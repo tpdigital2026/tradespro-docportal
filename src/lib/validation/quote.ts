@@ -3,8 +3,10 @@ import {
   DEPOSIT_MAX_BP,
   DEPOSIT_MIN_BP,
   DEPOSIT_STEP_BP,
+  MAX_AMOUNT_PENCE,
   MAX_STAGES,
   MIN_STAGES,
+  TOO_LARGE_MESSAGE,
   STAGE_LABEL_MAX,
   type Pence,
   type PaymentPlan,
@@ -15,7 +17,7 @@ import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
 // ------------------------------------------------------------------ money text to whole numbers (never floats)
 
 /** The most any single amount may be: one million pounds. Keeps every product in money.ts exact. */
-export const MAX_PENCE: Pence = 100_000_000;
+export const MAX_PENCE: Pence = MAX_AMOUNT_PENCE;
 /** Longest amount text we will look at, including commas and the pound sign. */
 export const MAX_AMOUNT_CHARS = 14;
 
@@ -273,7 +275,7 @@ function planFromForm(f: PlanFormValues, errors: QuoteErrors): PaymentPlan | nul
  * 'draft': only a quote number and a customer are required; whatever else is typed is checked for format but may be incomplete.
  * 'final': everything needed to issue the quote must be present, and the payment plan must add up to the job total exactly.
  */
-export function normaliseQuote(
+function normaliseQuoteInner(
   v: QuoteFormValues,
   mode: 'draft' | 'final',
   vatRateBp: number = DEFAULT_VAT_RATE_BP,
@@ -352,11 +354,12 @@ export function normaliseQuote(
     bankAccountId: bankAccountId === '' ? null : bankAccountId,
   };
 
-  // Cross-field checks need the figures.
-  if (!errors.price && !errors.discount && !Object.keys(errors).some((k) => k.startsWith('extras'))) {
+  // Cross-field checks need the figures. computeQuoteTotals bounds everything before any plan maths and never throws.
+  if (v.extras.length > MAX_EXTRAS) errors.extras = `A quote can have at most ${MAX_EXTRAS} extras`;
+  if (!errors.price && !errors.discount && !errors.extras && !Object.keys(errors).some((k) => k.startsWith('extras'))) {
     const totals = computeQuoteTotals(input, vatRateBp);
-    if (discountPence > 0 && totals.netPence <= 0 && (priceNetPence ?? 0) > 0) errors.discount = 'The discount must be less than the price';
-    else if (totals.netPence > MAX_PENCE) errors.price = 'The quote total is too large. The most is £1,000,000.00 before VAT';
+    if (totals.error) errors.price = TOO_LARGE_MESSAGE;
+    else if (discountPence > 0 && totals.netPence <= 0 && (priceNetPence ?? 0) > 0) errors.discount = 'The discount must be less than the price';
     else if (strict && plan && totals.planCheck && !totals.planCheck.ok) {
       for (const p of totals.planCheck.problems) {
         const key = p.stage === null ? 'plan' : plan.kind === 'deposit' ? 'plan.depositPct' : `plan.stages.${p.stage}`;
@@ -375,6 +378,23 @@ export function normaliseQuote(
     for (const k of Object.keys(errors)) if (!keep.has(k)) delete errors[k];
   }
   return { input, errors };
+}
+
+/** Never throws, whatever it is handed: anything unexpected becomes a message on the price. */
+export function normaliseQuote(
+  v: QuoteFormValues,
+  mode: 'draft' | 'final',
+  vatRateBp: number = DEFAULT_VAT_RATE_BP,
+): { input: QuoteInput; errors: QuoteErrors } {
+  try {
+    return normaliseQuoteInner(v, mode, vatRateBp);
+  } catch {
+    const blank: QuoteInput = {
+      quoteNumber: '', customerId: '', date: null, jobTypeId: null, propertyAddress: null, scopeNotes: '',
+      priceNetPence: null, vatApplies: true, extras: [], discountPence: 0, plan: null, bankAccountId: null,
+    };
+    return { input: blank, errors: { price: TOO_LARGE_MESSAGE } };
+  }
 }
 
 function toIssues(errors: QuoteErrors, input: unknown) {

@@ -132,6 +132,18 @@ export type PaymentPlan =
   | { kind: 'full' }
   | { kind: 'staged'; stages: PlanStage[] };
 
+/**
+ * Hard bounds, checked before any plan maths so nothing can overflow an exact integer product.
+ * Largest product anywhere: a fixed stage amount x the job VAT x 2 inside mulDivRound. With the job gross at most
+ * 125,000,000 pence (1,000,000 pounds net plus 25% VAT) and VAT at most 25,000,000, that is 6.25e15, under 2^53 (9.007e15).
+ * The rate cap is conservative: UK VAT tops out at 20%, so 25% leaves room without admitting nonsense.
+ */
+export const MAX_VAT_RATE_BP = 2500;
+export const MAX_AMOUNT_PENCE: Pence = 100_000_000;
+export const MAX_TOTAL_NET_PENCE: Pence = 100_000_000;
+export const MAX_TOTAL_GROSS_PENCE: Pence = MAX_TOTAL_NET_PENCE + (MAX_TOTAL_NET_PENCE * MAX_VAT_RATE_BP) / 10000;
+export const TOO_LARGE_MESSAGE = 'This quote is too large to calculate. Check the amounts.';
+
 export const MIN_STAGES = 2;
 export const MAX_STAGES = 10;
 export const STAGE_LABEL_MAX = 80;
@@ -211,8 +223,23 @@ function finish(
   return { ok: true, instalments, declaredPerStage, declaredPence, remainingPence: totals.grossPence - declaredPence, problems };
 }
 
-/** Everything the UI and the server need to know about a plan against a job's totals. Never throws for bad plans. */
+/** Everything the UI and the server need to know about a plan against a job's totals. Never throws, whatever it is given. */
 export function checkPlan(totals: Totals, plan: PaymentPlan): PlanCheck {
+  const refuse = (): PlanCheck => ({ ok: false, instalments: null, declaredPerStage: [], declaredPence: 0, remainingPence: 0, problems: [{ stage: null, message: TOO_LARGE_MESSAGE }] });
+  if (
+    !isWholePence(totals.netPence) || !isWholePence(totals.vatPence) || !isWholePence(totals.grossPence) ||
+    totals.netPence > MAX_TOTAL_NET_PENCE || totals.vatPence > MAX_TOTAL_GROSS_PENCE - MAX_TOTAL_NET_PENCE || totals.grossPence > MAX_TOTAL_GROSS_PENCE
+  ) {
+    return totals.grossPence <= 0 || totals.netPence < 0 ? checkPlanUnsafe(totals, plan) : refuse();
+  }
+  try {
+    return checkPlanUnsafe(totals, plan);
+  } catch {
+    return refuse();
+  }
+}
+
+function checkPlanUnsafe(totals: Totals, plan: PaymentPlan): PlanCheck {
   const problems: PlanProblem[] = [];
   const gross = totals.grossPence;
   if (!isWholePence(gross) || !isWholePence(totals.netPence) || !isWholePence(totals.vatPence)) {

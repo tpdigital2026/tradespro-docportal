@@ -14,7 +14,7 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
     <section aria-labelledby="step-h" className="qt-step">
       <h2 id="step-h" className="qt-h" tabIndex={-1}>The price</h2>
 
-      <MoneyField
+      <MoneyField announce={false}
         id="price"
         label="Price of the work, before VAT"
         hint="Pounds and pence, like 8,400 or 8,400.50."
@@ -48,7 +48,7 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
         <p className="hint">Anything on top of the main price, like extra flashing. Optional.</p>
         {values.extras.map((x, i) => (
           <div className="qt-extra" key={i}>
-            <Field
+            <Field announce={false}
               id={`extra-d-${i}`}
               label={`Extra ${i + 1}`}
               value={x.description}
@@ -58,7 +58,7 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
               maxLength={120}
               autoComplete="off"
             />
-            <MoneyField
+            <MoneyField announce={false}
               id={`extra-a-${i}`}
               label="Amount, before VAT"
               value={x.amount}
@@ -81,7 +81,7 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
         )}
       </div>
 
-      <MoneyField
+      <MoneyField announce={false}
         id="discount"
         label="Discount, before VAT"
         hint="Optional. Taken off the price and extras before VAT is worked out."

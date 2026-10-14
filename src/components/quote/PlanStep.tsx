@@ -89,7 +89,7 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
               <Button type="button" variant="secondary" onClick={() => nudge(-1)} aria-label="Lower the deposit by half a percent" disabled={depBp <= DEPOSIT_MIN_BP}>
                 &minus;
               </Button>
-              <Field
+              <Field announce={false}
                 id="deposit-pct"
                 label="Deposit, percent of the total"
                 hint="Any whole or half percent from 1 to 99."
@@ -140,13 +140,14 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
         </label>
         {plan.kind === 'staged' ? (
           <div className="qt-panel">
+            <p className="hint">Stages are worked out in order. The last stage is paid whatever is left, so what you enter for it must match what remains.</p>
             <ul className="qt-stages">
               {plan.stages.map((s, i) => {
                 const worth = perStage.get(i);
                 const problem = err(`plan.stages.${i}`);
                 return (
                   <li key={i} className="qt-stage">
-                    <Field
+                    <Field announce={false}
                       id={`stage-l-${i}`}
                       label={`Stage ${i + 1} name`}
                       placeholder="For example, Scaffold up and strip complete"
@@ -167,7 +168,7 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
                         </button>
                       </div>
                       {s.mode === 'pct' ? (
-                        <Field
+                        <Field announce={false}
                           id={`stage-v-${i}`}
                           label={`Stage ${i + 1} percent`}
                           inputMode="decimal"
@@ -179,7 +180,7 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
                           maxLength={7}
                         />
                       ) : (
-                        <MoneyField
+                        <MoneyField announce={false}
                           id={`stage-v-${i}`}
                           label={`Stage ${i + 1} amount, with VAT`}
                           value={s.value}
@@ -191,7 +192,7 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
                       )}
                     </div>
                     <p className="qt-stage-worth">{typeof worth === 'number' ? `Works out at ${formatGBP(worth)}` : 'Not worked out yet'}</p>
-                    {problem ? <p className="error" role="alert">{problem}</p> : null}
+                    {problem ? <p className="error">{problem}</p> : null}
                     <Button
                       type="button"
                       variant="secondary"
@@ -241,7 +242,7 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
               </p>
               {!adds && gross > 0 ? <p className="qt-run-block">You cannot continue until the stages add up to {formatGBP(gross)} exactly.</p> : null}
             </div>
-            {stagedBlock ? <p className="error" role="alert">{stagedBlock}</p> : null}
+            {stagedBlock ? <p className="error">{stagedBlock}</p> : null}
           </div>
         ) : null}
       </fieldset>

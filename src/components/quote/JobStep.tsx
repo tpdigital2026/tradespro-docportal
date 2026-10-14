@@ -31,7 +31,7 @@ export function JobStep({
       <h2 id="step-h" className="qt-h" tabIndex={-1}>About the job</h2>
 
       <div className="qt-number">
-        <Field
+        <Field announce={false}
           id="quote-number"
           label="Quote number"
           hint={locked ? 'Fixed once the draft is saved. This number is the job reference.' : 'You choose it. It identifies this job on every document.'}
@@ -55,7 +55,7 @@ export function JobStep({
         ) : null}
       </div>
 
-      <Field
+      <Field announce={false}
         id="quote-date"
         type="date"
         label="Date of the quote"
@@ -86,10 +86,10 @@ export function JobStep({
         <p className="hint" id="job-type-hint" aria-live="polite">
           {type ? (type.guaranteeYears ? `Guarantee for this type of job: ${type.guaranteeYears} years.` : 'There is no guarantee set for this type of job.') : 'No guarantee years are set when the job type is not listed.'}
         </p>
-        {err('jobTypeId') ? <p className="error" role="alert">{err('jobTypeId')}</p> : null}
+        {err('jobTypeId') ? <p className="error">{err('jobTypeId')}</p> : null}
       </div>
 
-      <Field
+      <Field announce={false}
         id="property"
         label="Address of the work"
         hint="Filled from the customer. Change it if the work is somewhere else."
@@ -100,7 +100,7 @@ export function JobStep({
         maxLength={200}
       />
 
-      <Field
+      <Field announce={false}
         id="scope"
         multiline
         label="What the work covers"

@@ -55,6 +55,7 @@ export function QuoteForm({
   const rev = useRef(0);
   const savedRev = useRef(0);
   const jobRef = useRef<string | null>(initialJobId);
+  const claimed = useRef<{ quoteNumber: string; customerId: string } | null>(initialJobId ? { quoteNumber: initial.quoteNumber, customerId: initial.customerId } : null);
   const valuesRef = useRef(values);
   const inFlight = useRef<Promise<void> | null>(null);
   const headingBox = useRef<HTMLDivElement>(null);
@@ -113,7 +114,9 @@ export function QuoteForm({
         while (savedRev.current !== rev.current) {
           const mine = rev.current;
           setSave({ kind: 'saving' });
-          const res = await saveDraftAction(valuesRef.current, jobRef.current).catch(() => null);
+          // Once a job exists its number and customer are fixed: never send a different one.
+          const outgoing = claimed.current ? { ...valuesRef.current, ...claimed.current } : valuesRef.current;
+          const res = await saveDraftAction(outgoing, jobRef.current).catch(() => null);
           if (!res) {
             setSave({ kind: 'error', message: 'Not saved. Check your connection. We will try again when you change something.' });
             return;
@@ -125,6 +128,10 @@ export function QuoteForm({
             return;
           }
           jobRef.current = res.jobId;
+          claimed.current = { quoteNumber: res.quoteNumber, customerId: res.customerId };
+          valuesRef.current = { ...valuesRef.current, ...claimed.current };
+          // A correction from the stored job, not an edit: it must not start another save.
+          setValues((v) => ({ ...v, quoteNumber: res.quoteNumber, customerId: res.customerId }));
           setJobId(res.jobId);
           savedRev.current = mine;
           setSave({ kind: 'saved', at: clock.format(new Date(res.savedAt)) });
@@ -208,7 +215,7 @@ export function QuoteForm({
     setFinishing(true);
     setFinishError(null);
     await (inFlight.current ?? Promise.resolve());
-    const res = await finishQuoteAction(valuesRef.current, jobRef.current).catch(() => null);
+    const res = await finishQuoteAction(claimed.current ? { ...valuesRef.current, ...claimed.current } : valuesRef.current, jobRef.current).catch(() => null);
     // A successful finish redirects, so only a refusal or a failure gets here.
     setFinishing(false);
     if (res && !res.ok) {

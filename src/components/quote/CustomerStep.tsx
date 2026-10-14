@@ -38,7 +38,7 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
         <p className="empty">You have no customers yet. Add the first one, then come back to start the quote.</p>
       ) : (
         <>
-          <Field
+          <Field announce={false}
             id="cust-q"
             type="search"
             label="Find a customer"
@@ -72,7 +72,7 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
             {list.length === 0 ? <p className="empty">No customer matches that. Check the spelling or add them.</p> : null}
           </div>
           {!term && ctx.customers.length > SHOWN ? <p className="hint">Showing your {SHOWN} most recent customers. Search to find the rest.</p> : null}
-          {error ? <p className="error" id="cust-error" role="alert">{error}</p> : null}
+          {error ? <p className="error" id="cust-error">{error}</p> : null}
         </>
       )}
       <p className="qt-link"><Link href="/customers/new">Add a new customer</Link></p>

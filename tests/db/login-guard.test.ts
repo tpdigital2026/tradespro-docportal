@@ -34,9 +34,10 @@ describe.skipIf(!dbAvailable)('login attempt storage', () => {
       }
       await recordAttempt(c, { emailHash: hashEmail('ok@example.com', P), ip: '198.51.100.7', kind: 'verify', success: true });
       expect(await recentIpFailures(c, '198.51.100.7', new Date())).toBe(3);
-      expect(await recentIpFailures(c, null as any, new Date())).toBe(0);
+      // A missing IP shares one sentinel bucket that live sign-ins also write to, so compare with what is already there.
+      const base = await recentIpFailures(c, null as any, new Date());
       await recordAttempt(c, { emailHash: hashEmail('n@example.com', P), ip: null as any, kind: 'verify', success: false });
-      expect(await recentIpFailures(c, null as any, new Date())).toBe(1);
+      expect(await recentIpFailures(c, null as any, new Date())).toBe(base + 1);
     });
   });
 
@@ -47,9 +48,9 @@ describe.skipIf(!dbAvailable)('login attempt storage', () => {
       }
       await recordAttempt(c, { emailHash: hashEmail('v@example.com', P), ip: '198.51.100.8', kind: 'verify', success: false });
       expect(await recentIpRequests(c, '198.51.100.8', new Date())).toBe(4);
-      expect(await recentIpRequests(c, null as any, new Date())).toBe(0);
+      const base = await recentIpRequests(c, null as any, new Date());
       await recordAttempt(c, { emailHash: hashEmail('n2@example.com', P), ip: null as any, kind: 'request', success: true });
-      expect(await recentIpRequests(c, undefined as any, new Date())).toBe(1);
+      expect(await recentIpRequests(c, undefined as any, new Date())).toBe(base + 1);
     });
   });
 

@@ -6,7 +6,7 @@ import { requireSession } from '../../../../lib/session';
 import { normaliseQuote, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../../../../lib/validation/quote';
 
 export type SaveResult =
-  | { ok: true; jobId: string; savedAt: string }
+  | { ok: true; jobId: string; savedAt: string; quoteNumber: string; customerId: string }
   | { ok: false; code: QuoteErrorCode; message: string; errors?: QuoteErrors };
 
 const GENERIC = 'We could not save that. Please try again.';
@@ -34,7 +34,7 @@ export async function saveDraftAction(raw: unknown, jobIdRaw: unknown): Promise<
   if (!form || jobId === undefined) return { ok: false, code: 'invalid', message: GENERIC };
   try {
     const saved = await saveQuoteDraft(form, jobId);
-    return { ok: true, jobId: saved.jobId, savedAt: saved.savedAt };
+    return { ok: true, jobId: saved.jobId, savedAt: saved.savedAt, quoteNumber: saved.quoteNumber, customerId: saved.customerId };
   } catch (e) {
     return toResult(e);
   }
@@ -67,10 +67,10 @@ export async function finishQuoteAction(raw: unknown, jobIdRaw: unknown): Promis
   let number: string;
   try {
     const vatRateBp = await getQuoteVatRateBp();
-    const { input, errors } = normaliseQuote(form, 'final', vatRateBp);
+    const { errors } = normaliseQuote(form, 'final', vatRateBp);
     if (Object.keys(errors).length > 0) return { ok: false, code: 'invalid', message: 'Check the highlighted fields', errors };
-    await saveQuoteDraft(form, jobId);
-    number = input.quoteNumber;
+    // The reference comes back from the stored job, never from the form.
+    number = (await saveQuoteDraft(form, jobId)).quoteNumber;
   } catch (e) {
     return toResult(e);
   }

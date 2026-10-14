@@ -98,3 +98,10 @@ In the app this is `eraseCustomerWith` (`src/lib/data/customer-admin.ts`). It ne
 ### Known residual risk (open decision for Plan 5)
 
 Supabase Auth's own `/auth/v1/otp` and `/auth/v1/verify` endpoints are reachable with the public anon key, so the 5-wrong-codes lock in `verifyWithGuard` does not stop someone guessing codes directly against them. Mitigations in place: single-use 10-minute 8-digit codes and tight Supabase rate limits. Plan 5 must decide between server-issued codes (so the guard sits in front of every guess) and accepting Supabase's own limits.
+
+### Payment plans (jobs.payment_plan)
+
+- The truth for how a job is billed is the plan's **inputs** (kind, deposit percent or the stages as typed) together with the **totals of the quote version** they were made from. `buildSchedule(totals, plan)` in `src/lib/money.ts` recomputes the instalments from those, always.
+- The `instalments` array stored inside `payment_plan` is a convenience copy written at draft time, from the totals as they were then. It is **not** the truth: it can be stale after a draft edit and must never be used to raise an invoice. Invoices, balances and stage derivation recompute from the issued version's totals and the plan inputs.
+- Quote money is bounded before any plan maths (`MAX_AMOUNT_PENCE`, `MAX_TOTAL_NET_PENCE`, `MAX_VAT_RATE_BP` in money.ts) so integer products stay exact. Business VAT rates above 25% are ignored in favour of the default.
+- The quote number and customer belong to the job row. Saves return them, and the form shows what was stored, never what it sent.

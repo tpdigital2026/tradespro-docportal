@@ -151,10 +151,36 @@ describe('saveDraftWith', () => {
     expect(first.tables.document_versions).toHaveLength(1);
     expect(first.tables.documents[0].current_version_id).toBe(first.tables.document_versions[0].id);
   });
-  it('locks the customer once a draft exists', async () => {
-    const { client } = fakeClient();
+  it('the job row owns its number and customer: a tampered form changes nothing', async () => {
+    const { client, tables } = fakeClient();
     const first = await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
-    await expect(saveDraftWith(client, TENANT, form({ customerId: OTHER }), first.jobId, 2000, '2026-10-14')).rejects.toMatchObject({ code: 'customer_locked' });
+    expect(first).toMatchObject({ quoteNumber: 'QT-0100', customerId: CUSTOMER });
+    const second = await saveDraftWith(client, TENANT, form({ quoteNumber: 'QT-0999', customerId: OTHER, price: '5' }), first.jobId, 2000, '2026-10-14');
+    expect(second).toMatchObject({ quoteNumber: 'QT-0100', customerId: CUSTOMER });
+    expect(tables.jobs[0]).toMatchObject({ reference: 'QT-0100', customer_id: CUSTOMER });
+    expect(tables.documents[0].number).toBe('QT-0100');
+    const stored = (tables.document_versions[0].input as { form: QuoteFormValues }).form;
+    expect(stored).toMatchObject({ quoteNumber: 'QT-0100', customerId: CUSTOMER, price: '5' });
+    expect(tables.used_numbers.length + tables.jobs.length).toBeGreaterThan(0);
+  });
+  it('two quick edits around a first save end with the claimed number everywhere', async () => {
+    const { client, tables } = fakeClient();
+    const first = await saveDraftWith(client, TENANT, form({ quoteNumber: 'QT-0100' }), null, 2000, '2026-10-14');
+    // the browser typed a different number while the first save was in flight, then sent it with the job id
+    const second = await saveDraftWith(client, TENANT, form({ quoteNumber: 'QT-0101', price: '77' }), first.jobId, 2000, '2026-10-14');
+    expect(second.quoteNumber).toBe('QT-0100');
+    expect(tables.jobs.map((j) => j.reference)).toEqual(['QT-0100']);
+    expect(tables.documents.map((d) => d.number)).toEqual(['QT-0100']);
+    expect((tables.document_versions[0].input as { form: QuoteFormValues }).form.quoteNumber).toBe('QT-0100');
+  });
+  it('the heal branch takes the document number from the job, not the form', async () => {
+    const { client, tables } = fakeClient();
+    const first = await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
+    tables.documents.length = 0;
+    tables.document_versions.length = 0;
+    await saveDraftWith(client, TENANT, form({ quoteNumber: 'QT-0999' }), first.jobId, 2000, '2026-10-14');
+    expect(tables.documents.map((d) => d.number)).toEqual(['QT-0100']);
+    expect((tables.document_versions[0].input as { form: QuoteFormValues }).form.quoteNumber).toBe('QT-0100');
   });
   it('will not edit a quote that has been issued', async () => {
     const { client, tables } = fakeClient();

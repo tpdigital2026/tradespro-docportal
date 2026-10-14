@@ -22,7 +22,7 @@ export function ReviewStep({
       <h2 id="step-h" className="qt-h" tabIndex={-1}>Check it over</h2>
 
       {blockers.length > 0 ? (
-        <div className="qt-blockers" role="alert">
+        <div className="qt-blockers">
           <p className="qt-blockers-h">A few things to fix before this quote can be saved as ready.</p>
           <ul>
             {blockers.map((b) => (

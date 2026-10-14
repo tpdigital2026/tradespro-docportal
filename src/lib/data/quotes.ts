@@ -7,6 +7,7 @@ import {
   demoUsedNumbers,
 } from '../demo-data';
 import { isDemo } from '../demo';
+import { MAX_VAT_RATE_BP } from '../money';
 import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
 import { suggestNextNumber } from '../quote-number';
@@ -78,6 +79,9 @@ export interface SavedDraft {
   jobId: string;
   documentId: string;
   savedAt: string;
+  /** The job's own reference and customer, as stored. The browser must show these, whatever it sent. */
+  quoteNumber: string;
+  customerId: string;
 }
 
 const FALLBACK_DEFAULTS: QuoteDefaults = { vatDefault: true, vatRateBp: DEFAULT_VAT_RATE_BP, depositPctBp: 3000 };
@@ -118,7 +122,7 @@ export async function getQuoteDefaultsWith(client: DataClient): Promise<QuoteDef
   if (!d) return FALLBACK_DEFAULTS;
   return {
     vatDefault: typeof d.vat_default === 'boolean' ? d.vat_default : FALLBACK_DEFAULTS.vatDefault,
-    vatRateBp: Number.isSafeInteger(d.vat_rate_bp) && (d.vat_rate_bp as number) >= 0 && (d.vat_rate_bp as number) <= 10000 ? (d.vat_rate_bp as number) : FALLBACK_DEFAULTS.vatRateBp,
+    vatRateBp: Number.isSafeInteger(d.vat_rate_bp) && (d.vat_rate_bp as number) >= 0 && (d.vat_rate_bp as number) <= MAX_VAT_RATE_BP ? (d.vat_rate_bp as number) : FALLBACK_DEFAULTS.vatRateBp,
     depositPctBp: Number.isSafeInteger(d.deposit_pct_bp) && (d.deposit_pct_bp as number) >= 100 && (d.deposit_pct_bp as number) <= 9900 ? (d.deposit_pct_bp as number) : FALLBACK_DEFAULTS.depositPctBp,
   };
 }
@@ -209,15 +213,25 @@ function blankForm(quoteNumber: string, customerId: string, date: string): Quote
 
 interface Found {
   id: string;
+  reference: string;
   customer_id: string;
 }
 
-async function ensureDocument(client: DataClient, tenantId: string, jobId: string, form: QuoteFormValues, input: ReturnType<typeof normaliseQuote>['input'], today: string): Promise<{ documentId: string }> {
+async function ensureDocument(
+  client: DataClient,
+  tenantId: string,
+  job: { id: string; reference: string; customerId: string },
+  form: QuoteFormValues,
+  input: ReturnType<typeof normaliseQuote>['input'],
+  today: string,
+): Promise<{ documentId: string }> {
+  const jobId = job.id;
   const existing = await client.from('documents').select('id, status').eq('job_id', jobId).eq('type', 'quotation').maybeSingle();
   if (existing.error) throw new QuoteError('failed', 'Could not save');
   const row = existing.data as { id: string; status: string } | null;
   const bank = input.bankAccountId;
-  const stored = { schema: 1, form };
+  // The job row is the truth for its number and customer. Whatever the browser sent for them is replaced.
+  const stored = { schema: 1, form: { ...form, quoteNumber: job.reference, customerId: job.customerId } };
   if (row) {
     if (row.status !== 'draft') throw new QuoteError('locked', 'This quote has been issued and can no longer be edited here.');
     const upd = await client.from('documents').update({ doc_date: input.date ?? today }).eq('id', row.id).select('id');
@@ -235,7 +249,7 @@ async function ensureDocument(client: DataClient, tenantId: string, jobId: strin
   }
   const doc = await client
     .from('documents')
-    .insert({ tenant_id: tenantId, job_id: jobId, type: 'quotation', number: input.quoteNumber, doc_date: input.date ?? today })
+    .insert({ tenant_id: tenantId, job_id: jobId, type: 'quotation', number: job.reference, doc_date: input.date ?? today })
     .select('id')
     .single();
   if (doc.error || !doc.data) throw new QuoteError('failed', 'Could not save');
@@ -260,44 +274,43 @@ export async function saveDraftWith(client: DataClient, tenantId: string, form: 
   const planJson = input.plan ? planToJson(input.plan, totals.schedule) : null;
   const columns = { property_address: input.propertyAddress, job_type_id: input.jobTypeId, payment_plan: planJson };
 
-  let id: string;
+  const done = async (job: { id: string; reference: string; customerId: string }): Promise<SavedDraft> => {
+    const { documentId } = await ensureDocument(client, tenantId, job, form, input, today);
+    return { jobId: job.id, documentId, savedAt: new Date().toISOString(), quoteNumber: job.reference, customerId: job.customerId };
+  };
+
   if (jobId) {
     if (!isRealId(jobId)) throw new QuoteError('not_found', 'That draft could not be found.');
-    const found = await client.from('jobs').select('id, customer_id').eq('id', jobId).maybeSingle();
+    const found = await client.from('jobs').select('id, reference, customer_id').eq('id', jobId).maybeSingle();
     if (found.error) throw new QuoteError('failed', 'Could not save');
     const row = found.data as Found | null;
     if (!row) throw new QuoteError('not_found', 'That draft could not be found.');
-    if (row.customer_id !== input.customerId) throw new QuoteError('customer_locked', 'The customer cannot be changed on a saved draft. Start a new quote for someone else.');
+    // The number and the customer belong to the job. What the browser sent for them is ignored.
     const upd = await client.from('jobs').update(columns).eq('id', jobId).eq('tenant_id', tenantId).select('id');
     if (upd.error) throw new QuoteError(/issued/i.test(String(upd.error.message)) ? 'locked' : 'failed', /issued/i.test(String(upd.error.message)) ? 'This quote has been issued and can no longer be edited here.' : 'Could not save');
     if (!upd.data?.length) throw new QuoteError('not_found', 'That draft could not be found.');
-    id = jobId;
-  } else {
-    const ins = await client.from('jobs').insert({ tenant_id: tenantId, customer_id: input.customerId, reference: input.quoteNumber, ...columns }).select('id').single();
-    if (ins.error || !ins.data) {
-      if (ins.error?.code === '23505') {
-        // Taken. Unless it is our own earlier attempt that stopped before its document existed, in which case carry on with it.
-        const own = await client.from('jobs').select('id, customer_id').eq('reference', input.quoteNumber).maybeSingle();
-        const row = own.data as Found | null;
-        if (row && row.customer_id === input.customerId) {
-          const docs = await client.from('documents').select('id').eq('job_id', row.id).limit(1);
-          if (!docs.error && (docs.data ?? []).length === 0) {
-            const upd = await client.from('jobs').update(columns).eq('id', row.id).eq('tenant_id', tenantId).select('id');
-            if (!upd.error && upd.data?.length) {
-              id = row.id;
-              const { documentId } = await ensureDocument(client, tenantId, id, form, input, today);
-              return { jobId: id, documentId, savedAt: new Date().toISOString() };
-            }
-          }
-        }
-        throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
-      }
-      throw new QuoteError('failed', 'Could not save');
-    }
-    id = ins.data.id as string;
+    return done({ id: jobId, reference: row.reference, customerId: row.customer_id });
   }
-  const { documentId } = await ensureDocument(client, tenantId, id, form, input, today);
-  return { jobId: id, documentId, savedAt: new Date().toISOString() };
+
+  const ins = await client.from('jobs').insert({ tenant_id: tenantId, customer_id: input.customerId, reference: input.quoteNumber, ...columns }).select('id, reference, customer_id').single();
+  if (!ins.error && ins.data) {
+    const r = ins.data as Found;
+    return done({ id: r.id, reference: r.reference, customerId: r.customer_id });
+  }
+  if (ins.error?.code === '23505') {
+    // Taken. Unless it is our own earlier attempt that stopped before its document existed, in which case carry on with it.
+    const own = await client.from('jobs').select('id, reference, customer_id').eq('reference', input.quoteNumber).maybeSingle();
+    const row = own.data as Found | null;
+    if (row && row.customer_id === input.customerId) {
+      const docs = await client.from('documents').select('id').eq('job_id', row.id).limit(1);
+      if (!docs.error && (docs.data ?? []).length === 0) {
+        const upd = await client.from('jobs').update(columns).eq('id', row.id).eq('tenant_id', tenantId).select('id');
+        if (!upd.error && upd.data?.length) return done({ id: row.id, reference: row.reference, customerId: row.customer_id });
+      }
+    }
+    throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
+  }
+  throw new QuoteError('failed', 'Could not save');
 }
 
 // ---------------------------------------------------------------- demo mode (in memory, dummy data)
@@ -325,16 +338,15 @@ function demoSave(form: QuoteFormValues, jobId: string | null, vatRateBp: number
   if (jobId) {
     const row = rows.find((r) => r.jobId === jobId);
     if (!row) throw new QuoteError('not_found', 'That draft could not be found.');
-    if (row.values.customerId !== input.customerId) throw new QuoteError('customer_locked', 'The customer cannot be changed on a saved draft. Start a new quote for someone else.');
-    row.values = structuredClone({ ...form, quoteNumber: row.values.quoteNumber });
-    return { jobId, documentId: `demo-doc-${jobId}`, savedAt: new Date().toISOString() };
+    row.values = structuredClone({ ...form, quoteNumber: row.values.quoteNumber, customerId: row.values.customerId });
+    return { jobId, documentId: `demo-doc-${jobId}`, savedAt: new Date().toISOString(), quoteNumber: row.values.quoteNumber, customerId: row.values.customerId };
   }
   if (demoUsedNumbers.includes(input.quoteNumber) || rows.some((r) => r.values.quoteNumber === input.quoteNumber)) {
     throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
   }
   const id = `demo-job-${Date.now()}`;
   rows.unshift({ jobId: id, values: structuredClone(form) });
-  return { jobId: id, documentId: `demo-doc-${id}`, savedAt: new Date().toISOString() };
+  return { jobId: id, documentId: `demo-doc-${id}`, savedAt: new Date().toISOString(), quoteNumber: input.quoteNumber, customerId: input.customerId };
 }
 
 // ---------------------------------------------------------------- the functions the screens call
