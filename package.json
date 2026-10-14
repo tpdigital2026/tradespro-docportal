@@ -9,7 +9,10 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test:render": "vitest run -c vitest.render.config.mts",
-    "spike": "tsx scripts/render-spike.ts"
+    "spike": "tsx scripts/render-spike.ts",
+    "test:db": "vitest run -c vitest.db.config.mts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed-fjc.ts"
   },
   "keywords": [],
   "author": "",
