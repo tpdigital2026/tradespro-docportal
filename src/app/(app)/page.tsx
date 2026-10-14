@@ -1,9 +1,19 @@
 import { ButtonLink } from '../../components/Button';
 import { PageHeader } from '../../components/PageHeader';
 import { demoCustomers, demoQuotes } from '../../lib/demo-data';
+import { isDemo } from '../../lib/demo';
+import { requireSession } from '../../lib/session';
 
 // Placeholder Home. The real Home arrives in Task 6.
-export default function Home() {
+export default async function Home() {
+  const session = await requireSession();
+  if (!isDemo()) {
+    return (
+      <div className="page">
+        <PageHeader muted="Ready when you are." title={`Hello, ${session.fullName}`} />
+      </div>
+    );
+  }
   return (
     <div className="page">
       <PageHeader

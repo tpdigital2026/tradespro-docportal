@@ -37,4 +37,11 @@
   --measure: 40rem;
   --radius: 8px;
   --ring: 0 0 0 3px rgba(11, 155, 234, 0.55);
+  --accent-hover: #0a8cd4;
+  --accent-tint: rgba(11, 155, 234, 0.08);
+  --hairline: 1px;
+  --stroke: 2px;
+  --icon: 22px;
+  --textarea-min: 112px;
+  --skip-offset: -100px;
 }

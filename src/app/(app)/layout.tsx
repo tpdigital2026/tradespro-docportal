@@ -1,20 +1,13 @@
 import type { ReactNode } from 'react';
 import { Shell } from '../../components/Shell';
-import { isDemo } from '../../lib/demo';
-import { demoSession } from '../../lib/demo-data';
+import { requireSession } from '../../lib/session';
 
-// Task 2 replaces this gate with real session checks.
-export default function AppLayout({ children }: { children: ReactNode }) {
-  if (!isDemo()) {
-    return (
-      <div className="notice">
-        <h1>Sign-in is not available yet</h1>
-        <p>Please check back soon.</p>
-      </div>
-    );
-  }
+// Convenience only: layouts are not a security boundary (they do not re-run on client navigation),
+// so every page under (app) calls requireSession() itself.
+export default async function AppLayout({ children }: { children: ReactNode }) {
+  const session = await requireSession();
   return (
-    <Shell businessName={demoSession.businessName} userName={demoSession.fullName}>
+    <Shell businessName={session.businessName} userName={session.fullName}>
       {children}
     </Shell>
   );

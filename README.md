@@ -33,6 +33,8 @@ Terms, due labels and guarantee wording belong to each business. They live in `t
 
 - Sign-ups off, so only invited people can get an account.
 - Email one-time code: 6 digits, valid for 10 minutes, single use. The short life and single use are what cap guessing, so do not lengthen them.
+- Time-box user sessions to 30 days (the app refreshes tokens in `src/proxy.ts`, so this setting is what caps a session).
+- The app needs `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `LOGIN_PEPPER` (32+ characters). With any missing, sign-in answers a generic "try again shortly" and nobody can sign in.
 
 ### Login route requirements
 
