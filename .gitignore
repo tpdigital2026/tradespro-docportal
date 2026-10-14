@@ -8,3 +8,6 @@ reference/
 .vercel/
 .DS_Store
 .superpowers/
+out/
+next-env.d.ts
+*.tsbuildinfo
