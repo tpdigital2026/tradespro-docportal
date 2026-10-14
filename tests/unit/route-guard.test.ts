@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { accessCookieName, refreshCookieName, signSessionStart, startCookieName } from '../../src/lib/auth-cookies';
 import { config } from '../../src/proxy';
-import { guardRequest, type GuardDeps } from '../../src/lib/route-guard';
+import { guardRequest, refreshTokenRejected, type GuardDeps } from '../../src/lib/route-guard';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -11,7 +11,7 @@ const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString(
 const SECRET = 'session-secret-0123456789-0123456789';
 const DAY = 86400;
 const deps = (refresh: GuardDeps['refresh'] = async () => null): GuardDeps => ({ nowSeconds: () => NOW, refresh, sessionSecret: () => SECRET });
-const start = (ageDays = 1, secret = SECRET) => ({ [startCookieName()]: signSessionStart(secret, 'user-1', NOW - ageDays * DAY) });
+const start = (ageDays = 1, secret = SECRET) => ({ [startCookieName()]: signSessionStart(secret, 'user-1', 'sess-1', NOW - ageDays * DAY) });
 
 function req(path: string, opts: { method?: string; cookies?: Record<string, string>; headers?: Record<string, string> } = {}) {
   const cookie = Object.entries(opts.cookies ?? {}).map(([k, v]) => `${k}=${v}`).join('; ');
@@ -77,7 +77,7 @@ describe('guardRequest', () => {
   });
   it('rejects a missing, forged or wrongly signed login-time cookie', async () => {
     const live = { [accessCookieName()]: jwt(NOW + 3600) };
-    for (const cookies of [live, { ...live, ...start(1, 'another-secret-0123456789-0123456789') }, { ...live, [startCookieName()]: `user-1.${NOW}.AAAA` }, { ...live, [startCookieName()]: `user-1.${NOW + 999999}.x` }]) {
+    for (const cookies of [live, { ...live, ...start(1, 'another-secret-0123456789-0123456789') }, { ...live, [startCookieName()]: `user-1.sess-1.${NOW}.AAAA` }, { ...live, [startCookieName()]: `user-1.sess-1.${NOW + 999999}.x` }]) {
       expect(loc(await guardRequest(req('/', { cookies }), deps()))).toBe('/login');
     }
   });
@@ -116,5 +116,14 @@ describe('proxy matcher', () => {
   it('skips only framework assets and static files for pages', () => {
     for (const p of ['/', '/customers', '/customers/abc', '/login', '/documents/new']) expect(pages.test(p)).toBe(true);
     for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg', '/fonts/a.woff2']) expect(pages.test(p)).toBe(false);
+  });
+});
+
+describe('refreshTokenRejected', () => {
+  it('is true only for 4xx other than 429', () => {
+    for (const status of [400, 401, 403, 422]) expect(refreshTokenRejected({ status })).toBe(true);
+    for (const status of [429, 500, 502, 503, 0]) expect(refreshTokenRejected({ status })).toBe(false);
+    expect(refreshTokenRejected(new Error('fetch failed'))).toBe(false);
+    expect(refreshTokenRejected(null)).toBe(false);
   });
 });

@@ -109,30 +109,47 @@ describe('getSession and requireSession', () => {
 
 describe('getSession login-time cap', () => {
   const SECRET = 'session-secret-0123456789-0123456789';
+  const SID = 'sess-1';
+  const tok = (sid: string, exp: number) => `h.${Buffer.from(JSON.stringify({ session_id: sid, exp })).toString('base64url')}.s`;
   const nowS = () => Math.floor(Date.now() / 1000);
   function setup(startValue: string | undefined) {
     vi.stubEnv('DEMO_MODE', '');
     vi.stubEnv('SESSION_SECRET', SECRET);
     sb.client = client().c;
     jar.get.mockImplementation((name: string) => {
-      if (name.endsWith('dp-at')) return { value: 'tok' };
+      if (name.endsWith('dp-at')) return { value: tok(SID, nowS() + 600) };
       if (name.endsWith('dp-st') && startValue) return { value: startValue };
       return undefined;
     });
   }
   afterEach(() => { sb.client = null; });
   it('accepts a recent login for the same person', async () => {
-    setup(signSessionStart(SECRET, USER, nowS() - 29 * 86400));
+    setup(signSessionStart(SECRET, USER, SID, nowS() - 29 * 86400));
     expect((await getSession())?.userId).toBe(USER);
   });
   it('denies a login older than 30 days, a missing cookie, another person\'s cookie and a forged one', async () => {
-    for (const v of [signSessionStart(SECRET, USER, nowS() - 31 * 86400), undefined, signSessionStart(SECRET, 'someone-else', nowS()), signSessionStart('x'.repeat(40), USER, nowS())]) {
+    for (const v of [signSessionStart(SECRET, USER, SID, nowS() - 31 * 86400), undefined, signSessionStart(SECRET, 'someone-else', SID, nowS()), signSessionStart('x'.repeat(40), USER, SID, nowS()), signSessionStart(SECRET, USER, 'other-session', nowS())]) {
       setup(v);
       expect(await getSession()).toBeNull();
     }
   });
+  it('keeps working after a token refresh (new token, same session_id) but not for a different session', async () => {
+    setup(signSessionStart(SECRET, USER, SID, nowS() - 20 * 86400));
+    jar.get.mockImplementation((name: string) => {
+      if (name.endsWith('dp-at')) return { value: tok(SID, nowS() + 3600) }; // refreshed access token
+      if (name.endsWith('dp-st')) return { value: signSessionStart(SECRET, USER, SID, nowS() - 20 * 86400) };
+      return undefined;
+    });
+    expect((await getSession())?.userId).toBe(USER);
+    jar.get.mockImplementation((name: string) => {
+      if (name.endsWith('dp-at')) return { value: tok('attacker-session', nowS() + 3600) };
+      if (name.endsWith('dp-st')) return { value: signSessionStart(SECRET, USER, SID, nowS()) };
+      return undefined;
+    });
+    expect(await getSession()).toBeNull();
+  });
   it('denies when the secret is missing', async () => {
-    setup(signSessionStart(SECRET, USER, nowS()));
+    setup(signSessionStart(SECRET, USER, SID, nowS()));
     vi.stubEnv('SESSION_SECRET', '');
     expect(await getSession()).toBeNull();
   });

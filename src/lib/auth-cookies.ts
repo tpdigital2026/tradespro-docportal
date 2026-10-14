@@ -50,29 +50,50 @@ export function sessionSecret(): string {
   return s;
 }
 
-function mac(secret: string, userId: string, at: number): Buffer {
-  return createHmac('sha256', secret).update(`dp-session-start:${userId}:${at}`).digest();
+function mac(secret: string, userId: string, sessionId: string, at: number): Buffer {
+  // JSON array encoding: no field can bleed into its neighbour.
+  return createHmac('sha256', secret).update(`dp-session-start:v2:${JSON.stringify([userId, sessionId, at])}`).digest();
 }
 
-/** `userId.loginAtSeconds.mac`: the original login time, bound to the person, signed by the server. */
-export function signSessionStart(secret: string, userId: string, atSeconds: number): string {
-  return `${userId}.${atSeconds}.${mac(secret, userId, atSeconds).toString('base64url')}`;
+/** The Supabase session_id claim of a token. Trust it only for a token Supabase has just issued or verified. */
+export function tokenSessionId(token: string | undefined | null): string | null {
+  if (!token) return null;
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    const id = (JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as { session_id?: unknown }).session_id;
+    return typeof id === 'string' && ID.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+const ID = /^[A-Za-z0-9-]{1,64}$/;
+
+/** `userId.sessionId.loginAtSeconds.mac`: the original login, bound to the person and the Supabase session, signed by the server. */
+export function signSessionStart(secret: string, userId: string, sessionId: string, atSeconds: number): string {
+  return `${userId}.${sessionId}.${atSeconds}.${mac(secret, userId, sessionId, atSeconds).toString('base64url')}`;
 }
 
 /**
- * Returns the person the cookie was issued to if the signature is genuine and the login is no more
- * than 30 days old, else null. Refreshing tokens never renews this: only a fresh email code does.
+ * Returns who and which Supabase session the cookie was issued to if the signature is genuine and the
+ * login is no more than 30 days old, else null. Refreshing tokens keeps session_id and never renews
+ * this: only a fresh email code does. Callers with a verified token must compare sessionId with it.
  */
-export function readSessionStart(secret: string, value: string | undefined | null, nowSeconds: number): string | null {
+export function readSessionStart(
+  secret: string,
+  value: string | undefined | null,
+  nowSeconds: number,
+): { userId: string; sessionId: string } | null {
   if (!value) return null;
   const parts = value.split('.');
-  if (parts.length !== 3) return null;
-  const [userId, atRaw, macRaw] = parts;
-  if (!userId || !/^\d{1,12}$/.test(atRaw)) return null;
+  if (parts.length !== 4) return null;
+  const [userId, sessionId, atRaw, macRaw] = parts;
+  if (!ID.test(userId) || !ID.test(sessionId) || !/^\d{1,12}$/.test(atRaw)) return null;
   const at = Number(atRaw);
   const given = Buffer.from(macRaw, 'base64url');
-  const want = mac(secret, userId, at);
+  const want = mac(secret, userId, sessionId, at);
   if (given.length !== want.length || !timingSafeEqual(given, want)) return null;
   if (at > nowSeconds + CLOCK_SKEW_SECONDS || nowSeconds - at > SESSION_MAX_AGE_SECONDS) return null;
-  return userId;
+  return { userId, sessionId };
 }

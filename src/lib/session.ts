@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { accessCookieName, readSessionStart, sessionSecret, startCookieName } from './auth-cookies';
+import { accessCookieName, readSessionStart, sessionSecret, startCookieName, tokenSessionId } from './auth-cookies';
 import { isDemo } from './demo';
 import { demoSession } from './demo-data';
 import { anonClient } from './supabase-server';
@@ -79,7 +79,9 @@ async function loadSession(): Promise<Session | null> {
   if (!session) return null;
   // Same 30 day cap as the proxy, bound to this person. Defence in depth: the proxy clears the cookies.
   try {
-    if (readSessionStart(sessionSecret(), start, Math.floor(Date.now() / 1000)) !== session.userId) return null;
+    const bound = readSessionStart(sessionSecret(), start, Math.floor(Date.now() / 1000));
+    // Bound to this person AND this Supabase session: a cookie from another login cannot be replayed.
+    if (!bound || bound.userId !== session.userId || bound.sessionId !== tokenSessionId(token)) return null;
   } catch {
     return null;
   }

@@ -81,3 +81,12 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
   res.cookies.set(refreshCookieName(), fresh.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   return res;
 }
+
+/**
+ * True only when Supabase answered the refresh with a 4xx that means "this refresh token is no good".
+ * 429 is rate limiting, and anything else (5xx, no status, network) is an outage: neither may log anyone out.
+ */
+export function refreshTokenRejected(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 400 && status < 500 && status !== 429;
+}

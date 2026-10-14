@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { sessionSecret } from './lib/auth-cookies';
-import { guardRequest } from './lib/route-guard';
+import { guardRequest, refreshTokenRejected } from './lib/route-guard';
 import { anonClient } from './lib/supabase-server';
 
 export async function proxy(req: NextRequest) {
@@ -10,9 +10,7 @@ export async function proxy(req: NextRequest) {
     refresh: async (refreshToken) => {
       const { data, error } = await anonClient().auth.refreshSession({ refresh_token: refreshToken });
       if (error) {
-        // 4xx from Supabase means the refresh token itself was rejected; anything else is an outage.
-        const status = (error as { status?: number }).status;
-        if (typeof status === 'number' && status >= 400 && status < 500) return null;
+        if (refreshTokenRejected(error)) return null;
         throw error;
       }
       if (!data.session) return null;

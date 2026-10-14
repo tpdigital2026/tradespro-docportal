@@ -1,8 +1,7 @@
 import { after, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { redactSecrets } from '../db/env';
 import { hashEmail, requestCodeWithGuard, verifyWithGuard } from '../security/login-guard';
-import { accessCookieName, cookieOptions, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt } from './auth-cookies';
+import { accessCookieName, cookieOptions, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt, tokenSessionId } from './auth-cookies';
 import { getClientIp } from './client-ip';
 import { isSameOrigin } from './same-origin';
 import { anonClient, loginPepper, openGuardConnection, revokeByRefreshToken, revokeSession, type GuardDb } from './supabase-server';
@@ -70,10 +69,10 @@ function isBusy(e: unknown): boolean {
 }
 
 function logFailure(where: string, e: unknown): void {
-  // Name and code only; the message could carry connection details.
+  // Name and code only. Never the message: it can carry an email address or connection details.
   const name = e instanceof Error ? e.name : 'Error';
   const code = (e as { code?: unknown } | null)?.code;
-  console.error(`auth ${where} failed: ${name}${typeof code === 'string' ? ` ${code}` : ''} ${redactSecrets(e instanceof Error ? e.message : '').slice(0, 120)}`);
+  console.error(`auth ${where} failed: ${name}${typeof code === 'string' && /^[\w-]{1,32}$/.test(code) ? ` ${code}` : ''}`);
 }
 
 async function readJson(req: Request): Promise<unknown> {
@@ -105,6 +104,7 @@ export async function handleRequestCode(req: Request, deps: AuthDeps = realDeps)
   try {
     auth = deps.auth();
     emailHash = hashEmail(email, deps.pepper());
+    deps.sessionSecret(); // no code is emailed when verify could not complete the login
   } catch (e) {
     logFailure('request-code config', e);
     return respond(json(503, false, MSG_BUSY));
@@ -128,14 +128,18 @@ export async function handleRequestCode(req: Request, deps: AuthDeps = realDeps)
   // The send is the one step that only happens for registered emails and takes network time, so it
   // runs after the response. The awaited work (guard, profile lookup, floor) is the same either way.
   if (active) {
-    deps.defer(async () => {
-      try {
-        const { error } = await auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-        if (error) logFailure('request-code send', error);
-      } catch (e) {
-        logFailure('request-code send', e);
-      }
-    });
+    try {
+      deps.defer(async () => {
+        try {
+          const { error } = await auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+          if (error) logFailure('request-code send', error);
+        } catch (e) {
+          logFailure('request-code send', e);
+        }
+      });
+    } catch (e) {
+      logFailure('request-code defer', e); // never changes the response for known emails
+    }
   }
   return respond(json(200, true, MSG_SENT));
 }
@@ -166,6 +170,7 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
 
   let session: { access_token: string; refresh_token: string } | null = null;
   let userId = '';
+  let sessionId = '';
   let db: GuardDb | null = null;
   try {
     db = await deps.openDb();
@@ -178,13 +183,15 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
         if (error || !data?.session || !data.user) return false;
         // A valid code for a disabled or removed person is a failed login like any other.
         const p = await conn.query(`select 1 from public.profiles where id = $1 and disabled_at is null`, [data.user.id]);
-        if (p.rows.length === 0) {
+        const sid = tokenSessionId(data.session.access_token);
+        if (p.rows.length === 0 || !sid) {
           // The code was valid, so Supabase made a session. End it; the caller only sees a failed login.
           await deps.revoke(data.session.access_token).catch(() => undefined);
           return false;
         }
         session = data.session;
         userId = data.user.id;
+        sessionId = sid;
         return true;
       },
     });
@@ -200,7 +207,7 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   const res = json(200, true, 'Signed in.');
   res.cookies.set(accessCookieName(), s.access_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   res.cookies.set(refreshCookieName(), s.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
-  res.cookies.set(startCookieName(), signSessionStart(secret, userId, Math.floor(Date.now() / 1000)), cookieOptions(SESSION_MAX_AGE_SECONDS));
+  res.cookies.set(startCookieName(), signSessionStart(secret, userId, sessionId, Math.floor(Date.now() / 1000)), cookieOptions(SESSION_MAX_AGE_SECONDS));
   return respond(res);
 }
 

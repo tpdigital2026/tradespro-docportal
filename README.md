@@ -34,7 +34,7 @@ Terms, due labels and guarantee wording belong to each business. They live in `t
 - Sign-ups off, so only invited people can get an account.
 - Email one-time code: 6 digits, valid for 10 minutes, single use. The short life and single use are what cap guessing, so do not lengthen them.
 - Sessions end 30 days after the email code was entered: the app enforces this itself with a signed login-time cookie that token refreshes never renew. Also set Supabase's "time-box user sessions" to 30 days as a second cap.
-- Required environment variables: `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `LOGIN_PEPPER` (32+ characters) and `SESSION_SECRET` (32+ characters, signs the login-time cookie). With any missing, sign-in answers a generic "try again shortly" and nobody can sign in.
+- Required environment variables: `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `LOGIN_PEPPER` (32+ characters) and `SESSION_SECRET` (32+ characters, signs the login-time cookie). With any missing, both login routes answer a generic "try again shortly", no code is emailed and nobody can sign in.
 
 ### Login route requirements
 

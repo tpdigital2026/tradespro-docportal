@@ -127,13 +127,41 @@ describe('request-code', () => {
     expect(deferred).toHaveLength(1);
   });
 
-  it('logs a failed deferred send by name only', async () => {
+  it('never logs the email or the error message, for a throwing or error-returning send', async () => {
     const db = makeDb(['ben@example.com']);
-    const slow = makeAuth({ signInWithOtp: vi.fn(async () => { throw new Error('boom secret@example.com'); }) });
-    await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), deps(db, slow));
+    const throwing = makeAuth({ signInWithOtp: vi.fn(async () => { throw new Error('boom ben@example.com'); }) });
+    await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), deps(db, throwing));
+    const returning = makeAuth({ signInWithOtp: vi.fn(async () => ({ error: Object.assign(new Error('rate limit for ben@example.com'), { code: 'over_email_send_rate_limit' }) })) });
+    await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), deps(db, returning));
     await Promise.all(deferred);
-    const logged = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join();
-    expect(logged).toContain('request-code send');
+    const lines = [...vi.mocked(console.error).mock.calls, ...vi.mocked(console.warn).mock.calls].map((c) => c.map(String).join(' '));
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const l of lines) {
+      expect(l).not.toContain('ben@example.com');
+      expect(l).not.toContain('boom');
+    }
+    expect(lines.join('\n')).toContain('request-code send failed');
+  });
+
+  it('a throwing defer never changes the response, and is logged by name only', async () => {
+    const db = makeDb(['ben@example.com']);
+    const d = deps(db, makeAuth(), { defer: () => { throw new Error('outside request scope ben@example.com'); } });
+    const known = await snap(await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), d));
+    const unknown = await snap(await handleRequestCode(post('/api/auth/request-code', { email: 'x@example.com' }), d));
+    expect(known).toEqual(unknown);
+    expect(known.status).toBe(200);
+    expect(vi.mocked(console.error).mock.calls.map((c) => c.map(String).join(' ')).join()).not.toContain('ben@example.com');
+  });
+
+  it('answers the same generic 503 for every email when the session secret is missing', async () => {
+    const db = makeDb(['ben@example.com']);
+    const auth = makeAuth();
+    const d = deps(db, auth, { sessionSecret: () => { throw new Error('Sign-in is not configured'); } });
+    const a = await snap(await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), d));
+    const b = await snap(await handleRequestCode(post('/api/auth/request-code', { email: 'x@example.com' }), d));
+    expect(a).toEqual(b);
+    expect(a.status).toBe(503);
+    expect(auth.signInWithOtp).not.toHaveBeenCalled();
   });
 
   it('maps a blocked decision to one rate limit answer for every email', async () => {
@@ -197,7 +225,8 @@ describe('request-code', () => {
 });
 
 describe('verify', () => {
-  const session = { access_token: 'at.value.x', refresh_token: 'rt-value' };
+  const AT = `h.${Buffer.from(JSON.stringify({ session_id: 'sess-1', exp: 4_000_000_000 })).toString('base64url')}.s`;
+  const session = { access_token: AT, refresh_token: 'rt-value' };
 
   /** For 'real', runs the checkCode closure the route hands to the guard, as the guard would. */
   function runGuard(outcome: 'real' | 'blocked' | 'wrong_code') {
@@ -252,11 +281,11 @@ describe('verify', () => {
       expect(c).toMatch(/Secure/i);
       expect(c).toMatch(/Path=\//);
     }
-    expect(cookies.join(';')).toContain('at.value.x');
+    expect(cookies.join(';')).toContain(AT);
     expect(auth.verifyOtp).toHaveBeenCalledWith({ email: 'ben@example.com', token: '123456', type: 'email' });
     const start = cookies.find((c) => c.includes('dp-st='))!;
     const value = decodeURIComponent(start.split(';')[0].split('=').slice(1).join('='));
-    expect(readSessionStart(SECRET, value, Math.floor(Date.now() / 1000))).toBe('user-1');
+    expect(readSessionStart(SECRET, value, Math.floor(Date.now() / 1000))).toEqual({ userId: 'user-1', sessionId: 'sess-1' });
   });
 
   it('fails generically when the session secret is missing', async () => {
@@ -275,7 +304,16 @@ describe('verify', () => {
     const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), d);
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(0);
-    expect(d.revoke).toHaveBeenCalledWith('at.value.x');
+    expect(d.revoke).toHaveBeenCalledWith(AT);
+  });
+
+  it('fails closed when the issued token has no session_id', async () => {
+    const db = makeDb([], ['user-1']);
+    const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session: { access_token: 'a.b.c', refresh_token: 'r' }, user: { id: 'user-1' } }, error: null })) });
+    runGuard('real');
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth));
+    expect(res.status).toBe(401);
+    expect(res.headers.getSetCookie()).toHaveLength(0);
   });
 
   it.each([['LOGIN_GUARD_BUSY'], ['55P03']])('maps %s to a generic try again response', async (code) => {
