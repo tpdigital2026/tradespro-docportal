@@ -16,6 +16,8 @@ export interface GuardDeps {
   sessionSecret(): string;
 }
 
+// NEW TOP-LEVEL ROUTES MUST BE ADDED TO RESERVED_SLUGS (src/lib/slug.ts) and to the tenants_slug_not_reserved
+// check in a new migration; tests/unit/slug-reserved.test.ts fails if a routable src/app segment is missing.
 // A single lower-case segment that is not a reserved word is a business's public sign-in address (/fjc).
 // The page itself shows the plain sign-in for an unknown one, and sends a signed-in person home.
 const isSigninSlug = (path: string) => /^\/[^/]+$/.test(path) && isValidSlug(path.slice(1));

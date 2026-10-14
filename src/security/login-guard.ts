@@ -1,10 +1,11 @@
 import { createHmac } from 'node:crypto';
 import { isIP } from 'node:net';
+import { LOGIN_WINDOW_MS } from '../lib/login-window';
 
 // Retention: old login_attempts rows are purged by the purge migration in a later task
 // (private.purge_old_login_attempts); nothing here deletes rows.
 
-export const WINDOW_MS = 15 * 60 * 1000;
+export const WINDOW_MS = LOGIN_WINDOW_MS;
 export const MAX_FAILURES = 5;
 export const MAX_CODE_REQUESTS = 5;
 export const IP_MAX_FAILURES = 20;

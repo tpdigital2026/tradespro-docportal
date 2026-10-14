@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
+import { LOGIN_WINDOW_MINUTES, LOGIN_WINDOW_MS } from '../../lib/login-window';
 
 type Step = 'email' | 'code';
 
@@ -15,7 +16,8 @@ export interface PreviewState {
 
 /** The server's send limit is per email over 15 minutes; a one minute pause keeps people well inside it. */
 export const RESEND_SECONDS = 60;
-const LOCKED_TEXT = 'Too many attempts. Please wait a few minutes before trying again.';
+export const LOCKED_TEXT = `Too many attempts. Please wait ${LOGIN_WINDOW_MINUTES} minutes, then try again.`;
+const SENT_TEXT = 'If that email is registered, a code is on its way.';
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; status: number; message: string }> {
   try {
@@ -38,14 +40,17 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState(preview?.error ?? '');
   const [locked, setLocked] = useState(preview?.locked ?? false);
-  const [notice, setNotice] = useState(preview?.step === 'code' ? 'If that email is registered, a code is on its way.' : '');
+  const [notice, setNotice] = useState(preview?.step === 'code' ? SENT_TEXT : '');
   const [busy, setBusy] = useState(false);
   const [wait, setWait] = useState(preview?.step === 'code' ? 42 : 0);
   const codeRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const moved = useRef(false);
 
-  // Focus moves to the code field once the code step appears.
+  // Focus follows the step: the code field after the email step, the email field after "Use a different email".
   useEffect(() => {
-    if (step === 'code') codeRef.current?.focus();
+    if (!moved.current) return;
+    (step === 'code' ? codeRef : emailRef).current?.focus();
   }, [step]);
 
   useEffect(() => {
@@ -53,6 +58,22 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
     const t = setTimeout(() => setWait((w) => w - 1), 1000);
     return () => clearTimeout(t);
   }, [wait, preview]);
+
+  // A lock lasts as long as the server's window, which is the time the message tells the person.
+  useEffect(() => {
+    if (!locked || preview) return;
+    const t = setTimeout(() => {
+      setLocked(false);
+      setError('');
+    }, LOGIN_WINDOW_MS);
+    return () => clearTimeout(t);
+  }, [locked, preview]);
+
+  function clearLock() {
+    if (!locked) return;
+    setLocked(false);
+    setError('');
+  }
 
   async function sendCode(e?: FormEvent) {
     e?.preventDefault();
@@ -66,10 +87,10 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
       return setError(LOCKED_TEXT);
     }
     if (!r.ok) return setError(r.message);
-    setLocked(false);
     // The same wording whether or not the address is registered.
     setNotice(r.message);
     setWait(RESEND_SECONDS);
+    moved.current = true;
     setStep('code');
   }
 
@@ -80,32 +101,40 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
     setError('');
     const r = await post('/api/auth/verify', { email, code });
     if (!r.ok) {
+      // The server answers a wrong code and a lock the same way, so there is nothing to tell apart here.
       setBusy(false);
       setCode('');
       codeRef.current?.focus();
-      return setError(r.status === 429 ? LOCKED_TEXT : r.message);
+      return setError(r.message);
     }
     window.location.assign('/');
   }
 
-  const status = (
-    <p className={`login-status${error ? ' is-error' : ''}`} role={error ? 'alert' : 'status'} aria-live={error ? 'assertive' : 'polite'}>
-      {error || notice}
-    </p>
-  );
+  function differentEmail() {
+    clearLock();
+    moved.current = true;
+    setStep('email');
+    setCode('');
+    setError('');
+    setNotice('');
+    setWait(0);
+  }
 
-  if (step === 'email') {
-    return (
-      <>
-        <div className="signin-head">
-          <h1>
-            <span className="muted">Welcome back.</span>
-            Sign in
-          </h1>
-          <p className="lede">We email you a 6 digit code. No password to remember.</p>
-        </div>
-        <form className="login-form" onSubmit={sendCode} noValidate>
+  const isEmail = step === 'email';
+  return (
+    <>
+      <div className="signin-head">
+        <h1>
+          <span className="muted">{isEmail ? 'Welcome back.' : 'Check your email.'}</span>
+          {isEmail ? 'Sign in' : 'Enter your code'}
+        </h1>
+        <p className="lede">{isEmail ? 'We email you a 6 digit code. No password to remember.' : `We sent a 6 digit code to ${email}.`}</p>
+      </div>
+      <form className="login-form" onSubmit={isEmail ? sendCode : verify} noValidate>
+        {isEmail ? (
           <Field
+            key="email"
+            ref={emailRef}
             id="email"
             label="Email address"
             type="email"
@@ -116,51 +145,50 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
             spellCheck={false}
             required
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              clearLock();
+              setEmail(e.target.value);
+            }}
           />
-          <Button type="submit" disabled={busy || locked || email.trim().length === 0}>{busy ? 'Sending' : 'Email me a code'}</Button>
-          {status}
-        </form>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="signin-head">
-        <h1>
-          <span className="muted">Check your email.</span>
-          Enter your code
-        </h1>
-        <p className="lede">We sent a 6 digit code to {email}.</p>
-      </div>
-      <form className="login-form" onSubmit={verify} noValidate>
-        <Field
-          ref={codeRef}
-          id="code"
-          label="6 digit code"
-          name="code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="[0-9]*"
-          maxLength={6}
-          placeholder="000000"
-          className="code-input"
-          required
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-        />
-        <Button type="submit" disabled={busy || locked || code.length !== 6}>{busy ? 'Checking' : 'Sign in'}</Button>
-        {status}
-        <div className="login-links">
-          <button type="button" className="linklike" onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
-            Use a different email
-          </button>
-          <button type="button" className="linklike" onClick={() => void sendCode()} disabled={busy || locked || wait > 0} aria-describedby="resend-note">
-            Send a new code
-          </button>
+        ) : (
+          <Field
+            key="code"
+            ref={codeRef}
+            id="code"
+            label="6 digit code"
+            name="code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={6}
+            placeholder="000000"
+            className="code-input"
+            required
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          />
+        )}
+        <Button type="submit" disabled={busy || locked || (isEmail ? email.trim().length === 0 : code.length !== 6)}>
+          {isEmail ? (busy ? 'Sending' : 'Email me a code') : busy ? 'Checking' : 'Sign in'}
+        </Button>
+        {/* Two regions that stay mounted across both steps, so announcements are never lost to a remount. */}
+        <div className="login-live">
+          <p className="login-status" role="status" aria-live="polite">{notice}</p>
+          <p className="login-status is-error" role="alert">{error}</p>
         </div>
-        <p id="resend-note" className="login-status">{wait > 0 ? `You can ask for a new code in ${wait} seconds.` : ''}</p>
+        {isEmail ? null : (
+          <>
+            <div className="login-links">
+              <button type="button" className="linklike" onClick={differentEmail}>
+                Use a different email
+              </button>
+              <button type="button" className="linklike" onClick={() => void sendCode()} disabled={busy || locked || wait > 0}>
+                Send a new code
+              </button>
+            </div>
+            <p className="login-status" aria-hidden="true">{wait > 0 ? `You can ask for a new code in ${wait} seconds.` : ''}</p>
+          </>
+        )}
       </form>
     </>
   );

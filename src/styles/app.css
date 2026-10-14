@@ -163,7 +163,8 @@ textarea.input { min-height: var(--textarea-min); resize: vertical; }
 .powered-logo img { height: var(--space-6); width: auto; display: block; }
 .signin-art { display: none; }
 .login-form { display: grid; gap: var(--space-5); max-width: 24rem; }
-.login-status { color: var(--ink-muted); font-size: var(--fs-meta); min-height: var(--space-5); }
+.login-live { display: grid; gap: var(--space-1); min-height: var(--space-5); }
+.login-status { color: var(--ink-muted); font-size: var(--fs-meta); }
 .login-status.is-error { color: var(--danger-ink); font-weight: 500; }
 .code-input { font-family: var(--font-head); font-size: 2rem; font-weight: 600; letter-spacing: 0.4em; min-height: var(--code-h); padding-left: var(--space-4); font-variant-numeric: tabular-nums; }
 .code-input::placeholder { letter-spacing: 0.4em; }
@@ -187,8 +188,15 @@ textarea.input { min-height: var(--textarea-min); resize: vertical; }
     display: grid; align-content: center; justify-items: start; gap: var(--space-5);
     background: var(--navy-900); color: var(--on-dark); padding: var(--space-8); overflow: clip;
   }
+  .signin-art .sheet { width: var(--sample-w); max-width: 100%; height: auto; display: block; transform: rotate(-2deg); box-shadow: var(--shadow-art); border-radius: var(--space-1); }
+  .sheet-paper { fill: var(--paper); }
+  .sheet-head { fill: var(--navy-800); }
+  .sheet-bar { fill: var(--line); }
+  .sheet-bar-strong { fill: var(--ink-muted); }
+  .sheet-accent { fill: var(--blue-500); }
+  .sheet-foot { fill: var(--navy-900); }
   .signin-art figure { margin: 0; display: grid; gap: var(--space-5); }
-  .signin-art img { width: var(--sample-w); max-width: 100%; height: auto; display: block; transform: rotate(-2deg); box-shadow: 0 var(--space-5) var(--space-7) rgba(0, 0, 0, 0.45); border-radius: var(--space-1); }
+  .signin-art img { width: var(--sample-w); max-width: 100%; height: auto; display: block; transform: rotate(-2deg); box-shadow: var(--shadow-art); border-radius: var(--space-1); }
   .signin-art figcaption { font-family: var(--font-head); font-size: var(--fs-lede); font-weight: 500; max-width: var(--sample-w); color: var(--on-dark); text-wrap: balance; }
 }
 

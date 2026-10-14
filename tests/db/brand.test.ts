@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { brandFromRow } from '../../src/lib/brand';
+import { RESERVED_SLUGS } from '../../src/lib/slug';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
 async function expectFail(c: Client, sql: string, params: unknown[], pattern: RegExp) {
@@ -50,6 +51,16 @@ describe.skipIf(!dbAvailable)('tenant slug and public brand', () => {
       const brand = brandFromRow(bySlug.rows[0], () => true);
       expect(brand.accent).toBe('#2f6fbf');
       expect(brand.logoLight?.url).toBe('/brands/brand-co-test/logo.png');
+    });
+  });
+
+  it('the live reserved-word check equals RESERVED_SLUGS, so code and database cannot drift', async () => {
+    await withRollback(async (c) => {
+      const r = await c.query(`select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'tenants_slug_not_reserved'`);
+      expect(r.rows).toHaveLength(1);
+      const arr = /ARRAY\[([^\]]+)\]/.exec(r.rows[0].def as string)!;
+      const words = [...arr[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+      expect(words).toEqual([...RESERVED_SLUGS].sort());
     });
   });
 

@@ -2,6 +2,7 @@ import Image from 'next/image';
 import type { ReactNode } from 'react';
 import { brandStyle, type TenantBrand } from '../lib/brand-core';
 import { PoweredBy } from './PoweredBy';
+import { SamplePage } from './SamplePage';
 
 /**
  * The sign-in screen shared by /login, /{slug} and the demo preview. Public by design: it shows the
@@ -38,7 +39,12 @@ export function SignIn({ brand, children }: { brand: TenantBrand; children: Reac
 
       <aside className="signin-art">
         <figure>
-          <Image src="/login-sample.png" width={1588} height={2246} alt="Sample quotation (dummy data)" sizes="26rem" />
+          {/* The FJC sample is FJC's own letterhead, so only FJC's page shows it. Everyone else gets the neutral illustration. */}
+          {brand.slug === 'fjc' ? (
+            <Image src="/login-sample.png" width={1588} height={2246} alt="Sample quotation (dummy data)" sizes="26rem" />
+          ) : (
+            <SamplePage />
+          )}
           <figcaption>Quotes, invoices, receipts and guarantees, ready to send.</figcaption>
         </figure>
       </aside>
