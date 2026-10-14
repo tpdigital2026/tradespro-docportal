@@ -13,6 +13,7 @@ import {
 } from '../../src/security/bank-crypto';
 
 const key = randomBytes(32);
+const AUTH_OR_MALFORMED = /authenticate|malformed/i;
 const tenant = '11111111-1111-1111-1111-111111111111';
 
 describe('parseKey', () => {
@@ -22,6 +23,9 @@ describe('parseKey', () => {
   it('rejects the wrong length', () => {
     expect(() => parseKey(randomBytes(16).toString('base64'))).toThrow(/32 bytes/);
     expect(() => parseKey('')).toThrow(/32 bytes/);
+    expect(() => parseKey(` ${randomBytes(32).toString('base64')}`)).toThrow(/32 bytes/);
+    expect(() => parseKey(randomBytes(32).toString('base64url').replace(/[A-Za-z0-9]/, '-') + '!')).toThrow(/32 bytes/);
+    expect(() => parseKey('not base64!')).toThrow(/32 bytes/);
   });
 });
 
@@ -43,17 +47,76 @@ describe('encryptSecret / decryptSecret', () => {
     const [v, iv, tag, ct] = encryptSecret('12345678', key, 'ctx').split(':');
     const flipped = Buffer.from(ct, 'base64');
     flipped[0] ^= 1;
-    expect(() => decryptSecret([v, iv, tag, flipped.toString('base64')].join(':'), key, 'ctx')).toThrow();
+    expect(() => decryptSecret([v, iv, tag, flipped.toString('base64')].join(':'), key, 'ctx')).toThrow(AUTH_OR_MALFORMED);
   });
   it('fails with the wrong key', () => {
-    expect(() => decryptSecret(encryptSecret('x', key, 'ctx'), randomBytes(32), 'ctx')).toThrow();
+    expect(() => decryptSecret(encryptSecret('x', key, 'ctx'), randomBytes(32), 'ctx')).toThrow(AUTH_OR_MALFORMED);
   });
   it('fails with the wrong context, so ciphertext cannot be moved between fields or tenants', () => {
-    expect(() => decryptSecret(encryptSecret('x', key, 'ctx-a'), key, 'ctx-b')).toThrow();
+    expect(() => decryptSecret(encryptSecret('x', key, 'ctx-a'), key, 'ctx-b')).toThrow(AUTH_OR_MALFORMED);
   });
   it('rejects malformed or unknown-version blobs', () => {
     expect(() => decryptSecret('garbage', key, 'ctx')).toThrow();
-    expect(() => decryptSecret('v9:a:b:c', key, 'ctx')).toThrow(/version/i);
+    expect(() => decryptSecret('v9:a:b:c', key, 'ctx')).toThrow(/^Unsupported encryption version$/);
+  });
+});
+
+describe('decryptSecret hardening', () => {
+  const parts = () => encryptSecret('12345678', key, 'ctx').split(':');
+  const join = (p: string[]) => p.join(':');
+  const flip = (b64: string) => {
+    const b = Buffer.from(b64, 'base64');
+    b[0] ^= 1;
+    return b.toString('base64');
+  };
+
+  it('rejects a truncated tag', () => {
+    const p = parts();
+    p[2] = randomBytes(4).toString('base64');
+    expect(() => decryptSecret(join(p), key, 'ctx')).toThrow(/malformed/i);
+  });
+  it('rejects a wrong-length IV', () => {
+    const p = parts();
+    p[1] = randomBytes(8).toString('base64');
+    expect(() => decryptSecret(join(p), key, 'ctx')).toThrow(/malformed/i);
+    p[1] = randomBytes(16).toString('base64');
+    expect(() => decryptSecret(join(p), key, 'ctx')).toThrow(/malformed/i);
+  });
+  it('rejects a flipped tag byte and a flipped IV byte', () => {
+    const t = parts();
+    t[2] = flip(t[2]);
+    expect(() => decryptSecret(join(t), key, 'ctx')).toThrow(AUTH_OR_MALFORMED);
+    const i = parts();
+    i[1] = flip(i[1]);
+    expect(() => decryptSecret(join(i), key, 'ctx')).toThrow(AUTH_OR_MALFORMED);
+  });
+  it.each([
+    ['base64url dash', 'ab-d'],
+    ['base64url underscore', 'ab_d'],
+    ['whitespace', 'AAAA AAAA'],
+    ['trailing newline', 'AAAA\n'],
+    ['non-canonical trailing bits', 'AB=='],
+  ])('rejects invalid base64 (%s) in each part', (_name, bad) => {
+    for (const idx of [1, 2, 3]) {
+      const p = parts();
+      p[idx] = bad;
+      expect(() => decryptSecret(join(p), key, 'ctx')).toThrow(/malformed/i);
+    }
+  });
+  it('rejects five parts and empty parts', () => {
+    expect(() => decryptSecret(`${parts().join(':')}:extra`, key, 'ctx')).toThrow(/malformed/i);
+    for (const idx of [1, 2]) {
+      const p = parts();
+      p[idx] = '';
+      expect(() => decryptSecret(join(p), key, 'ctx')).toThrow(/malformed/i);
+    }
+    expect(() => decryptSecret('', key, 'ctx')).toThrow(/malformed/i);
+  });
+  it('round-trips an empty plaintext', () => {
+    expect(decryptSecret(encryptSecret('', key, 'ctx'), key, 'ctx')).toBe('');
+  });
+  it('does not echo blob content in the version error', () => {
+    expect(() => decryptSecret('secretversion:a:b:c', key, 'ctx')).toThrow(/^Unsupported encryption version$/);
   });
 });
 
@@ -88,6 +151,10 @@ describe('encryptBankDetails / decryptBankDetails', () => {
   it('cannot be decrypted for a different tenant', () => {
     const enc = encryptBankDetails({ sortCode: '000000', accountNumber: '00000000' }, key, tenant);
     expect(() => decryptBankDetails(enc, key, '22222222-2222-2222-2222-222222222222')).toThrow();
+  });
+  it('rejects a tenant id that is not a UUID', () => {
+    expect(() => encryptBankDetails({ sortCode: '000000', accountNumber: '00000000' }, key, 'not-a-uuid')).toThrow('Invalid tenant id');
+    expect(() => encryptBankDetails({ sortCode: '000000', accountNumber: '00000000' }, key, `${tenant}:x`)).toThrow('Invalid tenant id');
   });
   it('cannot swap the two encrypted fields', () => {
     const enc = encryptBankDetails({ sortCode: '000000', accountNumber: '00000000' }, key, tenant);
