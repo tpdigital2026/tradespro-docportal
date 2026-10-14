@@ -33,45 +33,87 @@ async function count(c: import('pg').Client, table: string, tenantId: string) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** A committed expired customer (with a job, document and photo) that other connections can see. */
+/** A committed expired customer with a full set of children that other connections can see. */
 async function committedFixture() {
   const setup = await connect();
-  const t = await createTenantWithUser(setup, 'LockTest');
-  const cust = await setup.query(`insert into public.customers (tenant_id, name, purge_at) values ($1, 'Cust', now() + interval '1 day') returning id`, [t.tenantId]);
-  const customerId = cust.rows[0].id as string;
-  const job = await setup.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-001') returning id`, [t.tenantId, customerId]);
-  const jobId = job.rows[0].id as string;
-  await setup.query(`insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'quotation', 'QT-LOCK-001', $3)`, [t.tenantId, jobId, `${t.tenantId}/pdfs/QT-LOCK-001.pdf`]);
-  await setup.query(`update public.customers set purge_at = now() - interval '1 day' where id = $1`, [customerId]);
   const open: Client[] = [setup];
-  return {
-    ...t,
-    customerId,
-    jobId,
-    setup,
-    async client() {
-      const c = await connect();
-      open.push(c);
-      return c;
-    },
-    async cleanup() {
-      const errors: unknown[] = [];
-      for (const c of open.slice(1)) await c.query('rollback').catch(() => undefined);
-      try {
-        await setup.query(`delete from public.tenants where id = $1`, [t.tenantId]);
-        await setup.query(`delete from auth.users where id = $1`, [t.userId]);
+  let tenantId: string | undefined;
+  let userId: string | undefined;
+  async function cleanup() {
+    const errors: unknown[] = [];
+    for (const c of open.slice(1)) await c.query('rollback').catch(() => undefined);
+    try {
+      if (tenantId) {
+        await setup.query(`delete from public.tenants where id = $1`, [tenantId]);
+        await setup.query(`delete from auth.users where id = $1`, [userId]);
         const left = await setup.query(
           `select (select count(*) from public.tenants where id = $1)::int tenants, (select count(*) from auth.users where id = $2)::int users`,
-          [t.tenantId, t.userId],
+          [tenantId, userId],
         );
         if (left.rows[0].tenants !== 0 || left.rows[0].users !== 0) errors.push(new Error(`LockTest fixture left behind: ${JSON.stringify(left.rows[0])}`));
-      } catch (e) {
-        errors.push(e);
       }
-      for (const c of open) await c.end().catch((e) => errors.push(e));
-      if (errors.length) throw errors[0];
-    },
-  };
+    } catch (e) {
+      errors.push(e);
+    }
+    for (const c of open) await c.end().catch((e) => errors.push(e));
+    if (errors.length) throw new AggregateError(errors, 'fixture cleanup failed');
+  }
+  try {
+    const t = await createTenantWithUser(setup, 'LockTest');
+    tenantId = t.tenantId;
+    userId = t.userId;
+    const cust = await setup.query(`insert into public.customers (tenant_id, name, purge_at) values ($1, 'Cust', now() + interval '1 day') returning id`, [tenantId]);
+    const customerId = cust.rows[0].id as string;
+    const job = await setup.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-001') returning id`, [tenantId, customerId]);
+    const jobId = job.rows[0].id as string;
+    const doc = await setup.query(`insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'quotation', 'QT-LOCK-001', $3) returning id`, [tenantId, jobId, `${tenantId}/pdfs/QT-LOCK-001.pdf`]);
+    const documentId = doc.rows[0].id as string;
+    const ver = await setup.query(`insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 1) returning id`, [tenantId, documentId]);
+    const versionId = ver.rows[0].id as string;
+    await setup.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [tenantId, jobId, `${tenantId}/photos/fixture.jpg`]);
+    await setup.query(`insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'lock-hash', now() + interval '1 day')`, [tenantId, documentId]);
+    await setup.query(`insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [tenantId, documentId]);
+    await setup.query(`insert into public.ai_runs (tenant_id, document_id, model) values ($1, $2, 'm')`, [tenantId, documentId]);
+    await setup.query(`update public.customers set purge_at = now() - interval '1 day' where id = $1`, [customerId]);
+    return {
+      tenantId: t.tenantId,
+      userId: t.userId,
+      customerId,
+      jobId,
+      documentId,
+      versionId,
+      setup,
+      async client() {
+        const c = await connect();
+        open.push(c);
+        return c;
+      },
+      cleanup,
+    };
+  } catch (e) {
+    await cleanup().catch(() => undefined);
+    throw e;
+  }
+}
+
+type Fx = Awaited<ReturnType<typeof committedFixture>>;
+
+/** Runs fn with a committed fixture; cleanup failures never hide the test's own failure. */
+async function withFixture(fn: (fx: Fx) => Promise<void>) {
+  const fx = await committedFixture();
+  let primary: unknown;
+  try {
+    await fn(fx);
+  } catch (e) {
+    primary = e;
+  }
+  try {
+    await fx.cleanup();
+  } catch (e) {
+    if (primary) throw new AggregateError([primary, e], 'test failed and cleanup failed too');
+    throw e;
+  }
+  if (primary) throw primary;
 }
 
 async function waitUntilBlocked(setup: Client, pid: number) {
@@ -80,21 +122,55 @@ async function waitUntilBlocked(setup: Client, pid: number) {
     if (r.rows.length) return;
     await sleep(100);
   }
-  throw new Error('the write never blocked on the claim lock');
+  throw new Error('the write never blocked on a lock');
 }
 
-type Fx = Awaited<ReturnType<typeof committedFixture>>;
 const WRITES: Record<string, (fx: Fx) => { sql: string; params: unknown[] }> = {
   'photo insert': (fx) => ({ sql: `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/photos/late.jpg`] }),
+  'photo path update': (fx) => ({ sql: `update public.job_photos set storage_path = $2 where tenant_id = $1`, params: [fx.tenantId, `${fx.tenantId}/photos/moved.jpg`] }),
   'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'receipt', 'IN-LOCK-002', $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
   'job insert': (fx) => ({ sql: `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-003')`, params: [fx.tenantId, fx.customerId] }),
+  'draft version update': (fx) => ({ sql: `update public.document_versions set input = '{"x":1}' where id = $1`, params: [fx.versionId] }),
 };
 
+// Tables the claim locks, in lock order. The schema-derived set below must equal this list minus customers.
+const LOCKED_TABLES = ['customers', 'jobs', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs'];
+
 describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
+  it('the claim locks every table the customer cascade reaches', async () => {
+    await withRollback(async (c) => {
+      const r = await c.query(`
+        with recursive reach(rel, via_cascade) as (
+          select 'public.customers'::regclass::oid, true
+          union
+          select con.conrelid, con.confdeltype = 'c'
+          from pg_constraint con join reach on con.confrelid = reach.rel
+          where con.contype = 'f' and con.confdeltype in ('c', 'n') and reach.via_cascade
+        )
+        select distinct rel::regclass::text as t from reach`);
+      const reached = r.rows.map((x) => String(x.t).replace(/^public\./, '')).sort();
+      expect(reached, 'a new cascade child exists: lock it in claim_expired_customers and add it to LOCKED_TABLES').toEqual([...LOCKED_TABLES].sort());
+    });
+  });
+
+  it('after a claim, a rival cannot lock a row in any of those tables', async () => {
+    await withFixture(async (fx) => {
+      const claimer = await fx.client();
+      const rival = await fx.client();
+      await claimer.query('begin');
+      await claimer.query(`select id from private.claim_expired_customers(now())`);
+      for (const table of LOCKED_TABLES) {
+        await rival.query('begin');
+        await expect(rival.query(`select 1 from public.${table} where tenant_id = $1 for update nowait`, [fx.tenantId]), table).rejects.toThrow(/could not obtain lock/i);
+        await rival.query('rollback');
+      }
+      await claimer.query('rollback');
+    });
+  });
+
   for (const [label, write] of Object.entries(WRITES)) {
     it(`${label} waits on the claim; if the purge is aborted the write goes through and keeps the customer`, async () => {
-      const fx = await committedFixture();
-      try {
+      await withFixture(async (fx) => {
         const claimer = await fx.client();
         const rival = await fx.client();
         const pid = (await rival.query('select pg_backend_pid() as pid')).rows[0].pid as number;
@@ -110,14 +186,11 @@ describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
         await pending;
         const c = await fx.setup.query(`select purge_at > now() + interval '29 days' as kept from public.customers where id = $1`, [fx.customerId]);
         expect(c.rows[0].kept).toBe(true);
-      } finally {
-        await fx.cleanup();
-      }
+      });
     });
 
-    it(`${label} waits on the claim; if the purge commits the write fails and nothing is orphaned`, async () => {
-      const fx = await committedFixture();
-      try {
+    it(`${label} waits on the claim; if the purge commits the write is stopped and nothing is orphaned`, async () => {
+      await withFixture(async (fx) => {
         const claimer = await fx.client();
         const rival = await fx.client();
         const pid = (await rival.query('select pg_backend_pid() as pid')).rows[0].pid as number;
@@ -125,26 +198,43 @@ describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
         const claimed = await claimer.query(`select id from private.claim_expired_customers(now())`);
         expect(claimed.rows.map((r) => r.id)).toContain(fx.customerId);
         const listed = await claimer.query(`select private.expired_storage_paths($1::uuid[]) as p`, [[fx.customerId]]);
-        expect(listed.rows.map((r) => r.p)).toEqual([`${fx.tenantId}/pdfs/QT-LOCK-001.pdf`]);
+        expect(listed.rows.map((r) => r.p).sort()).toEqual([`${fx.tenantId}/pdfs/QT-LOCK-001.pdf`, `${fx.tenantId}/photos/fixture.jpg`]);
         const w = write(fx);
-        const pending = rival.query(w.sql, w.params).then(() => null, (e) => e as { code?: string });
+        const pending = rival.query(w.sql, w.params).then((r) => ({ rowCount: r.rowCount, code: undefined as string | undefined }), (e) => ({ rowCount: -1, code: (e as { code?: string }).code }));
         await waitUntilBlocked(fx.setup, pid);
         const purged = await claimer.query(`select private.purge_customers($1::uuid[], now()) as ids`, [[fx.customerId]]);
         expect(purged.rows[0].ids).toEqual([fx.customerId]);
         await claimer.query('commit');
-        const err = await pending;
-        expect(err?.code).toBe('23503');
+        const outcome = await pending;
+        // Inserts fail their foreign key; an update finds the row gone and changes nothing.
+        expect(outcome.code === '23503' || outcome.rowCount === 0, JSON.stringify(outcome)).toBe(true);
         const photos = await fx.setup.query(`select count(*)::int n from public.job_photos where tenant_id = $1`, [fx.tenantId]);
         expect(photos.rows[0].n).toBe(0);
-      } finally {
-        await fx.cleanup();
-      }
+      });
     });
   }
 
+  it('a draft version update that holds its lock first wins: the claim skips the touched customer, no deadlock', async () => {
+    await withFixture(async (fx) => {
+      const writer = await fx.client();
+      const claimer = await fx.client();
+      const pid = (await claimer.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+      await writer.query('begin');
+      await writer.query(`update public.document_versions set input = '{"x":1}' where id = $1`, [fx.versionId]); // holds the version lock, touch trigger takes the customer lock
+      await claimer.query('begin');
+      const claiming = claimer.query(`select id from private.claim_expired_customers(now())`);
+      await waitUntilBlocked(fx.setup, pid);
+      await writer.query('commit');
+      const claimed = await claiming;
+      expect(claimed.rows.map((r) => r.id)).not.toContain(fx.customerId);
+      await claimer.query('commit');
+      const c = await fx.setup.query(`select count(*)::int n from public.customers where id = $1`, [fx.customerId]);
+      expect(c.rows[0].n).toBe(1);
+    });
+  });
+
   it('purge_customers skips a customer another transaction holds locked', async () => {
-    const fx = await committedFixture();
-    try {
+    await withFixture(async (fx) => {
       const holder = await fx.client();
       const purger = await fx.client();
       await holder.query('begin');
@@ -153,9 +243,7 @@ describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
       const r = await purger.query(`select private.purge_customers($1::uuid[], now()) as ids`, [[fx.customerId]]);
       expect(r.rows[0].ids).toEqual([]);
       await purger.query('rollback');
-    } finally {
-      await fx.cleanup();
-    }
+    });
   });
 });
 
