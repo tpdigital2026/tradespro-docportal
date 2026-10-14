@@ -33,7 +33,7 @@ export function guaranteeBand(years: number, text: string): Raw {
 }
 
 export function toc(entries: [string, number][]): Raw {
-  return html`<div class="toc">${entries.map(([label, pg], i) => html`<div><div class="n">${pad2(i + 1)}</div><div class="l">${label}</div><div class="p">Page ${pad2(pg)}</div></div>`)}</div>`;
+  return html`<div class="toc" data-reserved>${entries.map(([label, pg], i) => html`<div><div class="n">${pad2(i + 1)}</div><div class="l">${label}</div><div class="p">Page ${pad2(pg)}</div></div>`)}</div>`;
 }
 
 export function coverHero(

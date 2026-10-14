@@ -22,6 +22,7 @@ describe.skipIf(!referenceAvailable)('quotation', () => {
     const pdf = await renderPdf(page, doc);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
     expect(await page.$$eval('.page', (p) => p.length)).toBe(4);
+    expect(pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(4);
     const text = await page.evaluate(() => document.body.innerText);
     expect(text).toContain('£7,505.00');
     expect(text).toContain('£1,501.00');
@@ -48,9 +49,10 @@ describe.skipIf(!referenceAvailable)('quotation', () => {
     const extra = quotationFixture.scope.map((s) => ({ ...s, heading: `${s.heading} (additional)` }));
     const input = { ...quotationFixture, scope: [...quotationFixture.scope, ...extra, ...extra] };
     const doc = await buildQuotation(page, input, fjcTenant, loadFjcBrand());
-    await renderPdf(page, doc);
+    const pdf = await renderPdf(page, doc);
     const count = await page.$$eval('.page', (p) => p.length);
     expect(count).toBeGreaterThan(4);
+    expect(pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(count);
     const totals = await page.$$eval('.rf .pg', (els) => els.map((e) => e.textContent ?? ''));
     expect(totals).toHaveLength(count);
     totals.forEach((t, i) => {
@@ -98,5 +100,35 @@ describe.skipIf(!referenceAvailable)('quotation', () => {
 
   it('rejects an empty scope', async () => {
     await expect(buildQuotation(page, { ...quotationFixture, scope: [] }, fjcTenant, loadFjcBrand())).rejects.toThrow(/scope/i);
+  });
+
+  const build = (over: Partial<typeof quotationFixture>) =>
+    buildQuotation(page, { ...quotationFixture, ...over }, fjcTenant, loadFjcBrand());
+  const line = (i: number) => ({
+    description: `Additional item ${i}, supplied and fitted as described`,
+    kind: 'Work',
+    qty: 1,
+    unitNetPence: 10000,
+    vatApplies: true,
+  });
+
+  it('passes a normal two-line quote', async () => {
+    await expect(renderPdf(page, await build({}))).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it('fails when many price lines run into the disclaimer', async () => {
+    const lines = [...quotationFixture.lines, ...[1, 2, 3, 4, 5, 6].map(line)];
+    await expect(renderPdf(page, await build({ lines }))).rejects.toThrow(/reserved fine/);
+  });
+
+  it('fails when the intro runs over the contents strip', async () => {
+    const introText = Array(4).fill(quotationFixture.introText).join(' ');
+    await expect(renderPdf(page, await build({ introText }))).rejects.toThrow(/reserved toc/);
+  });
+
+  it('fails when a long cover title pushes the strip out of the hero', async () => {
+    const coverTitle = 'Complete Flat Roof Installation and Full Replacement Quotation With Lead Flashing and Drainage';
+    const coverSub = Array(6).fill(quotationFixture.coverSub).join(', ');
+    await expect(renderPdf(page, await build({ coverTitle, coverSub }))).rejects.toThrow(/page 1: content is clipped inside \.in/);
   });
 });

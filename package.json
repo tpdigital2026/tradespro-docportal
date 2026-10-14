@@ -2,10 +2,6 @@
   "name": "tradespro-docportal",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "dev": "next dev",
@@ -17,7 +13,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
@@ -36,5 +32,5 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   },
-  "private": "true"
+  "private": true
 }
