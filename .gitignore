@@ -11,3 +11,5 @@ reference/
 out/
 next-env.d.ts
 *.tsbuildinfo
+
+.mcp.json

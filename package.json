@@ -13,7 +13,8 @@
     "test:db": "vitest run -c vitest.db.config.mts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed-fjc.ts",
-    "test:db:ci": "REQUIRE_DB=1 vitest run -c vitest.db.config.mts"
+    "test:db:ci": "REQUIRE_DB=1 vitest run -c vitest.db.config.mts",
+    "invite": "tsx --env-file-if-exists=.env.local scripts/invite-user.ts"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/playfair-display": "^5.3.0",
+    "@supabase/supabase-js": "^2.117.3",
     "next": "^16.4.0",
     "pg": "^8.23.1",
     "playwright-core": "^1.64.1",
