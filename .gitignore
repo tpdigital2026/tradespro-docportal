@@ -7,3 +7,4 @@ reference/
 *.pdf
 .vercel/
 .DS_Store
+.superpowers/
