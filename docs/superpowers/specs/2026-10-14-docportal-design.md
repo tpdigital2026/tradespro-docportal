@@ -37,7 +37,7 @@ Next.js (App Router) and TypeScript, Supabase (Postgres, Auth, Storage), zod, Vi
 - The terms state that the trader is responsible for keeping their own records. A solicitor should check that wording.
 
 ### Owner flow (mobile first)
-1. Log in with email, password and TOTP.
+1. Log in with their email address and a one-time code sent to it. There are no passwords.
 2. New document, pick the type, select an existing customer or add one.
 3. Short form: customer, date, scope notes, price ex VAT, VAT yes/no, extras, discount, guarantee years, bank account.
 4. Generate. The AI drafts the wording. The owner sees a live preview and edits inline. The AI lists `corrections[]` and `uncertain[]` for review before finalising.
@@ -53,7 +53,7 @@ Next.js (App Router) and TypeScript, Supabase (Postgres, Auth, Storage), zod, Vi
 - **Bank details** are encrypted with AES-256-GCM (key in a server env var), with the last 4 digits readable. Decrypted server-side at render time only. Never logged.
 - **Files** live in private buckets with short-lived signed URLs. Survey photos have EXIF stripped and are resized.
 - **Share links** are our own `/s/{token}` URLs, 14 days by default, revocable. They mint a signed URL on click.
-- **Auth** is Supabase Auth with mandatory TOTP. A restrictive RLS policy on every table requires `aal2`. Lockout is custom: a server-side login route with a `login_attempts` table and a progressive 15 minute lock after 5 failures.
+- **Auth** (decided by Alfie, 2026-10-14): invite-only, passwordless. Supabase Auth email one-time codes, with sign-up disabled. A TradesPro admin registers each person's email against one tenant (a `profiles` row); an email with no profile cannot get in. Codes are 6 digits, expire after 10 minutes and are single use. Lockout is custom: a server-side login route with a `login_attempts` table, a progressive 15 minute lock after 5 wrong codes, and a rate limit on sending codes. Sessions last at most 30 days. Compensating controls for the weaker single factor: a notification email on every login from a new device, and **step-up**: adding or changing a bank account, deleting a customer, or inviting another user requires a fresh email code within the last 10 minutes. An authenticator-app factor can be added later without changing the data model.
 
 ## Schema
 
@@ -102,7 +102,7 @@ login_attempts(id, email_hash, ip, success, at)
 purge_log(id, run_at, customers_purged int)  -- counts only
 ```
 
-RLS: every policy is `tenant_id = current_tenant_id()` plus the restrictive `aal2` policy. Bank accounts are owner-write only, and the `*_enc` columns are revoked from the app role. `tradespro_admin` has no broad bypass; Phase 2 admin access goes through audited server routes. Service-role code always takes `tenant_id` from the verified session, never from the request. Automated tests prove tenant A cannot read tenant B.
+RLS: every policy is `tenant_id = current_tenant_id()` plus a restrictive policy that the session belongs to an active `profiles` row (not disabled). Bank accounts are owner-write only, and the `*_enc` columns are revoked from the app role. `tradespro_admin` has no broad bypass; Phase 2 admin access goes through audited server routes. Service-role code always takes `tenant_id` from the verified session, never from the request. Automated tests prove tenant A cannot read tenant B.
 
 ## Data handling rules for this repo
 
@@ -115,7 +115,7 @@ RLS: every policy is `tenant_id = current_tenant_id()` plus the restrictive `aal
 
 1. Render spike: port `fjc.css` and the quotation, then compare with the reference by eye.
 2. `money.ts` and tests.
-3. Schema, RLS, auth, MFA, lockout, and tenant isolation tests.
+3. Schema, RLS, invite-only email-code login, lockout, step-up, and tenant isolation tests.
 4. All six templates and pagination.
 5. AI scope writing.
 6. Form, preview, inline edit, finalise, download and email UI.
