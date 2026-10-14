@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ButtonLink } from '../../../../components/Button';
 import { DocTypeList } from '../../../../components/DocTypeList';
 import { PageHeader } from '../../../../components/PageHeader';
-import { getQuoteContext, getQuoteDraft, isKnownId } from '../../../../lib/data/quotes';
+import { getQuoteContext, getQuoteDraft, isKnownId, QuoteError, type QuoteContext } from '../../../../lib/data/quotes';
 import { requireSession } from '../../../../lib/session';
 import { emptyQuoteForm } from '../../../../lib/validation/quote';
 import { QuoteForm } from './QuoteForm';
@@ -36,7 +36,17 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
     );
   }
 
-  const ctx = await getQuoteContext();
+  let ctx: QuoteContext;
+  try {
+    ctx = await getQuoteContext();
+  } catch (e) {
+    return (
+      <div className="page">
+        <PageHeader muted="We cannot start" title="a quotation" lede={e instanceof QuoteError ? e.message : 'Something went wrong loading your settings. Please try again.'} />
+        <p className="cust-back"><Link href="/">Back to Home</Link></p>
+      </div>
+    );
+  }
   const draftId = first(sp.draft);
   const draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
 

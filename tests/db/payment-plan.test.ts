@@ -105,4 +105,14 @@ describe.skipIf(!dbAvailable)('jobs.payment_plan', () => {
       expect(nums.rowCount).toBe(1);
     });
   });
+
+  it('a business VAT rate above 25% cannot be stored', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      await actAsServer(c);
+      await c.query(`update public.tenant_defaults set vat_rate_bp = 2500 where tenant_id = $1`, [a.tenantId]);
+      await c.query(`update public.tenant_defaults set vat_rate_bp = 0 where tenant_id = $1`, [a.tenantId]);
+      await expectFail(c, `update public.tenant_defaults set vat_rate_bp = 2501 where tenant_id = $1`, [a.tenantId], /tenant_defaults_vat_rate_max|check constraint/i);
+    });
+  });
 });

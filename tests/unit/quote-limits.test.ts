@@ -5,10 +5,11 @@ import {
   MAX_TOTAL_NET_PENCE,
   MAX_VAT_RATE_BP,
   TOO_LARGE_MESSAGE,
+  computeTotals,
   mulDivRound,
   type PaymentPlan,
 } from '../../src/lib/money';
-import { computeQuoteTotals, type QuoteMoneyInput } from '../../src/lib/quote-totals';
+import { computeQuoteTotals, quoteLines, type QuoteMoneyInput } from '../../src/lib/quote-totals';
 import { getQuoteDefaultsWith } from '../../src/lib/data/quotes';
 import type { DataClient } from '../../src/lib/data/customers';
 import { emptyQuoteForm, normaliseQuote, quoteDraftSchema, quoteInputSchema, type QuoteFormValues } from '../../src/lib/validation/quote';
@@ -90,12 +91,31 @@ describe('bounds are exact', () => {
     expect(computeQuoteTotals({ priceNetPence: 1000, vatApplies: true, extras: [], discountPence: 0, plan: null }, MAX_VAT_RATE_BP).error).toBeNull();
     expect(computeQuoteTotals({ priceNetPence: 1000, vatApplies: true, extras: [], discountPence: 0, plan: null }, 0).error).toBeNull();
   });
-  it('a business VAT rate above the cap in the database is not used', async () => {
-    const client = (rate: number): DataClient => ({ from: () => ({ select: () => ({ maybeSingle: async () => ({ data: { vat_default: true, vat_rate_bp: rate, deposit_pct_bp: 3000 }, error: null }) }) }) });
-    expect((await getQuoteDefaultsWith(client(4500))).vatRateBp).toBe(2000);
-    expect((await getQuoteDefaultsWith(client(10_000))).vatRateBp).toBe(2000);
+  it('a stored VAT rate outside 0 to 25% is refused loudly, never swapped for the default', async () => {
+    const client = (rate: unknown): DataClient => ({ from: () => ({ select: () => ({ maybeSingle: async () => ({ data: { vat_default: true, vat_rate_bp: rate, deposit_pct_bp: 3000 }, error: null }) }) }) });
+    for (const bad of [2501, 4500, 10_000, -1, 12.5, null, '2000']) {
+      await expect(getQuoteDefaultsWith(client(bad)), String(bad)).rejects.toMatchObject({ message: 'Your VAT rate setting is not valid. Contact TradesPro Digital.' });
+    }
     expect((await getQuoteDefaultsWith(client(2500))).vatRateBp).toBe(2500);
     expect((await getQuoteDefaultsWith(client(0))).vatRateBp).toBe(0);
+    const none: DataClient = { from: () => ({ select: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+    expect((await getQuoteDefaultsWith(none)).vatRateBp).toBe(2000); // no settings row at all is not an invalid setting
+  });
+  it("reviewer's repro: net at the cap with rounding VAT is reported once, on the price", () => {
+    const form = base({
+      price: '999999.80',
+      extras: Array.from({ length: 10 }, (_, i) => ({ description: `E${i}`, amount: '0.02' })),
+      plan: { kind: 'deposit', depositPct: '30', stages: [] },
+    });
+    const input: QuoteMoneyInput = { priceNetPence: 99_999_980, vatApplies: true, extras: Array.from({ length: 10 }, () => ({ description: 'e', netPence: 2 })), discountPence: 0, plan: { kind: 'deposit', pctBp: 3000 } };
+    const raw = computeTotals(quoteLines(input), 2500);
+    expect(raw.netPence).toBe(100_000_000);
+    expect(raw.vatPence).toBe(25_000_005);
+    const t = computeQuoteTotals(input, 2500);
+    expect(t.error).toBe(TOO_LARGE_MESSAGE);
+    const out = normaliseQuote(form, 'final', 2500);
+    expect(out.errors.price).toBe(TOO_LARGE_MESSAGE);
+    expect(Object.keys(out.errors).filter((k) => k.startsWith('plan'))).toEqual([]);
   });
 });
 

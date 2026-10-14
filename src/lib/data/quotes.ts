@@ -115,14 +115,19 @@ export async function listBankAccountsWith(client: DataClient): Promise<BankAcco
   }));
 }
 
+export const VAT_SETTING_INVALID = 'Your VAT rate setting is not valid. Contact TradesPro Digital.';
+
+/** A stored VAT rate outside 0 to 25% is refused loudly. Money is never quietly worked out with a different rate. */
 export async function getQuoteDefaultsWith(client: DataClient): Promise<QuoteDefaults> {
   const { data, error } = await client.from('tenant_defaults').select('vat_default, vat_rate_bp, deposit_pct_bp').maybeSingle();
   if (error) throw new QuoteError('failed', 'Could not load defaults');
   const d = data as { vat_default?: unknown; vat_rate_bp?: unknown; deposit_pct_bp?: unknown } | null;
   if (!d) return FALLBACK_DEFAULTS;
+  const rate = d.vat_rate_bp;
+  if (typeof rate !== 'number' || !Number.isSafeInteger(rate) || rate < 0 || rate > MAX_VAT_RATE_BP) throw new QuoteError('failed', VAT_SETTING_INVALID);
   return {
     vatDefault: typeof d.vat_default === 'boolean' ? d.vat_default : FALLBACK_DEFAULTS.vatDefault,
-    vatRateBp: Number.isSafeInteger(d.vat_rate_bp) && (d.vat_rate_bp as number) >= 0 && (d.vat_rate_bp as number) <= MAX_VAT_RATE_BP ? (d.vat_rate_bp as number) : FALLBACK_DEFAULTS.vatRateBp,
+    vatRateBp: rate,
     depositPctBp: Number.isSafeInteger(d.deposit_pct_bp) && (d.deposit_pct_bp as number) >= 100 && (d.deposit_pct_bp as number) <= 9900 ? (d.deposit_pct_bp as number) : FALLBACK_DEFAULTS.depositPctBp,
   };
 }

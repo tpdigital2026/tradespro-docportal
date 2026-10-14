@@ -49,6 +49,7 @@ export function QuoteForm({
   const [save, setSave] = useState<Save>({ kind: 'idle' });
   const [serverErrors, setServerErrors] = useState<QuoteErrors>({});
   const [numberStatus, setNumberStatus] = useState<NumberStatus>('idle');
+  const [reverted, setReverted] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
 
@@ -127,6 +128,9 @@ export function QuoteForm({
             setSave({ kind: 'error', message: res.message });
             return;
           }
+          // Tell the owner when an edit to the number or customer made during the first save has been put back.
+          const cur = valuesRef.current;
+          setReverted(cur.quoteNumber !== res.quoteNumber || cur.customerId !== res.customerId);
           jobRef.current = res.jobId;
           claimed.current = { quoteNumber: res.quoteNumber, customerId: res.customerId };
           valuesRef.current = { ...valuesRef.current, ...claimed.current };
@@ -266,6 +270,8 @@ export function QuoteForm({
       <TotalsBar totals={totals} vatApplies={values.vatApplies} />
 
       <p className={`qt-save${save.kind === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite">{saveText}</p>
+
+      {reverted ? <p className="qt-save" role="status" aria-live="polite">The quote number and customer are fixed once saved.</p> : null}
 
       <div ref={headingBox} className="qt-body">
         {step === 'customer' ? <CustomerStep {...stepProps} /> : null}

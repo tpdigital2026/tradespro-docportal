@@ -6,9 +6,9 @@ import {
   checkPlan,
   computeTotals,
   MAX_AMOUNT_PENCE,
-  MAX_TOTAL_NET_PENCE,
   MAX_VAT_RATE_BP,
   TOO_LARGE_MESSAGE,
+  totalsWithinBounds,
   type Instalment,
   type MoneyLine,
   type Pence,
@@ -93,7 +93,7 @@ export function computeQuoteTotals(input: QuoteMoneyInput, vatRateBp: number = D
       return tooLarge(input);
     }
     const totals = computeTotals(quoteLines(input), vatRateBp);
-    if (totals.netPence > MAX_TOTAL_NET_PENCE) return tooLarge(input);
+    if (!totalsWithinBounds(totals)) return tooLarge(input);
     const subtotalNetPence = totals.lines.filter((l) => l.kind !== 'Discount').reduce((s, l) => s + l.netPence, 0);
     const planCheck = input.plan ? checkPlan(totals, input.plan) : null;
     const schedule = planCheck?.instalments ?? null;

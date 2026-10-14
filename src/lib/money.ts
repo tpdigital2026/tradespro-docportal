@@ -142,6 +142,13 @@ export const MAX_VAT_RATE_BP = 2500;
 export const MAX_AMOUNT_PENCE: Pence = 100_000_000;
 export const MAX_TOTAL_NET_PENCE: Pence = 100_000_000;
 export const MAX_TOTAL_GROSS_PENCE: Pence = MAX_TOTAL_NET_PENCE + (MAX_TOTAL_NET_PENCE * MAX_VAT_RATE_BP) / 10000;
+/** The one bounds check for a quote's totals, used by every caller before any plan maths. */
+export function totalsWithinBounds(t: { netPence: number; vatPence: number; grossPence: number }): boolean {
+  return (
+    Number.isSafeInteger(t.netPence) && Number.isSafeInteger(t.vatPence) && Number.isSafeInteger(t.grossPence) &&
+    t.netPence <= MAX_TOTAL_NET_PENCE && t.vatPence <= MAX_TOTAL_GROSS_PENCE - MAX_TOTAL_NET_PENCE && t.grossPence <= MAX_TOTAL_GROSS_PENCE
+  );
+}
 export const TOO_LARGE_MESSAGE = 'This quote is too large to calculate. Check the amounts.';
 
 export const MIN_STAGES = 2;
@@ -226,10 +233,7 @@ function finish(
 /** Everything the UI and the server need to know about a plan against a job's totals. Never throws, whatever it is given. */
 export function checkPlan(totals: Totals, plan: PaymentPlan): PlanCheck {
   const refuse = (): PlanCheck => ({ ok: false, instalments: null, declaredPerStage: [], declaredPence: 0, remainingPence: 0, problems: [{ stage: null, message: TOO_LARGE_MESSAGE }] });
-  if (
-    !isWholePence(totals.netPence) || !isWholePence(totals.vatPence) || !isWholePence(totals.grossPence) ||
-    totals.netPence > MAX_TOTAL_NET_PENCE || totals.vatPence > MAX_TOTAL_GROSS_PENCE - MAX_TOTAL_NET_PENCE || totals.grossPence > MAX_TOTAL_GROSS_PENCE
-  ) {
+  if (!totalsWithinBounds(totals)) {
     return totals.grossPence <= 0 || totals.netPence < 0 ? checkPlanUnsafe(totals, plan) : refuse();
   }
   try {
