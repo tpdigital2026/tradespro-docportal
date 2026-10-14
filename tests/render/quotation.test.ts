@@ -28,6 +28,14 @@ describe.skipIf(!referenceAvailable)('quotation', () => {
     expect(text).toContain('£9,006.00');
   });
 
+  it('uses the cover title as the running header label', async () => {
+    await renderPdf(page, await buildQuotation(page, quotationFixture, fjcTenant, loadFjcBrand()));
+    const labels = await page.$$eval('.page:nth-of-type(2) .rh .eyebrow', (e) => e.map((x) => x.textContent));
+    expect(labels).toEqual([quotationFixture.coverTitle]);
+    const h2s = await page.$$eval('.page:last-of-type h2', (e) => e.map((x) => x.textContent));
+    expect(h2s).toContain('Your investment');
+  });
+
   it('escapes customer-supplied text', async () => {
     const input = { ...quotationFixture, customer: { ...quotationFixture.customer, name: '<img src=x onerror=alert(1)>' } };
     const doc = await buildQuotation(page, input, fjcTenant, loadFjcBrand());

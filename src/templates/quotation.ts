@@ -32,7 +32,6 @@ export interface QuotationInput {
   disclaimer: string;
 }
 
-const LABEL = 'Quotation';
 const BODY_MM = 297 - 27 - 19; // .body: top 27mm, bottom 19mm in base.css
 const BODY_WIDTH_MM = 210 - 2 * 16;
 const SAFETY_PX = 12;
@@ -65,7 +64,7 @@ export async function buildQuotation(page: Page, input: QuotationInput, tenant: 
     if (gi === -1) throw new Error('Guarantee band was not placed on any scope page');
     guaranteePage = firstScopePage + gi;
   }
-  const header = P.runningHeader(tenant, brand, LABEL, input.ref);
+  const header = P.runningHeader(tenant, brand, input.coverTitle, input.ref);
   const footer = (n: number) => P.runningFooter(tenant, n, total);
 
   // 2. Cover.
@@ -112,7 +111,7 @@ export async function buildQuotation(page: Page, input: QuotationInput, tenant: 
     ? [['Subtotal', formatGBP(totals.netPence)], [`VAT (${rateLabel})`, formatGBP(totals.vatPence)]]
     : [];
   const pricing = P.page(
-    html`<span class="eyebrow">Pricing</span><h2>Your quotation</h2><div class="rule"></div>${P.priceTable(rows, showVat)}${P.totalsBlock(totalRows, 'Total', formatGBP(totals.grossPence))}<div class="terms" style="margin-top:10mm"><div class="t"><h5>Terms and conditions</h5><p>${input.terms}</p></div>${showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div><div style="margin-top:12mm"><span class="eyebrow">Prepared by</span><div style="margin-top:4mm">${P.signBlock(brand, tenant.ownerName, `${tenant.ownerTitle} · ${tenant.name}`, preparedBy, input.dateLabel)}</div></div><div class="fine" style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${input.disclaimer}</div>`,
+    html`<span class="eyebrow">Pricing</span><h2>Your investment</h2><div class="rule"></div>${P.priceTable(rows, showVat)}${P.totalsBlock(totalRows, 'Total', formatGBP(totals.grossPence))}<div class="terms" style="margin-top:10mm"><div class="t"><h5>Terms and conditions</h5><p>${input.terms}</p></div>${showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div><div style="margin-top:12mm"><span class="eyebrow">Prepared by</span><div style="margin-top:4mm">${P.signBlock(brand, tenant.ownerName, `${tenant.ownerTitle} · ${tenant.name}`, preparedBy, input.dateLabel)}</div></div><div class="fine" style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${input.disclaimer}</div>`,
     header,
     footer(total),
   );
