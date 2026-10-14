@@ -1,0 +1,40 @@
+:root {
+  /* colour */
+  --navy-900: #071626;
+  --navy-800: #0c2033;
+  --blue-500: #0b9bea;
+  --accent: var(--blue-500);
+  --w: #ffffff;
+  --steel-400: #9db8cc;
+  --rule: rgba(63, 179, 239, 0.28);
+  --danger: #ff8f8f;
+
+  /* type */
+  --font-head: 'Outfit', system-ui, sans-serif;
+  --font-body: 'Work Sans', system-ui, sans-serif;
+  --fs-h1: clamp(1.75rem, 1.2rem + 2.6vw, 2.75rem);
+  --fs-h2: clamp(1.25rem, 1.05rem + 1vw, 1.75rem);
+  --fs-lede: 1.0625rem;
+  --fs-body: 1rem;
+  --fs-meta: 0.8125rem;
+  --fs-eyebrow: 0.75rem;
+
+  /* spacing, 4px grid */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* layout */
+  --tap: 44px;
+  --nav-h: 64px;
+  --rail-w: 248px;
+  --measure: 40rem;
+  --radius: 8px;
+  --ring: 0 0 0 3px rgba(11, 155, 234, 0.55);
+}
