@@ -54,7 +54,8 @@ describe.skipIf(!dbAvailable)('schema', () => {
       const cust = await c.query(`insert into public.customers (tenant_id, name) values ($1, 'C') returning id`, [a.tenantId]);
       const ins = `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-JS-001')`;
       await c.query(ins, [a.tenantId, cust.rows[0].id]);
-      await expect(c.query(ins, [a.tenantId, cust.rows[0].id])).rejects.toThrow(/duplicate key|unique/i);
+      // Since 002 the jobs trigger claims the number first and reports it in plain English.
+      await expect(c.query(ins, [a.tenantId, cust.rows[0].id])).rejects.toThrow(/duplicate key|unique|already been used/i);
     });
   });
 
