@@ -7,6 +7,15 @@ const redirectMock = vi.hoisted(() => vi.fn((to: string) => {
 }));
 vi.mock('next/navigation', () => ({ redirect: redirectMock }));
 
+const sb = vi.hoisted(() => ({ client: null as unknown }));
+vi.mock('../../src/lib/supabase-server', () => ({
+  anonClient: () => {
+    if (!sb.client) throw new Error('Sign-in is not configured');
+    return sb.client;
+  },
+}));
+
+import { signSessionStart, startCookieName } from '../../src/lib/auth-cookies';
 import { demoSession } from '../../src/lib/demo-data';
 import { getSession, requireSession, resolveSession, type SessionClient } from '../../src/lib/session';
 
@@ -95,5 +104,36 @@ describe('getSession and requireSession', () => {
     vi.stubEnv('DEMO_MODE', '1');
     vi.stubEnv('NODE_ENV', 'development');
     expect(await requireSession()).toEqual(demoSession);
+  });
+});
+
+describe('getSession login-time cap', () => {
+  const SECRET = 'session-secret-0123456789-0123456789';
+  const nowS = () => Math.floor(Date.now() / 1000);
+  function setup(startValue: string | undefined) {
+    vi.stubEnv('DEMO_MODE', '');
+    vi.stubEnv('SESSION_SECRET', SECRET);
+    sb.client = client().c;
+    jar.get.mockImplementation((name: string) => {
+      if (name.endsWith('dp-at')) return { value: 'tok' };
+      if (name.endsWith('dp-st') && startValue) return { value: startValue };
+      return undefined;
+    });
+  }
+  afterEach(() => { sb.client = null; });
+  it('accepts a recent login for the same person', async () => {
+    setup(signSessionStart(SECRET, USER, nowS() - 29 * 86400));
+    expect((await getSession())?.userId).toBe(USER);
+  });
+  it('denies a login older than 30 days, a missing cookie, another person\'s cookie and a forged one', async () => {
+    for (const v of [signSessionStart(SECRET, USER, nowS() - 31 * 86400), undefined, signSessionStart(SECRET, 'someone-else', nowS()), signSessionStart('x'.repeat(40), USER, nowS())]) {
+      setup(v);
+      expect(await getSession()).toBeNull();
+    }
+  });
+  it('denies when the secret is missing', async () => {
+    setup(signSessionStart(SECRET, USER, nowS()));
+    vi.stubEnv('SESSION_SECRET', '');
+    expect(await getSession()).toBeNull();
   });
 });

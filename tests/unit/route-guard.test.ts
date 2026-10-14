@@ -1,13 +1,17 @@
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { accessCookieName, refreshCookieName } from '../../src/lib/auth-cookies';
+import { accessCookieName, refreshCookieName, signSessionStart, startCookieName } from '../../src/lib/auth-cookies';
+import { config } from '../../src/proxy';
 import { guardRequest, type GuardDeps } from '../../src/lib/route-guard';
 
 afterEach(() => vi.unstubAllEnvs());
 
 const NOW = 1_800_000_000;
 const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
-const deps = (refresh: GuardDeps['refresh'] = async () => null): GuardDeps => ({ nowSeconds: () => NOW, refresh });
+const SECRET = 'session-secret-0123456789-0123456789';
+const DAY = 86400;
+const deps = (refresh: GuardDeps['refresh'] = async () => null): GuardDeps => ({ nowSeconds: () => NOW, refresh, sessionSecret: () => SECRET });
+const start = (ageDays = 1, secret = SECRET) => ({ [startCookieName()]: signSessionStart(secret, 'user-1', NOW - ageDays * DAY) });
 
 function req(path: string, opts: { method?: string; cookies?: Record<string, string>; headers?: Record<string, string> } = {}) {
   const cookie = Object.entries(opts.cookies ?? {}).map(([k, v]) => `${k}=${v}`).join('; ');
@@ -38,25 +42,50 @@ describe('guardRequest', () => {
   });
   it('lets a request with a live access token through without calling Supabase', async () => {
     const refresh = vi.fn();
-    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: jwt(NOW + 3600) } }), deps(refresh));
+    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: jwt(NOW + 3600), ...start() } }), deps(refresh));
     expect(isNext(r)).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
   });
   it('refreshes an expired access token and sets fresh cookies', async () => {
     const refresh = vi.fn(async () => ({ access_token: jwt(NOW + 3600), refresh_token: 'rt2' }));
-    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: jwt(NOW - 10), [refreshCookieName()]: 'rt1' } }), deps(refresh));
+    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: jwt(NOW - 10), [refreshCookieName()]: 'rt1', ...start() } }), deps(refresh));
     expect(isNext(r)).toBe(true);
     expect(refresh).toHaveBeenCalledWith('rt1');
     const set = r.headers.getSetCookie().join(';');
     expect(set).toContain('rt2');
     expect(set).toMatch(/HttpOnly/i);
   });
-  it('redirects and clears cookies when the refresh fails or throws', async () => {
-    for (const refresh of [async () => null, async () => { throw new Error('keys missing'); }]) {
-      const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: 'junk', [refreshCookieName()]: 'rt1' } }), deps(refresh));
-      expect(loc(r)).toBe('/login');
-      expect(r.headers.getSetCookie().every((c) => /Max-Age=0/i.test(c))).toBe(true);
+  it('clears cookies when Supabase rejects the refresh token', async () => {
+    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: 'junk', [refreshCookieName()]: 'rt1', ...start() } }), deps(async () => null));
+    expect(loc(r)).toBe('/login');
+    expect(r.headers.getSetCookie().length).toBe(3);
+    expect(r.headers.getSetCookie().every((c) => /Max-Age=0/i.test(c))).toBe(true);
+  });
+  it('keeps cookies when the refresh fails for network or configuration reasons', async () => {
+    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: 'junk', [refreshCookieName()]: 'rt1', ...start() } }), deps(async () => { throw new Error('fetch failed'); }));
+    expect(loc(r)).toBe('/login');
+    expect(r.headers.getSetCookie()).toHaveLength(0);
+  });
+  it('enforces the 30 day cap from the original login, however fresh the tokens are', async () => {
+    const live = { [accessCookieName()]: jwt(NOW + 3600), [refreshCookieName()]: 'rt1' };
+    const refresh = vi.fn(async () => ({ access_token: jwt(NOW + 3600), refresh_token: 'rt2' }));
+    expect(isNext(await guardRequest(req('/', { cookies: { ...live, ...start(29) } }), deps(refresh)))).toBe(true);
+    const old = await guardRequest(req('/', { cookies: { ...live, ...start(31) } }), deps(refresh));
+    expect(loc(old)).toBe('/login');
+    expect(old.headers.getSetCookie().length).toBe(3);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+  it('rejects a missing, forged or wrongly signed login-time cookie', async () => {
+    const live = { [accessCookieName()]: jwt(NOW + 3600) };
+    for (const cookies of [live, { ...live, ...start(1, 'another-secret-0123456789-0123456789') }, { ...live, [startCookieName()]: `user-1.${NOW}.AAAA` }, { ...live, [startCookieName()]: `user-1.${NOW + 999999}.x` }]) {
+      expect(loc(await guardRequest(req('/', { cookies }), deps()))).toBe('/login');
     }
+  });
+  it('denies without clearing when the signing secret is missing', async () => {
+    const d = { ...deps(), sessionSecret: () => { throw new Error('nope'); } };
+    const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: jwt(NOW + 3600), ...start() } }), d);
+    expect(loc(r)).toBe('/login');
+    expect(r.headers.getSetCookie()).toHaveLength(0);
   });
   it('treats a garbage access token with no refresh token as signed out', async () => {
     const r = await guardRequest(req('/', { cookies: { [accessCookieName()]: 'not-a-jwt' } }), deps());
@@ -74,5 +103,18 @@ describe('guardRequest', () => {
     expect(isNext(await guardRequest(req('/customers'), deps()))).toBe(true);
     vi.stubEnv('VERCEL', '1');
     expect((await guardRequest(req('/customers'), deps())).status).toBe(307);
+  });
+});
+
+describe('proxy matcher', () => {
+  const [apiPattern, pagesPattern] = config.matcher as string[];
+  const pages = new RegExp(`^${pagesPattern}$`);
+  it('matches every /api path, whatever its extension', () => {
+    expect(apiPattern).toBe('/api/:path*');
+    for (const p of ['/api/x.png', '/api/customers.js', '/api/a/b.css']) expect(pages.test(p)).toBe(false); // covered by the api pattern instead
+  });
+  it('skips only framework assets and static files for pages', () => {
+    for (const p of ['/', '/customers', '/customers/abc', '/login', '/documents/new']) expect(pages.test(p)).toBe(true);
+    for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg', '/fonts/a.woff2']) expect(pages.test(p)).toBe(false);
   });
 });

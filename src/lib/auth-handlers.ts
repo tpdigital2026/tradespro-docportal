@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { redactSecrets } from '../db/env';
 import { hashEmail, requestCodeWithGuard, verifyWithGuard } from '../security/login-guard';
-import { accessCookieName, cookieOptions, refreshCookieName, SESSION_MAX_AGE_SECONDS } from './auth-cookies';
+import { accessCookieName, cookieOptions, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt } from './auth-cookies';
 import { getClientIp } from './client-ip';
 import { isSameOrigin } from './same-origin';
-import { anonClient, loginPepper, openGuardConnection, revokeSession, type GuardDb } from './supabase-server';
+import { anonClient, loginPepper, openGuardConnection, revokeByRefreshToken, revokeSession, type GuardDb } from './supabase-server';
 
 /** The slice of Supabase Auth the login routes use, so tests can stub it. */
 export interface AuthApi {
@@ -23,6 +23,11 @@ export interface AuthDeps {
   /** Every guarded response takes at least this long, so unknown and known emails look alike. */
   minDurationMs: number;
   revoke(accessToken: string): Promise<void>;
+  revokeByRefreshToken(refreshToken: string): Promise<void>;
+  /** Secret that signs the login-time cookie; throws when missing. */
+  sessionSecret(): string;
+  /** Runs work after the response has been sent (Next's after()). */
+  defer(task: () => Promise<void>): void;
 }
 
 export const realDeps: AuthDeps = {
@@ -31,6 +36,9 @@ export const realDeps: AuthDeps = {
   pepper: loginPepper,
   minDurationMs: 700,
   revoke: revokeSession,
+  revokeByRefreshToken,
+  sessionSecret,
+  defer: (task) => after(task),
 };
 
 // One fixed text per outcome. Nothing here varies with the email, its status or the lock state.
@@ -117,13 +125,17 @@ export async function handleRequestCode(req: Request, deps: AuthDeps = realDeps)
     await db?.end().catch(() => undefined);
   }
 
+  // The send is the one step that only happens for registered emails and takes network time, so it
+  // runs after the response. The awaited work (guard, profile lookup, floor) is the same either way.
   if (active) {
-    try {
-      const { error } = await auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-      if (error) logFailure('request-code send', error);
-    } catch (e) {
-      logFailure('request-code send', e);
-    }
+    deps.defer(async () => {
+      try {
+        const { error } = await auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+        if (error) logFailure('request-code send', error);
+      } catch (e) {
+        logFailure('request-code send', e);
+      }
+    });
   }
   return respond(json(200, true, MSG_SENT));
 }
@@ -142,15 +154,18 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
 
   let auth: AuthApi;
   let emailHash: string;
+  let secret: string;
   try {
     auth = deps.auth();
     emailHash = hashEmail(email, deps.pepper());
+    secret = deps.sessionSecret();
   } catch (e) {
     logFailure('verify config', e);
     return respond(json(503, false, MSG_BUSY));
   }
 
   let session: { access_token: string; refresh_token: string } | null = null;
+  let userId = '';
   let db: GuardDb | null = null;
   try {
     db = await deps.openDb();
@@ -163,8 +178,13 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
         if (error || !data?.session || !data.user) return false;
         // A valid code for a disabled or removed person is a failed login like any other.
         const p = await conn.query(`select 1 from public.profiles where id = $1 and disabled_at is null`, [data.user.id]);
-        if (p.rows.length === 0) return false;
+        if (p.rows.length === 0) {
+          // The code was valid, so Supabase made a session. End it; the caller only sees a failed login.
+          await deps.revoke(data.session.access_token).catch(() => undefined);
+          return false;
+        }
         session = data.session;
+        userId = data.user.id;
         return true;
       },
     });
@@ -180,15 +200,27 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   const res = json(200, true, 'Signed in.');
   res.cookies.set(accessCookieName(), s.access_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   res.cookies.set(refreshCookieName(), s.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
+  res.cookies.set(startCookieName(), signSessionStart(secret, userId, Math.floor(Date.now() / 1000)), cookieOptions(SESSION_MAX_AGE_SECONDS));
   return respond(res);
 }
 
-export async function handleLogout(req: Request, accessToken: string | undefined, deps: AuthDeps = realDeps): Promise<Response> {
+export async function handleLogout(
+  req: Request,
+  tokens: { access?: string; refresh?: string },
+  deps: AuthDeps = realDeps,
+): Promise<Response> {
   const forbidden = preflight(req);
   if (forbidden) return forbidden;
-  if (accessToken) await deps.revoke(accessToken);
+  try {
+    const exp = tokenExpiresAt(tokens.access);
+    const accessLive = Boolean(tokens.access) && exp !== null && exp > Date.now() / 1000;
+    if (tokens.access && accessLive) await deps.revoke(tokens.access);
+    else if (tokens.refresh) await deps.revokeByRefreshToken(tokens.refresh);
+  } catch {
+    /* best effort; the cookies are cleared either way */
+  }
   const res = NextResponse.redirect(new URL('/login', req.url), 303);
-  for (const name of [accessCookieName(), refreshCookieName()]) {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName()]) {
     res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
   }
   res.headers.set('Cache-Control', 'no-store');

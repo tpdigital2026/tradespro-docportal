@@ -65,3 +65,13 @@ export async function revokeSession(accessToken: string): Promise<void> {
     /* cookies are cleared regardless */
   }
 }
+
+/** Best-effort sign-out when only a refresh token is left (the access token has expired). Never throws. */
+export async function revokeByRefreshToken(refreshToken: string): Promise<void> {
+  try {
+    const { data } = await anonClient().auth.refreshSession({ refresh_token: refreshToken });
+    if (data.session) await revokeSession(data.session.access_token);
+  } catch {
+    /* cookies are cleared regardless */
+  }
+}

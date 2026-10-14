@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { accessCookieName } from './auth-cookies';
+import { accessCookieName, readSessionStart, sessionSecret, startCookieName } from './auth-cookies';
 import { isDemo } from './demo';
 import { demoSession } from './demo-data';
 import { anonClient } from './supabase-server';
@@ -67,12 +67,23 @@ export async function resolveSession(token: string | undefined, makeClient: (tok
 async function loadSession(): Promise<Session | null> {
   if (isDemo()) return demoSession;
   let token: string | undefined;
+  let start: string | undefined;
   try {
-    token = (await cookies()).get(accessCookieName())?.value;
+    const jar = await cookies();
+    token = jar.get(accessCookieName())?.value;
+    start = jar.get(startCookieName())?.value;
   } catch {
     return null;
   }
-  return resolveSession(token, (t) => anonClient(t) as unknown as SessionClient);
+  const session = await resolveSession(token, (t) => anonClient(t) as unknown as SessionClient);
+  if (!session) return null;
+  // Same 30 day cap as the proxy, bound to this person. Defence in depth: the proxy clears the cookies.
+  try {
+    if (readSessionStart(sessionSecret(), start, Math.floor(Date.now() / 1000)) !== session.userId) return null;
+  } catch {
+    return null;
+  }
+  return session;
 }
 
 /** One lookup per request, however many layouts and pages ask. */

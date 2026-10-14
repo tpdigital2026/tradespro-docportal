@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { accessCookieName, cookieOptions, refreshCookieName, SESSION_MAX_AGE_SECONDS, tokenExpiresAt } from './auth-cookies';
+import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, SESSION_MAX_AGE_SECONDS, startCookieName, tokenExpiresAt } from './auth-cookies';
 import { isDemo } from './demo';
 import { isSameOrigin, SAFE_METHODS } from './same-origin';
 
@@ -8,15 +8,18 @@ export interface Refreshed {
   refresh_token: string;
 }
 export interface GuardDeps {
+  /** Returns null only when Supabase rejected the refresh token. Network or config trouble must throw. */
   refresh(refreshToken: string): Promise<Refreshed | null>;
   nowSeconds(): number;
+  /** Throws when the signing secret is missing. */
+  sessionSecret(): string;
 }
 
 const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/');
 const REFRESH_SKEW_SECONDS = 30;
 
 function clearCookies(res: NextResponse) {
-  for (const name of [accessCookieName(), refreshCookieName()]) {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName()]) {
     res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
   }
   return res;
@@ -45,6 +48,18 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
 
   const access = req.cookies.get(accessCookieName())?.value;
   const refresh = req.cookies.get(refreshCookieName())?.value;
+
+  // The 30 day cap: the signed login-time cookie must be genuine and recent. Token refreshes never
+  // renew it, so a session ends 30 days after the email code was entered.
+  if (access || refresh) {
+    let secret: string;
+    try {
+      secret = deps.sessionSecret();
+    } catch {
+      return deny(req, false);
+    }
+    if (!readSessionStart(secret, req.cookies.get(startCookieName())?.value, deps.nowSeconds())) return deny(req, true);
+  }
   const exp = tokenExpiresAt(access);
   if (access && exp !== null && exp > deps.nowSeconds() + REFRESH_SKEW_SECONDS) return NextResponse.next();
   if (!refresh) return deny(req, Boolean(access));
@@ -53,7 +68,8 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
   try {
     fresh = await deps.refresh(refresh);
   } catch {
-    fresh = null;
+    // Network or configuration trouble: keep the cookies so the person is not logged out by an outage.
+    return deny(req, false);
   }
   if (!fresh) return deny(req, true);
 

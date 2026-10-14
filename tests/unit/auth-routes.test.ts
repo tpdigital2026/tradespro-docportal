@@ -11,10 +11,13 @@ vi.mock('../../src/security/login-guard', async (orig) => ({
 }));
 
 import { handleLogout, handleRequestCode, handleVerify, type AuthApi, type AuthDeps } from '../../src/lib/auth-handlers';
+import { readSessionStart } from '../../src/lib/auth-cookies';
 import { getClientIp } from '../../src/lib/client-ip';
 
 const PEPPER = 'test-pepper-0123456789-0123456789';
 const ORIGIN = 'https://app.example.test';
+const SECRET = 'session-secret-0123456789-0123456789';
+const deferred: Array<Promise<void>> = [];
 
 function makeDb(activeEmails: string[], activeIds: string[] = []) {
   return {
@@ -36,7 +39,15 @@ function makeAuth(over: Record<string, unknown> = {}) {
 }
 
 function deps(db: ReturnType<typeof makeDb>, auth: AuthApi, over: Partial<AuthDeps> = {}): AuthDeps {
-  return { openDb: async () => db as never, auth: () => auth, pepper: () => PEPPER, minDurationMs: 0, revoke: vi.fn(async () => undefined), ...over };
+  return { openDb: async () => db as never, auth: () => auth, pepper: () => PEPPER, minDurationMs: 0,
+    revoke: vi.fn(async () => undefined),
+    revokeByRefreshToken: vi.fn(async () => undefined),
+    sessionSecret: () => SECRET,
+    defer: (task) => {
+      deferred.push(task());
+    },
+    ...over,
+  };
 }
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {
@@ -52,6 +63,7 @@ async function snap(res: Response) {
 }
 
 beforeEach(() => {
+  deferred.length = 0;
   guard.request.mockReset().mockResolvedValue({ outcome: 'allowed' });
   guard.verify.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -76,6 +88,7 @@ describe('request-code', () => {
     await handleRequestCode(post('/api/auth/request-code', { email: 'nobody@example.com' }), deps(db, auth));
     expect(auth.signInWithOtp).not.toHaveBeenCalled();
     await handleRequestCode(post('/api/auth/request-code', { email: '  Ben@Example.com ' }), deps(db, auth));
+    await Promise.all(deferred);
     expect(auth.signInWithOtp).toHaveBeenCalledWith({ email: 'ben@example.com', options: { shouldCreateUser: false } });
   });
 
@@ -92,6 +105,35 @@ describe('request-code', () => {
     const auth = makeAuth({ signInWithOtp: vi.fn(async () => ({ error: new Error('rate limited') })) });
     const res = await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), deps(db, auth));
     expect(res.status).toBe(200);
+    await Promise.all(deferred);
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('response time does not depend on registration: the slow send runs after the response', async () => {
+    const db = makeDb(['ben@example.com']);
+    const slow = makeAuth({ signInWithOtp: vi.fn(() => new Promise((r) => setTimeout(() => r({ error: null }), 300))) });
+    const time = async (email: string) => {
+      const t = Date.now();
+      const res = await handleRequestCode(post('/api/auth/request-code', { email }), deps(db, slow, { minDurationMs: 30 }));
+      expect(res.status).toBe(200);
+      return Date.now() - t;
+    };
+    const known = await time('ben@example.com');
+    const unknown = await time('nobody@example.com');
+    expect(known).toBeLessThan(200);
+    expect(Math.abs(known - unknown)).toBeLessThan(100);
+    expect(slow.signInWithOtp).toHaveBeenCalledTimes(1);
+    await Promise.all(deferred);
+    expect(deferred).toHaveLength(1);
+  });
+
+  it('logs a failed deferred send by name only', async () => {
+    const db = makeDb(['ben@example.com']);
+    const slow = makeAuth({ signInWithOtp: vi.fn(async () => { throw new Error('boom secret@example.com'); }) });
+    await handleRequestCode(post('/api/auth/request-code', { email: 'ben@example.com' }), deps(db, slow));
+    await Promise.all(deferred);
+    const logged = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join();
+    expect(logged).toContain('request-code send');
   });
 
   it('maps a blocked decision to one rate limit answer for every email', async () => {
@@ -203,7 +245,7 @@ describe('verify', () => {
     const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth));
     expect(res.status).toBe(200);
     const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
+    expect(cookies).toHaveLength(3);
     for (const c of cookies) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=lax/i);
@@ -212,15 +254,28 @@ describe('verify', () => {
     }
     expect(cookies.join(';')).toContain('at.value.x');
     expect(auth.verifyOtp).toHaveBeenCalledWith({ email: 'ben@example.com', token: '123456', type: 'email' });
+    const start = cookies.find((c) => c.includes('dp-st='))!;
+    const value = decodeURIComponent(start.split(';')[0].split('=').slice(1).join('='));
+    expect(readSessionStart(SECRET, value, Math.floor(Date.now() / 1000))).toBe('user-1');
+  });
+
+  it('fails generically when the session secret is missing', async () => {
+    const res = await handleVerify(
+      post('/api/auth/verify', { email: 'a@example.com', code: '123456' }),
+      deps(makeDb([]), makeAuth(), { sessionSecret: () => { throw new Error('Sign-in is not configured'); } }),
+    );
+    expect(res.status).toBe(503);
   });
 
   it('treats a valid code for a disabled or removed person as a failed login with no cookies', async () => {
     const db = makeDb([], []);
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'gone' } }, error: null })) });
     runGuard('real');
-    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth));
+    const d = deps(db, auth);
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), d);
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(0);
+    expect(d.revoke).toHaveBeenCalledWith('at.value.x');
   });
 
   it.each([['LOGIN_GUARD_BUSY'], ['55P03']])('maps %s to a generic try again response', async (code) => {
@@ -251,21 +306,40 @@ describe('verify', () => {
 });
 
 describe('logout', () => {
-  it('clears both cookies, revokes the session and redirects to /login', async () => {
-    const revoke = vi.fn(async () => undefined);
-    const req = new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin: ORIGIN } });
-    const res = await handleLogout(req, 'tok', deps(makeDb([]), makeAuth(), { revoke }));
+  const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
+  const logoutReq = (origin = ORIGIN) => new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin } });
+
+  it('clears all session cookies, revokes a live access token and redirects to /login', async () => {
+    const d = deps(makeDb([]), makeAuth());
+    const live = jwt(Math.floor(Date.now() / 1000) + 600);
+    const res = await handleLogout(logoutReq(), { access: live, refresh: 'rt' }, d);
     expect(res.status).toBe(303);
     expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
     const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
+    expect(cookies).toHaveLength(3);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/i);
-    expect(revoke).toHaveBeenCalledWith('tok');
+    expect(d.revoke).toHaveBeenCalledWith(live);
+    expect(d.revokeByRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('revokes through the refresh token when the access token has expired or is gone', async () => {
+    const d = deps(makeDb([]), makeAuth());
+    await handleLogout(logoutReq(), { access: jwt(1), refresh: 'rt' }, d);
+    await handleLogout(logoutReq(), { refresh: 'rt2' }, d);
+    expect(d.revokeByRefreshToken).toHaveBeenCalledWith('rt');
+    expect(d.revokeByRefreshToken).toHaveBeenCalledWith('rt2');
+    expect(d.revoke).not.toHaveBeenCalled();
+  });
+
+  it('clears cookies even when revoking throws', async () => {
+    const d = deps(makeDb([]), makeAuth(), { revokeByRefreshToken: async () => { throw new Error('down'); } });
+    const res = await handleLogout(logoutReq(), { refresh: 'rt' }, d);
+    expect(res.status).toBe(303);
+    expect(res.headers.getSetCookie()).toHaveLength(3);
   });
 
   it('refuses cross-origin logout', async () => {
-    const req = new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin: 'https://evil.test' } });
-    expect((await handleLogout(req, 'tok', deps(makeDb([]), makeAuth()))).status).toBe(403);
+    expect((await handleLogout(logoutReq('https://evil.test'), { access: 'tok' }, deps(makeDb([]), makeAuth()))).status).toBe(403);
   });
 });
 
