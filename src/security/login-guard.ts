@@ -4,7 +4,6 @@ import { isIP } from 'node:net';
 // Retention: old login_attempts rows are purged by the purge migration in a later task
 // (private.purge_old_login_attempts); nothing here deletes rows.
 
-
 export const WINDOW_MS = 15 * 60 * 1000;
 export const MAX_FAILURES = 5;
 export const MAX_CODE_REQUESTS = 5;
@@ -95,10 +94,17 @@ export function normaliseIp(raw: string | null | undefined): string {
   const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(v);
   if (bracketed) v = bracketed[1];
   else if (/^[^:]+:\d+$/.test(v)) v = v.slice(0, v.lastIndexOf(':'));
+  v = v.split('%')[0].toLowerCase();
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v);
+  if (mapped) v = mapped[1];
   return isIP(v) ? v : UNKNOWN_IP;
 }
 
-/** Must be a single connection (a pg Client, or a PoolClient from pool.connect()), never a pool. */
+/**
+ * Must be a dedicated single connection (a pg Client, or a PoolClient from pool.connect()), never a
+ * pool. The guards compare pg_backend_pid() as a best-effort tripwire for pool misuse; it is not
+ * deterministic proof, so the real requirement is that the caller passes a dedicated connection.
+ */
 export type Db = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> };
 
 export async function recordAttempt(
@@ -152,12 +158,20 @@ async function inGuardTransaction<T>(db: Db, input: GuardInput, fn: () => Promis
   const own = !input.callerOwnsTransaction;
   if (own) await db.query('begin');
   try {
+    if (own) await db.query(`set local lock_timeout = '5s'`);
     const pid = async () => (await db.query('select pg_backend_pid() as pid')).rows[0].pid;
     const check = async () => {
       if (own && (await pid()) !== pid1) throw new Error('login guard requires a dedicated database connection, not a pool');
     };
     const pid1 = own ? await pid() : null;
-    await db.query('select pg_advisory_xact_lock(hashtext($1))', [input.emailHash]);
+    try {
+      await db.query('select pg_advisory_xact_lock(hashtext($1))', [input.emailHash]);
+    } catch (e) {
+      if ((e as { code?: string }).code === '55P03') {
+        throw Object.assign(new Error('Too many simultaneous attempts, please try again'), { code: 'LOGIN_GUARD_BUSY' });
+      }
+      throw e;
+    }
     await check();
     const result = await fn();
     await check();

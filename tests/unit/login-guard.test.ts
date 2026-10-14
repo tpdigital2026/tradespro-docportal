@@ -163,6 +163,13 @@ describe('normaliseIp', () => {
     ['[2001:db8::1]:4433', '2001:db8::1'],
     ['[::1]:5678', '::1'],
     ['203.0.113.5, 10.0.0.1', '203.0.113.5'],
+    ['fe80::1%eth0', 'fe80::1'],
+    ['::ffff:1.2.3.4', '1.2.3.4'],
+    ['::FFFF:1.2.3.4', '1.2.3.4'],
+    ['2001:DB8::ABCD', '2001:db8::abcd'],
+    ['[::1]', '::1'],
+    ['  203.0.113.5  ,  10.0.0.1 ', '203.0.113.5'],
+    ['::1', '::1'],
     ['not-an-ip', '0.0.0.0'],
     ['', '0.0.0.0'],
     [null, '0.0.0.0'],
@@ -185,5 +192,30 @@ describe('connection guard', () => {
     await expect(verifyWithGuard(fake, { emailHash: 'a'.repeat(64), ip: '203.0.113.5', checkCode })).rejects.toThrow(/dedicated database connection/);
     expect(checkCode).not.toHaveBeenCalled();
     await expect(requestCodeWithGuard(fake, { emailHash: 'a'.repeat(64), ip: '203.0.113.5' })).rejects.toThrow(/dedicated database connection/);
+  });
+});
+
+describe('lock wait bound', () => {
+  it('sets lock_timeout before the lock and reports LOGIN_GUARD_BUSY on 55P03 without running checkCode', async () => {
+    const statements: string[] = [];
+    const fake = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql.includes('pg_advisory_xact_lock')) throw Object.assign(new Error('lock timeout'), { code: '55P03' });
+        if (sql.includes('pg_backend_pid')) return { rows: [{ pid: 1 }] };
+        return { rows: [] };
+      },
+    };
+    const checkCode = vi.fn(async () => true);
+    await expect(verifyWithGuard(fake, { emailHash: 'a'.repeat(64), ip: '203.0.113.5', checkCode })).rejects.toMatchObject({
+      code: 'LOGIN_GUARD_BUSY',
+      message: 'Too many simultaneous attempts, please try again',
+    });
+    expect(checkCode).not.toHaveBeenCalled();
+    const timeout = statements.findIndex((q) => q.includes('lock_timeout'));
+    const lock = statements.findIndex((q) => q.includes('pg_advisory_xact_lock'));
+    expect(timeout).toBeGreaterThan(0);
+    expect(timeout).toBeLessThan(lock);
+    expect(statements.at(-1)).toBe('rollback');
   });
 });
