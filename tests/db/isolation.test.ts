@@ -67,10 +67,11 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       await expectFail(c, `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-NEW-999')`, [b.tenantId, b.customerId], rls);
       await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RC-999')`, [b.tenantId, b.jobId], rls);
       await expectFail(c, `insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 2)`, [b.tenantId, b.docId], rls);
-      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, 'x.jpg')`, [b.tenantId, b.jobId], rls);
+      // Since 002b the app role cannot insert photos at all (the server does it), so this is a privilege error.
+      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $1::uuid::text || '/x.jpg')`, [b.tenantId, b.jobId], /permission denied/i);
       await expectFail(c, `insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'evil', now())`, [b.tenantId, b.docId], rls);
       await expectFail(c, `insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [b.tenantId, b.docId], rls);
-      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', 'x.png')`, [b.tenantId, b.kitId], rls);
+      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', $1::uuid::text || '/x.png')`, [b.tenantId, b.kitId], rls);
       await expectFail(c, `insert into public.job_types (tenant_id, key, label) values ($1, 'evil', 'Evil')`, [b.tenantId], rls);
       await expectFail(c, `insert into public.used_numbers (tenant_id, number) values ($1, 'QT-EVIL-1')`, [b.tenantId], rls);
     });
@@ -83,9 +84,9 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       await actAs(c, a.userId);
       const updates: [string, string][] = [
         [`update public.jobs set status = 'paid' where tenant_id = $1`, b.tenantId],
-        [`update public.documents set status = 'void' where tenant_id = $1`, b.tenantId],
+        [`update public.documents set doc_date = current_date where tenant_id = $1`, b.tenantId],
         [`update public.document_versions set input = '{"x":1}' where tenant_id = $1`, b.tenantId],
-        [`update public.job_photos set storage_path = 'x' where tenant_id = $1`, b.tenantId],
+        [`update public.job_photos set finding_ref = 'x' where tenant_id = $1`, b.tenantId],
         [`update public.share_links set revoked_at = now() where tenant_id = $1`, b.tenantId],
         [`update public.document_emails set subject = 'x' where tenant_id = $1`, b.tenantId],
         [`update public.brand_kits set theme_key = 'x' where tenant_id = $1`, b.tenantId],
@@ -111,7 +112,7 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       const b = await seedTenant(c, 'Bravo');
       await actAs(c, a.userId);
       await c.query('savepoint s1');
-      await expect(c.query(`update public.customers set tenant_id = $1 where id = $2`, [b.tenantId, a.customerId])).rejects.toThrow(/row-level security|violates/i);
+      await expect(c.query(`update public.customers set tenant_id = $1 where id = $2`, [b.tenantId, a.customerId])).rejects.toThrow(/row-level security|violates|permission denied/i); // 002b: tenant_id is not an updatable column
     });
   });
 
@@ -120,9 +121,14 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       const a = await seedTenant(c, 'Alpha');
       const b = await seedTenant(c, 'Bravo');
       await actAs(c, a.userId);
-      // Row level security is checked before the (after-row) foreign key checks, so the error must be the policy.
-      for (const t of ['customers', 'jobs', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'brand_kits', 'brand_assets', 'job_types', 'tenant_defaults']) {
+      // Tables with table-level update: row level security is checked before the (after-row) foreign key
+      // checks, so the error must be the policy.
+      for (const t of ['brand_kits', 'brand_assets', 'job_types', 'tenant_defaults']) {
         await expectFail(c, `update public.${t} set tenant_id = $1 where tenant_id = $2`, [b.tenantId, a.tenantId], /row-level security/i);
+      }
+      // Tables with column-level update grants (002b): tenant_id is not updatable at all.
+      for (const t of ['customers', 'jobs', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails']) {
+        await expectFail(c, `update public.${t} set tenant_id = $1 where tenant_id = $2`, [b.tenantId, a.tenantId], /permission denied/i);
       }
     });
   });
@@ -137,16 +143,22 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RC-777')`, [a.tenantId, b.jobId], fk);
       await expectFail(c, `insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 7)`, [a.tenantId, b.docId], fk);
       await expectFail(c, `insert into public.document_versions (tenant_id, document_id, version, bank_account_id) values ($1, $2, 7, $3)`, [a.tenantId, a.docId, b.bankAccountId], fk);
-      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, 'x.jpg')`, [a.tenantId, b.jobId], fk);
+      // 002b: the app role cannot insert photos; the composite key is proved below on the server connection.
+      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $1::uuid::text || '/x.jpg')`, [a.tenantId, b.jobId], /permission denied/i);
       await expectFail(c, `insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'h777', now())`, [a.tenantId, b.docId], fk);
       await expectFail(c, `insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [a.tenantId, b.docId], fk);
-      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', 'x.png')`, [a.tenantId, b.kitId], fk);
+      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', $1::uuid::text || '/x.png')`, [a.tenantId, b.kitId], fk);
       await expectFail(c, `insert into public.job_types (tenant_id, key, label, cover_asset_id) values ($1, 'stolen', 'Stolen', $2)`, [a.tenantId, b.assetId], fk);
-      await expectFail(c, `update public.jobs set customer_id = $1 where id = $2`, [b.customerId, a.jobId], fk);
+      // 002b: customer_id is not updatable by the app role; the composite key is proved below on the server connection.
+      await expectFail(c, `update public.jobs set customer_id = $1 where id = $2`, [b.customerId, a.jobId], /permission denied/i);
       await expectFail(c, `update public.document_versions set bank_account_id = $1 where id = $2`, [b.bankAccountId, a.versionId], fk);
       // current_version_id is deferrable initially deferred: make it check now.
       await c.query('set constraints all immediate');
       await expectFail(c, `update public.documents set current_version_id = $1 where id = $2`, [b.versionId, a.docId], fk);
+      // The same composite keys hold for the server, which bypasses row level security.
+      await actAsServer(c);
+      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $1::uuid::text || '/x.jpg')`, [a.tenantId, b.jobId], fk);
+      await expectFail(c, `update public.jobs set customer_id = $1 where id = $2`, [b.customerId, a.jobId], fk);
     });
   });
 
@@ -269,7 +281,7 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       await c.query(`delete from public.tenant_defaults where tenant_id = $1`, [a.tenantId]);
       await c.query(`delete from public.brand_kits where tenant_id = $1`, [a.tenantId]);
       const kit = await c.query(`insert into public.brand_kits (tenant_id) values ($1) returning id`, [a.tenantId]);
-      await c.query(`insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', 'b.png')`, [a.tenantId, kit.rows[0].id]);
+      await c.query(`insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', $1::uuid::text || '/b.png')`, [a.tenantId, kit.rows[0].id]);
       await c.query(`update public.profiles set role = 'staff' where id = $1`, [a.userId]);
       await actAs(c, a.userId);
       const rls = /row-level security/i;
@@ -280,7 +292,7 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       }
       await expectFail(c, `insert into public.tenant_defaults (tenant_id) values ($1)`, [a.tenantId], rls);
       await expectFail(c, `insert into public.job_types (tenant_id, key, label) values ($1, 'pitched', 'Pitched')`, [a.tenantId], rls);
-      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', 'x.png')`, [a.tenantId, kit.rows[0].id], rls);
+      await expectFail(c, `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, 'badge', $1::uuid::text || '/x.png')`, [a.tenantId, kit.rows[0].id], rls);
       for (const sql of [
         `update public.brand_kits set theme_key = 'x' where tenant_id = $1`,
         `update public.brand_assets set alt = 'x' where tenant_id = $1`,

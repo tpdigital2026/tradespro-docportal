@@ -28,9 +28,10 @@ export async function actAs(c: Client, userId: string): Promise<void> {
   await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: userId, role: 'authenticated' })]);
 }
 
-/** Back to the connection's own role (bypasses row level security, like the server). */
+/** Back to the connection's own role (bypasses row level security, like the server), with no app JWT claims. */
 export async function actAsServer(c: Client): Promise<void> {
   await c.query('reset role');
+  await c.query(`select set_config('request.jwt.claims', '', true)`);
 }
 
 export async function createTenantWithUser(c: Client, name: string): Promise<{ tenantId: string; userId: string }> {
