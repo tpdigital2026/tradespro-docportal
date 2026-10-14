@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '../Button';
 import { Field } from '../Field';
 import { deleteCustomerAction } from '../../app/(app)/customers/actions';
+import { OTP_LENGTH } from '../../lib/otp';
 
 type Phase = 'idle' | 'confirm' | 'code-email' | 'code-entry' | 'deleting';
 
@@ -103,19 +104,19 @@ export function DeleteCustomer({ customerId, customerName, ownerEmail }: { custo
           <Field
             id="stepup-code"
             name="code"
-            label="6 digit code"
+            label={`${OTP_LENGTH} digit code`}
             hint={`Sent to ${ownerEmail}`}
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            maxLength={6}
+            maxLength={OTP_LENGTH}
             required
             autoFocus
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
             error={error || undefined}
           />
-          <Button type="submit" variant="secondary" className="btn-block-sm" disabled={busy || code.length !== 6}>{busy ? 'Checking' : 'Confirm and delete'}</Button>
+          <Button type="submit" variant="secondary" className="btn-block-sm" disabled={busy || code.length !== OTP_LENGTH}>{busy ? 'Checking' : 'Confirm and delete'}</Button>
           <button type="button" className="linklike" onClick={() => { setPhase('idle'); setCode(''); setError(''); }}>Keep this customer</button>
         </form>
       ) : null}

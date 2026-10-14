@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashEmail, requestCodeWithGuard, verifyWithGuard } from '../security/login-guard';
 import { accessCookieName, cookieOptions, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt, tokenSessionId } from './auth-cookies';
+import { OTP_PATTERN } from './otp';
 import { getClientIp } from './client-ip';
 import { isSameOrigin } from './same-origin';
 import { anonClient, loginPepper, openGuardConnection, revokeByRefreshToken, revokeSession, type GuardDb } from './supabase-server';
@@ -154,7 +155,7 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   const started = Date.now();
   const respond = (res: Response) => atLeast(started, deps.minDurationMs, res);
   // A malformed code gets the same answer as a wrong one and never reaches the guard or Supabase.
-  if (!/^\d{6}$/.test(code)) return respond(json(401, false, MSG_BAD_CODE));
+  if (!OTP_PATTERN.test(code)) return respond(json(401, false, MSG_BAD_CODE));
 
   let auth: AuthApi;
   let emailHash: string;

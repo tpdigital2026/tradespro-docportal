@@ -12,6 +12,7 @@ vi.mock('../../src/security/login-guard', async (orig) => ({
 
 import { handleLogout, handleRequestCode, handleVerify, type AuthApi, type AuthDeps } from '../../src/lib/auth-handlers';
 import { readSessionStart } from '../../src/lib/auth-cookies';
+import { OTP_LENGTH } from '../../src/lib/otp';
 import { getClientIp } from '../../src/lib/client-ip';
 
 const PEPPER = 'test-pepper-0123456789-0123456789';
@@ -241,11 +242,11 @@ describe('verify', () => {
     const db = makeDb([], []);
     const auth = makeAuth();
     runGuard('wrong_code');
-    const wrong = await snap(await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth)));
+    const wrong = await snap(await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(db, auth)));
     runGuard('blocked');
-    const locked = await snap(await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth)));
+    const locked = await snap(await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(db, auth)));
     runGuard('real');
-    const unknown = await snap(await handleVerify(post('/api/auth/verify', { email: 'nobody@example.com', code: '123456' }), deps(db, auth)));
+    const unknown = await snap(await handleVerify(post('/api/auth/verify', { email: 'nobody@example.com', code: '12345678' }), deps(db, auth)));
     const malformed = await snap(await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: 'abc' }), deps(db, auth)));
     expect(locked).toEqual(wrong);
     expect(unknown).toEqual(wrong);
@@ -258,10 +259,10 @@ describe('verify', () => {
     const db = makeDb([]);
     const auth = makeAuth();
     runGuard('wrong_code');
-    await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '12345' }), deps(db, auth));
+    await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '1234567' }), deps(db, auth));
     expect(guard.verify).not.toHaveBeenCalled();
     expect(auth.verifyOtp).not.toHaveBeenCalled();
-    await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '123456' }, { 'x-forwarded-for': '6.6.6.6' }), deps(db, auth));
+    await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '12345678' }, { 'x-forwarded-for': '6.6.6.6' }), deps(db, auth));
     expect(guard.verify.mock.calls[0][0]).toBe(db);
     expect(guard.verify.mock.calls[0][1].ip).toBe('203.0.113.9');
     expect(db.end).toHaveBeenCalled();
@@ -271,7 +272,7 @@ describe('verify', () => {
     const db = makeDb([], ['user-1']);
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
     runGuard('real');
-    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth));
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(db, auth));
     expect(res.status).toBe(200);
     const cookies = res.headers.getSetCookie();
     expect(cookies).toHaveLength(3);
@@ -282,7 +283,7 @@ describe('verify', () => {
       expect(c).toMatch(/Path=\//);
     }
     expect(cookies.join(';')).toContain(AT);
-    expect(auth.verifyOtp).toHaveBeenCalledWith({ email: 'ben@example.com', token: '123456', type: 'email' });
+    expect(auth.verifyOtp).toHaveBeenCalledWith({ email: 'ben@example.com', token: '12345678', type: 'email' });
     const start = cookies.find((c) => c.includes('dp-st='))!;
     const value = decodeURIComponent(start.split(';')[0].split('=').slice(1).join('='));
     expect(readSessionStart(SECRET, value, Math.floor(Date.now() / 1000))).toEqual({ userId: 'user-1', sessionId: 'sess-1' });
@@ -290,7 +291,7 @@ describe('verify', () => {
 
   it('fails generically when the session secret is missing', async () => {
     const res = await handleVerify(
-      post('/api/auth/verify', { email: 'a@example.com', code: '123456' }),
+      post('/api/auth/verify', { email: 'a@example.com', code: '12345678' }),
       deps(makeDb([]), makeAuth(), { sessionSecret: () => { throw new Error('Sign-in is not configured'); } }),
     );
     expect(res.status).toBe(503);
@@ -301,31 +302,43 @@ describe('verify', () => {
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'gone' } }, error: null })) });
     runGuard('real');
     const d = deps(db, auth);
-    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), d);
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), d);
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(0);
     expect(d.revoke).toHaveBeenCalledWith(AT);
+  });
+
+  it.each(['123456', '1234567', '123456789', '1234567a', ''])('treats a code of the wrong shape (%s) like a wrong code and never calls the guard', async (code) => {
+    const res = await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code }), deps(makeDb([]), makeAuth()));
+    expect(res.status).toBe(401);
+    expect(guard.verify).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly OTP_LENGTH digits', async () => {
+    runGuard('wrong_code');
+    await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '1'.repeat(OTP_LENGTH) }), deps(makeDb([]), makeAuth()));
+    expect(guard.verify).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed when the issued token has no session_id', async () => {
     const db = makeDb([], ['user-1']);
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session: { access_token: 'a.b.c', refresh_token: 'r' }, user: { id: 'user-1' } }, error: null })) });
     runGuard('real');
-    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '123456' }), deps(db, auth));
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(db, auth));
     expect(res.status).toBe(401);
     expect(res.headers.getSetCookie()).toHaveLength(0);
   });
 
   it.each([['LOGIN_GUARD_BUSY'], ['55P03']])('maps %s to a generic try again response', async (code) => {
     guard.verify.mockRejectedValue(Object.assign(new Error('x'), { code }));
-    const res = await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '123456' }), deps(makeDb([]), makeAuth()));
+    const res = await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '12345678' }), deps(makeDb([]), makeAuth()));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ ok: false, message: 'Please try again shortly.' });
   });
 
   it('fails generically, without leaking, when the keys are missing', async () => {
     const res = await handleVerify(
-      post('/api/auth/verify', { email: 'a@example.com', code: '123456' }),
+      post('/api/auth/verify', { email: 'a@example.com', code: '12345678' }),
       deps(makeDb([]), makeAuth(), {
         auth: () => {
           throw new Error('Sign-in is not configured');
@@ -337,7 +350,7 @@ describe('verify', () => {
   });
 
   it('rejects cross-origin requests before doing any work', async () => {
-    const res = await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '123456' }, { origin: 'https://evil.test' }), deps(makeDb([]), makeAuth()));
+    const res = await handleVerify(post('/api/auth/verify', { email: 'a@example.com', code: '12345678' }, { origin: 'https://evil.test' }), deps(makeDb([]), makeAuth()));
     expect(res.status).toBe(403);
     expect(guard.verify).not.toHaveBeenCalled();
   });

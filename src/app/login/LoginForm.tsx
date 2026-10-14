@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
+import { OTP_LENGTH, OTP_PLACEHOLDER } from '../../lib/otp';
 import { LOGIN_WINDOW_MINUTES, LOGIN_WINDOW_MS } from '../../lib/login-window';
 
 type Step = 'email' | 'code';
@@ -38,6 +39,11 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
   const [step, setStep] = useState<Step>(preview?.step ?? 'email');
   const [email, setEmail] = useState(preview ? 'owner@example.com' : '');
   const [code, setCode] = useState('');
+  // The address the code went to, fixed at send time so later edits to the field never change the line.
+  const [sentTo, setSentTo] = useState(preview ? 'owner@example.com' : '');
+  // Typing before hydration is lost when React takes over the field, so the field stays read-only until then.
+  const [ready, setReady] = useState(Boolean(preview));
+  useEffect(() => setReady(true), []);
   const [error, setError] = useState(preview?.error ?? '');
   const [locked, setLocked] = useState(preview?.locked ?? false);
   const [notice, setNotice] = useState(preview?.step === 'code' ? SENT_TEXT : '');
@@ -80,14 +86,20 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
     if (busy || preview) return;
     setBusy(true);
     setError('');
-    const r = await post('/api/auth/request-code', { email });
+    const address = email.trim();
+    const r = await post('/api/auth/request-code', { email: address });
     setBusy(false);
     if (r.status === 429) {
       setLocked(true);
+      setNotice('');
       return setError(LOCKED_TEXT);
     }
-    if (!r.ok) return setError(r.message);
+    if (!r.ok) {
+      setNotice('');
+      return setError(r.message);
+    }
     // The same wording whether or not the address is registered.
+    setSentTo(address);
     setNotice(r.message);
     setWait(RESEND_SECONDS);
     moved.current = true;
@@ -99,12 +111,13 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
     if (busy || preview) return;
     setBusy(true);
     setError('');
-    const r = await post('/api/auth/verify', { email, code });
+    const r = await post('/api/auth/verify', { email: sentTo, code });
     if (!r.ok) {
       // The server answers a wrong code and a lock the same way, so there is nothing to tell apart here.
       setBusy(false);
       setCode('');
       codeRef.current?.focus();
+      setNotice('');
       return setError(r.message);
     }
     window.location.assign('/');
@@ -128,7 +141,7 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
           <span className="muted">{isEmail ? 'Welcome back.' : 'Check your email.'}</span>
           {isEmail ? 'Sign in' : 'Enter your code'}
         </h1>
-        <p className="lede">{isEmail ? 'We email you a 6 digit code. No password to remember.' : `We sent a 6 digit code to ${email}.`}</p>
+        <p className="lede">{isEmail ? 'We email you a sign-in code. No password to remember.' : `We sent an ${OTP_LENGTH} digit code to ${sentTo}.`}</p>
       </div>
       <form className="login-form" onSubmit={isEmail ? sendCode : verify} noValidate>
         {isEmail ? (
@@ -144,6 +157,7 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
             autoCapitalize="none"
             spellCheck={false}
             required
+            readOnly={!ready}
             value={email}
             onChange={(e) => {
               clearLock();
@@ -155,20 +169,20 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
             key="code"
             ref={codeRef}
             id="code"
-            label="6 digit code"
+            label={`${OTP_LENGTH} digit code`}
             name="code"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            maxLength={6}
-            placeholder="000000"
+            maxLength={OTP_LENGTH}
+            placeholder={OTP_PLACEHOLDER}
             className="code-input"
             required
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
           />
         )}
-        <Button type="submit" disabled={busy || locked || (isEmail ? email.trim().length === 0 : code.length !== 6)}>
+        <Button type="submit" disabled={busy || locked || (isEmail ? email.trim().length === 0 : code.length !== OTP_LENGTH)}>
           {isEmail ? (busy ? 'Sending' : 'Email me a code') : busy ? 'Checking' : 'Sign in'}
         </Button>
         {/* Two regions that stay mounted across both steps, so announcements are never lost to a remount. */}
