@@ -14,6 +14,8 @@ const groups: { label: string; items: Item[] }[] = [
     items: [
       { type: 'deposit-invoice', name: 'Deposit invoice', blurb: 'Ask for the deposit before work begins.' },
       { type: 'balance-invoice', name: 'Balance invoice', blurb: 'Bill what remains once the job is done.' },
+      { type: 'invoice-full', name: 'Full invoice', blurb: 'Bill the whole job at once, no deposit.' },
+      { type: 'invoice-stage', name: 'Stage invoice', blurb: 'Bill one stage of a job paid in stages.' },
       { type: 'receipt', name: 'Receipt', blurb: 'Confirm a payment you have received.' },
     ],
   },

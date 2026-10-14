@@ -59,6 +59,7 @@
   --tick-h: 4px;
   --tick-h-now: 8px;
   --tick-gap: 3px;
+  --tick-gap-dense: 2px;
   --stage-w: 12rem;
   --job-action-w: 17rem;
   --form-w: 28rem;

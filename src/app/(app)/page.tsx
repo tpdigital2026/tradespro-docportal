@@ -1,20 +1,12 @@
 import Link from 'next/link';
 import { DocTypeList } from '../../components/DocTypeList';
 import { JobRow, type Job } from '../../components/JobRow';
-import { demoJobs, demoRecentDocs, type DemoRecentDoc } from '../../lib/demo-data';
+import { demoRecentDocs, type DemoRecentDoc } from '../../lib/demo-data';
 import { isDemo } from '../../lib/demo';
-import { byUrgency, type DocType } from '../../lib/job-stage';
+import { byUrgency, DOC_TYPE_NAMES } from '../../lib/job-stage';
+import { listJobSummaries } from '../../lib/data/billing';
 import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
 import { requireSession } from '../../lib/session';
-
-const TYPE_NAMES: Record<DocType, string> = {
-  quotation: 'Quotation',
-  'deposit-invoice': 'Deposit invoice',
-  'balance-invoice': 'Balance invoice',
-  receipt: 'Receipt',
-  guarantee: 'Guarantee certificate',
-  survey: 'Survey report',
-};
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
@@ -30,8 +22,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     drafts = [];
   }
   const demo = isDemo();
-  // Real job and document reads arrive with the data layer; until then only demo mode has rows.
-  const jobs: Job[] = demo ? byUrgency(demoJobs) : [];
+  let jobs: Job[] = [];
+  try {
+    const all = await listJobSummaries();
+    jobs = byUrgency(
+      all.flatMap((j) => (j.billing ? [{ quoteNumber: j.quoteNumber, customerName: j.customerName, addressLine: j.addressLine, progress: j.billing.progress }] : [])),
+    );
+  } catch {
+    jobs = [];
+  }
   const recent: DemoRecentDoc[] = demo ? demoRecentDocs : [];
   const firstName = session.fullName.split(' ')[0];
 
@@ -93,7 +92,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           <ul className="recent">
             {recent.map((d) => (
               <li key={d.number} className="recent-row">
-                <p className="recent-type">{TYPE_NAMES[d.type]}</p>
+                <p className="recent-type">{DOC_TYPE_NAMES[d.type]}</p>
                 <p className="recent-num">{d.number}</p>
                 <p className="recent-who">{d.customerName}</p>
                 <p className="recent-date">{dateFmt.format(new Date(d.date))}</p>

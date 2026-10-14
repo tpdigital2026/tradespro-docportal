@@ -233,9 +233,14 @@ textarea.input { min-height: var(--textarea-min); resize: vertical; }
 .job-name { font-family: var(--font-head); font-weight: 600; font-size: var(--fs-lede); }
 .job-meta { font-size: var(--fs-meta); color: var(--ink-muted); }
 .job-go { justify-self: start; }
-.stage { display: grid; gap: var(--space-2); max-width: var(--stage-w); min-width: 0; }
+.job-link { text-decoration: none; }
+.job-link:hover { color: var(--accent-ink); text-decoration: underline; }
+.job-actions { display: grid; gap: var(--space-1); justify-items: start; }
+.job-sub { display: inline-flex; align-items: center; min-height: var(--tap); font-size: var(--fs-meta); color: var(--accent-ink); }
+.stage { display: grid; gap: var(--space-2); min-width: 0; }
 .stage-rail { display: flex; align-items: flex-end; gap: var(--tick-gap); list-style: none; margin: 0; padding: 0; }
-.stage-rail li { flex: 1; height: var(--tick-h); background: var(--line); border-radius: var(--tick-h); }
+.stage-rail.is-dense { gap: var(--tick-gap-dense); }
+.stage-rail li { flex: 1; min-width: 0; height: var(--tick-h); background: var(--line); border-radius: var(--tick-h); }
 .stage-rail li.is-done { background: var(--ink); }
 .stage-rail li.is-now { background: var(--accent); height: var(--tick-h-now); }
 .stage-label { display: grid; gap: 0; font-size: var(--fs-meta); }
@@ -264,6 +269,8 @@ textarea.input { min-height: var(--textarea-min); resize: vertical; }
   .picker-group + .picker-group { padding-top: var(--space-2); }
   .job { grid-template-columns: minmax(0, 1fr) var(--stage-w) var(--job-action-w); align-items: center; gap: var(--space-5); }
   .job-go { justify-self: stretch; }
+  .job-actions { justify-items: stretch; }
+  .stage { max-width: var(--stage-w); }
   .recent-row { grid-template-columns: var(--label-col) var(--recent-num-w) minmax(0, 1fr) var(--recent-date-w) var(--recent-date-w); }
   .recent-type { grid-column: auto; }
   .recent-status { grid-column: auto; grid-row: auto; }
@@ -431,3 +438,34 @@ select.input { appearance: auto; }
 @media (min-width: 520px) {
   .qt-bar { margin-inline: 0; padding-inline: 0; }
 }
+
+/* job page: instalments and payments */
+.job-top { display: grid; gap: var(--space-4); margin-bottom: var(--space-7); max-width: var(--measure); }
+.job-total { font-size: var(--fs-meta); color: var(--ink-muted); }
+.job-total strong { color: var(--ink); font-family: var(--font-head); font-size: var(--fs-lede); }
+.inst-list { list-style: none; margin: 0; padding: 0; border-top: var(--hairline) solid var(--line); }
+.inst { display: grid; gap: var(--space-3); padding: var(--space-5) 0; border-bottom: var(--hairline) solid var(--line); scroll-margin-top: var(--space-5); }
+.inst-main { display: grid; gap: var(--space-1); }
+.inst-h { font-family: var(--font-head); font-weight: 600; font-size: var(--fs-lede); text-wrap: balance; }
+.inst-amount { font-variant-numeric: tabular-nums; }
+.inst-status { font-size: var(--fs-meta); color: var(--ink-muted); }
+.inst-pays { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--fs-meta); }
+.inst-pays li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); }
+.inst-receipt { color: var(--ink-muted); }
+.inst-receipt-link { display: inline-flex; align-items: center; min-height: var(--tap); color: var(--accent-ink); }
+.inst-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+@media (min-width: 760px) {
+  .inst { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: start; column-gap: var(--space-5); }
+}
+
+/* mark as paid dialog */
+.pay-dialog { width: min(var(--form-w), calc(100vw - var(--space-5))); max-height: calc(100dvh - var(--space-5)); overflow-y: auto; padding: var(--space-5); border: var(--hairline) solid var(--line-input); border-radius: var(--radius); background: var(--paper); color: var(--ink); }
+.pay-dialog::backdrop { background: color-mix(in srgb, var(--navy-900) 55%, transparent); }
+.pay-body { display: grid; gap: var(--space-4); }
+.pay-h { font-size: var(--fs-h2); }
+.pay-lede { color: var(--ink-muted); font-size: var(--fs-meta); }
+.pay-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+/* follow-on documents */
+.qt-note { font-size: var(--fs-meta); color: var(--ink-muted); max-width: var(--measure); }
+.fo-form { display: grid; gap: var(--space-3); justify-items: start; margin-top: var(--space-4); }

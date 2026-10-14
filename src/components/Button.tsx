@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 type Common = { variant?: 'primary' | 'secondary'; children: ReactNode; className?: string };
 
@@ -7,10 +7,11 @@ export function Button({
   variant = 'primary',
   className = '',
   children,
+  ref,
   ...rest
-}: Common & ButtonHTMLAttributes<HTMLButtonElement>) {
+}: Common & { ref?: Ref<HTMLButtonElement> } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button className={`btn btn-${variant} ${className}`.trim()} {...rest}>
+    <button ref={ref} className={`btn btn-${variant} ${className}`.trim()} {...rest}>
       {children}
     </button>
   );

@@ -1,0 +1,381 @@
+/**
+ * Jobs, their invoices and the payments recorded against them.
+ *
+ * Reads go through the owner's session (row level security scopes them). Recording a payment is a server write
+ * on a service connection, with the tenant taken from the session and every id re-checked against it.
+ * Demo mode keeps everything in memory.
+ */
+import { demoCustomers, demoIssuedJobs, demoQuoteDefaults, type DemoIssuedJob } from '../demo-data';
+import { isDemo } from '../demo';
+import { buildJobBilling, followOnFor, payableInvoice, type JobBilling, type RawDocument, type RawPayment } from '../job-billing';
+import { docTypeFromDb, DB_DOC_TYPES, type DocStatus, type DocType } from '../job-stage';
+import { planFromJson } from '../payment-plan';
+import { checkPayment, outstandingPence, type PaymentFormValues, type PaymentErrors, type RecordablePayment } from '../payment';
+import { requireSession } from '../session';
+import { normaliseQuote, quoteFormSchema, NUMBER_RE, type QuoteFormValues } from '../validation/quote';
+import { withServiceConnection, type Actor, type ServiceDb } from './customer-admin';
+import { ownerClient, type DataClient } from './customers';
+import { getQuoteDefaultsWith, isRealId } from './quotes';
+
+export interface JobSummary {
+  jobId: string;
+  quoteNumber: string;
+  customerId: string;
+  customerName: string;
+  addressLine: string;
+  /** False when the billing could not be worked out; the message says why. */
+  billing: JobBilling | null;
+  problem: string | null;
+}
+
+export class BillingError extends Error {
+  constructor(
+    readonly code: 'not_found' | 'invalid' | 'not_payable' | 'failed',
+    message: string,
+    readonly errors?: PaymentErrors,
+  ) {
+    super(message);
+    this.name = 'BillingError';
+  }
+}
+
+const STATUSES: readonly string[] = ['draft', 'final', 'sent', 'void'];
+
+// ---------------------------------------------------------------- real reads (the owner's session)
+
+interface JobRow {
+  id: string;
+  reference: string;
+  customer_id: string;
+  property_address: string | null;
+  payment_plan: unknown;
+}
+
+/**
+ * Loads jobs with their documents, payments and the latest quote version, in a handful of flat queries.
+ * `reference` picks one job; otherwise the most recent jobs whose quote has been issued.
+ */
+export async function loadJobSummariesWith(client: DataClient, opts: { reference?: string; limit?: number } = {}): Promise<JobSummary[]> {
+  const defaults = await getQuoteDefaultsWith(client);
+  const jobsQ = client.from('jobs').select('id, reference, customer_id, property_address, payment_plan');
+  const jobsRes = opts.reference
+    ? await jobsQ.eq('reference', opts.reference).limit(1)
+    : await jobsQ.order('created_at', { ascending: false }).limit(opts.limit ?? 50);
+  if (jobsRes.error) throw new BillingError('failed', 'Could not load jobs');
+  const jobs = (jobsRes.data ?? []) as JobRow[];
+  if (jobs.length === 0) return [];
+  const jobIds = jobs.map((j) => j.id);
+
+  const docsRes = await client.from('documents').select('id, job_id, type, number, status').in('job_id', jobIds).limit(2000);
+  if (docsRes.error) throw new BillingError('failed', 'Could not load documents');
+  const docRows = (docsRes.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string }[];
+
+  const quoteDocs = docRows.filter((d) => d.type === DB_DOC_TYPES.quotation);
+  const verRes = quoteDocs.length
+    ? await client.from('document_versions').select('document_id, version, input').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
+    : { data: [], error: null };
+  if (verRes.error) throw new BillingError('failed', 'Could not load the quotes');
+  const latest = new Map<string, unknown>();
+  for (const v of (verRes.data ?? []) as { document_id: string; input: { form?: unknown } | null }[]) {
+    if (!latest.has(v.document_id)) latest.set(v.document_id, v.input?.form);
+  }
+
+  const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).limit(2000);
+  if (payRes.error) throw new BillingError('failed', 'Could not load payments');
+  const payRows = (payRes.data ?? []) as { id: string; job_id: string; document_id: string; amount_pence: number; paid_on: string; method: string; note: string | null; receipt_document_id: string | null }[];
+
+  const custRes = await client.from('customers').select('id, name').in('id', [...new Set(jobs.map((j) => j.customer_id))]);
+  if (custRes.error) throw new BillingError('failed', 'Could not load customers');
+  const names = new Map(((custRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+
+  const out: JobSummary[] = [];
+  for (const j of jobs) {
+    const mine = docRows.filter((d) => d.job_id === j.id);
+    const quote = mine.find((d) => d.type === DB_DOC_TYPES.quotation);
+    if (!opts.reference && (!quote || quote.status === 'draft')) continue; // Home lists issued jobs only
+    const documents: RawDocument[] = [];
+    for (const d of mine) {
+      const type = docTypeFromDb(d.type);
+      if (type && STATUSES.includes(d.status)) documents.push({ id: d.id, type, number: d.number, status: d.status as DocStatus });
+    }
+    const payments: RawPayment[] = payRows
+      .filter((p) => p.job_id === j.id)
+      .map((p) => ({ id: p.id, documentId: p.document_id, amountPence: Number(p.amount_pence), paidOn: p.paid_on, method: p.method, note: p.note, receiptDocumentId: p.receipt_document_id }));
+    const base = { jobId: j.id, quoteNumber: j.reference, customerId: j.customer_id, customerName: names.get(j.customer_id) ?? 'Customer', addressLine: j.property_address ?? '' };
+    const form = quoteFormSchema.safeParse(quote ? latest.get(quote.id) : undefined);
+    const stored = planFromJson(j.payment_plan);
+    if (!form.success || !stored) {
+      out.push({ ...base, billing: null, problem: 'We cannot work out how this job is billed. Open the quote and check its price and payment plan.' });
+      continue;
+    }
+    const r = buildJobBilling({ quoteNumber: j.reference, plan: stored.plan, form: form.data as QuoteFormValues, vatRateBp: defaults.vatRateBp, documents, payments });
+    out.push(r.ok ? { ...base, billing: r.billing, problem: null } : { ...base, billing: null, problem: r.message });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- demo mode (in memory, dummy data)
+
+interface DemoState {
+  documents: Map<string, RawDocument[]>;
+  payments: Map<string, RawPayment[]>;
+}
+let demoState: DemoState | null = null;
+function demo(): DemoState {
+  if (!demoState) {
+    demoState = { documents: new Map(), payments: new Map() };
+    for (const j of demoIssuedJobs) {
+      demoState.documents.set(j.jobId, structuredClone(j.documents));
+      demoState.payments.set(j.jobId, structuredClone(j.payments));
+    }
+  }
+  return demoState;
+}
+
+/** Test hook: forget demo edits. */
+export function resetDemoBilling(): void {
+  demoState = null;
+}
+
+function demoSummary(j: DemoIssuedJob): JobSummary {
+  const st = demo();
+  const customer = demoCustomers.find((c) => c.id === j.form.customerId);
+  const base = {
+    jobId: j.jobId,
+    quoteNumber: j.form.quoteNumber,
+    customerId: j.form.customerId,
+    customerName: customer?.name ?? 'Customer',
+    addressLine: j.form.propertyAddress,
+  };
+  // The demo plan inputs are the saved form's; a real job reads them from jobs.payment_plan.
+  const r = buildJobBilling({
+    quoteNumber: j.form.quoteNumber,
+    plan: demoPlan(j.form),
+    form: j.form,
+    vatRateBp: demoQuoteDefaults.vatRateBp,
+    documents: st.documents.get(j.jobId) ?? [],
+    payments: st.payments.get(j.jobId) ?? [],
+  });
+  return r.ok ? { ...base, billing: r.billing, problem: null } : { ...base, billing: null, problem: r.message };
+}
+
+function demoPlan(form: QuoteFormValues) {
+  return normaliseQuote(form, 'draft', demoQuoteDefaults.vatRateBp).input.plan;
+}
+
+// ---------------------------------------------------------------- what the screens call
+
+export async function listJobSummaries(): Promise<JobSummary[]> {
+  await requireSession();
+  if (isDemo()) return demoIssuedJobs.map(demoSummary);
+  return loadJobSummariesWith(await ownerClient());
+}
+
+export async function getJobSummary(reference: string): Promise<JobSummary | null> {
+  await requireSession();
+  if (typeof reference !== 'string' || !NUMBER_RE.test(reference)) return null;
+  if (isDemo()) {
+    const j = demoIssuedJobs.find((x) => x.form.quoteNumber === reference);
+    return j ? demoSummary(j) : null;
+  }
+  return (await loadJobSummariesWith(await ownerClient(), { reference }))[0] ?? null;
+}
+
+// ---------------------------------------------------------------- recording a payment
+
+export interface PaymentRecorded {
+  paymentId: string;
+  instalment: number;
+  remainingPence: number;
+  /** The "Create receipt" route is built from these. */
+  quoteNumber: string;
+}
+
+/**
+ * The server write, on a service connection in one transaction. Everything that matters is checked again here:
+ * the job and the invoice belong to the signed-in business, the invoice is final, and the amount fits what is
+ * still owed according to the payments already recorded (read under a lock, so two at once cannot over-pay).
+ * A repeat of the same payment within 30 seconds (a double tap) returns the first one instead of recording twice.
+ */
+export async function recordPaymentWith(
+  db: ServiceDb | { query: ServiceDb['query'] },
+  actor: Actor,
+  args: { jobId: string; invoiceId: string; grossPence: number; payment: RecordablePayment },
+): Promise<{ paymentId: string; paidPence: number }> {
+  await db.query('begin');
+  try {
+    await db.query('reset role');
+    await db.query(`select set_config('request.jwt.claims', '', true)`);
+    // Lock the invoice row so concurrent payments queue.
+    const inv = await db.query(
+      `select d.id, d.status::text as status, d.type::text as type from public.documents d
+       where d.id = $1 and d.tenant_id = $2 and d.job_id = $3 for update`,
+      [args.invoiceId, actor.tenantId, args.jobId],
+    );
+    const row = inv.rows[0] as { status: string; type: string } | undefined;
+    if (!row) throw new BillingError('not_found', 'That invoice could not be found.');
+    if (row.status !== 'final' && row.status !== 'sent') throw new BillingError('not_payable', 'Only an invoice that has been finalised can be marked as paid.');
+    const dup = await db.query(
+      `select id from public.payments where tenant_id = $1 and document_id = $2 and amount_pence = $3 and paid_on = $4 and method = $5
+         and created_by is not distinct from $6 and created_at > now() - interval '30 seconds' limit 1`,
+      [actor.tenantId, args.invoiceId, args.payment.amountPence, args.payment.paidOn, args.payment.method, actor.userId],
+    );
+    const paid = await db.query(`select coalesce(sum(amount_pence), 0)::bigint as paid from public.payments where document_id = $1 and tenant_id = $2`, [args.invoiceId, actor.tenantId]);
+    const paidPence = Number(paid.rows[0]?.paid ?? 0);
+    if (dup.rows[0]) {
+      await db.query('commit');
+      return { paymentId: String(dup.rows[0].id), paidPence };
+    }
+    if (paidPence + args.payment.amountPence > args.grossPence) {
+      throw new BillingError('invalid', 'That is more than is still owed on this invoice.', { amount: 'That is more than is still owed on this invoice' });
+    }
+    const ins = await db.query(
+      `insert into public.payments (tenant_id, job_id, document_id, amount_pence, paid_on, method, note, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+      [actor.tenantId, args.jobId, args.invoiceId, args.payment.amountPence, args.payment.paidOn, args.payment.method, args.payment.note, actor.userId],
+    );
+    await db.query('commit');
+    return { paymentId: String(ins.rows[0].id), paidPence: paidPence + args.payment.amountPence };
+  } catch (e) {
+    await db.query('rollback').catch(() => undefined);
+    throw e;
+  }
+}
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * "Mark as paid". The caller is a server action: session, then this. Validates what the owner typed, recomputes the
+ * job's billing from the saved quote, and records the payment against the final invoice for that instalment.
+ */
+export async function markAsPaid(reference: string, instalment: number, raw: PaymentFormValues): Promise<PaymentRecorded> {
+  const s = await requireSession();
+  if (typeof reference !== 'string' || !NUMBER_RE.test(reference) || !Number.isInteger(instalment) || instalment < 1 || instalment > 10) {
+    throw new BillingError('not_found', 'That invoice could not be found.');
+  }
+  const job = await getJobSummary(reference);
+  if (!job || !job.billing) throw new BillingError('not_found', 'That job could not be found.');
+  const b = job.billing;
+  const inst = b.instalments.find((i) => i.index === instalment);
+  const invoice = inst ? payableInvoice(b, instalment) : null;
+  if (!inst) throw new BillingError('not_found', 'That part of the job could not be found.');
+  if (!invoice) throw new BillingError('not_payable', 'Only an invoice that has been finalised can be marked as paid.');
+  const outstanding = outstandingPence(inst.grossPence, b.payments.filter((p) => p.instalment === instalment).map((p) => p.amountPence));
+  const checked = checkPayment(raw, outstanding, todayIso());
+  if (!checked.ok) throw new BillingError('invalid', 'Check the highlighted fields', checked.errors);
+
+  if (isDemo()) {
+    const st = demo();
+    const list = st.payments.get(job.jobId) ?? [];
+    const dup = list.find((p) => p.documentId === invoice.id && p.amountPence === checked.value.amountPence && p.paidOn === checked.value.paidOn && p.method === checked.value.method);
+    const id = dup?.id ?? `demo-payment-${job.jobId.replace(/^demo-job-/, '')}-${list.length + 1}-${Date.now() % 100000}`;
+    if (!dup) list.push({ id, documentId: invoice.id, amountPence: checked.value.amountPence, paidOn: checked.value.paidOn, method: checked.value.method, note: checked.value.note, receiptDocumentId: null });
+    st.payments.set(job.jobId, list);
+    return { paymentId: id, instalment, remainingPence: outstanding - (dup ? 0 : checked.value.amountPence), quoteNumber: reference };
+  }
+  if (!isRealId(job.jobId) || !isRealId(invoice.id)) throw new BillingError('failed', 'Could not record that payment.');
+  const result = await withServiceConnection((db) =>
+    recordPaymentWith(db, { tenantId: s.tenantId, userId: s.userId }, { jobId: job.jobId, invoiceId: invoice.id, grossPence: inst.grossPence, payment: checked.value }),
+  );
+  return { paymentId: result.paymentId, instalment, remainingPence: Math.max(0, inst.grossPence - result.paidPence), quoteNumber: reference };
+}
+
+// ---------------------------------------------------------------- follow-on drafts (an invoice or receipt started from a job)
+
+export interface FollowOnDraftArgs {
+  reference: string;
+  type: DocType;
+  instalment: number;
+  number: string;
+  paymentId: string | null;
+}
+
+/** Test and demo seam: the draft document rows created from a follow-on form. */
+export interface FollowOnSaved {
+  documentId: string;
+  number: string;
+  created: boolean;
+}
+
+/** Writes a draft invoice or receipt for a job. Idempotent: a second save of the same number returns the first. */
+export async function saveFollowOnDraftWith(
+  client: DataClient,
+  tenantId: string,
+  job: { id: string; quoteNumber: string },
+  args: FollowOnDraftArgs,
+  content: { heading: string; netPence: number; vatPence: number; grossPence: number; date: string; paymentId: string | null },
+): Promise<FollowOnSaved> {
+  const existing = await client.from('documents').select('id, status').eq('job_id', job.id).eq('number', args.number).maybeSingle();
+  if (existing.error) throw new BillingError('failed', 'Could not save');
+  const found = existing.data as { id: string } | null;
+  if (found) return { documentId: found.id, number: args.number, created: false };
+  const doc = await client
+    .from('documents')
+    .insert({ tenant_id: tenantId, job_id: job.id, type: DB_DOC_TYPES[args.type], number: args.number, doc_date: content.date })
+    .select('id')
+    .single();
+  if (doc.error || !doc.data) {
+    if (doc.error?.code === '23505') throw new BillingError('invalid', 'That document number has already been used.');
+    throw new BillingError('failed', 'Could not save');
+  }
+  const input = {
+    schema: 1,
+    followOn: { instalment: args.instalment, heading: content.heading, netPence: content.netPence, vatPence: content.vatPence, grossPence: content.grossPence, paymentId: content.paymentId },
+  };
+  const ver = await client.from('document_versions').insert({ tenant_id: tenantId, document_id: doc.data.id, version: 1, input }).select('id').single();
+  if (ver.error || !ver.data) throw new BillingError('failed', 'Could not save');
+  const cur = await client.from('documents').update({ current_version_id: ver.data.id }).eq('id', doc.data.id).select('id');
+  if (cur.error) throw new BillingError('failed', 'Could not save');
+  return { documentId: doc.data.id as string, number: args.number, created: true };
+}
+
+/** Server write: the payment now points at its receipt draft. The app role cannot write payments, so this runs on the service connection. */
+export async function linkReceiptWith(db: { query: ServiceDb['query'] }, actor: Actor, paymentId: string, receiptDocumentId: string): Promise<boolean> {
+  const r = await db.query(
+    `update public.payments set receipt_document_id = $1 where id = $2 and tenant_id = $3 and receipt_document_id is null returning id`,
+    [receiptDocumentId, paymentId, actor.tenantId],
+  );
+  return (r.rows?.length ?? 0) === 1;
+}
+
+/**
+ * "Save as draft" on an invoice or receipt started from a job. The figures are recomputed here from the saved quote
+ * and the recorded payments, never taken from the browser. Returns the saved document's number.
+ */
+export async function saveFollowOnDraft(reference: string, type: DocType, instalment: number | null, paymentId: string | null): Promise<FollowOnSaved> {
+  const s = await requireSession();
+  const job = await getJobSummary(reference);
+  if (!job || !job.billing) throw new BillingError('not_found', 'That job could not be found.');
+  const r = followOnFor(job.billing, type, instalment, paymentId);
+  if (!r.ok) throw new BillingError('invalid', r.message);
+  const f = r.followOn;
+  const date = todayIso();
+  if (isDemo()) {
+    const st = demo();
+    const docs = st.documents.get(job.jobId) ?? [];
+    const found = docs.find((d) => d.number === f.number);
+    if (found) return { documentId: found.id, number: f.number, created: false };
+    const id = `demo-doc-${job.jobId.replace(/^demo-job-/, '')}-${f.number.toLowerCase()}`;
+    docs.push({ id, type, number: f.number, status: 'draft' });
+    st.documents.set(job.jobId, docs);
+    if (f.payment) {
+      const pays = st.payments.get(job.jobId) ?? [];
+      const p = pays.find((x) => x.id === f.payment?.id);
+      if (p && !p.receiptDocumentId) p.receiptDocumentId = id;
+    }
+    return { documentId: id, number: f.number, created: true };
+  }
+  if (!isRealId(job.jobId)) throw new BillingError('failed', 'Could not save');
+  const client = await ownerClient();
+  const saved = await saveFollowOnDraftWith(
+    client,
+    s.tenantId,
+    { id: job.jobId, quoteNumber: reference },
+    { reference, type, instalment: f.instalment, number: f.number, paymentId: f.payment?.id ?? null },
+    { heading: f.heading, netPence: f.netPence, vatPence: f.vatPence, grossPence: f.grossPence, date, paymentId: f.payment?.id ?? null },
+  );
+  if (f.payment && saved.created) {
+    await withServiceConnection((db) => linkReceiptWith(db, { tenantId: s.tenantId, userId: s.userId }, f.payment!.id, saved.documentId));
+  }
+  return saved;
+}

@@ -28,7 +28,7 @@ async function errorOf(c: Client, sql: string, params: unknown[]): Promise<{ cod
 
 const POLICY_TABLES = [
   'tenants', 'profiles', 'brand_kits', 'brand_assets', 'job_types', 'bank_accounts', 'tenant_defaults', 'customers', 'jobs',
-  'used_numbers', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs', 'audit_log',
+  'used_numbers', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs', 'audit_log', 'payments',
 ];
 
 describe.skipIf(!dbAvailable)('002b hardening', () => {
@@ -44,8 +44,8 @@ describe.skipIf(!dbAvailable)('002b hardening', () => {
         [`update public.jobs set reference = 'QT-NEW-1' where id = $1`, [a.jobId]],
         [`update public.jobs set created_by = null where id = $1`, [a.jobId]],
         [`insert into public.jobs (tenant_id, customer_id, reference, created_by) values ($1, $2, 'QT-CB-1', $3)`, [a.tenantId, a.customerId, randomUUID()]],
-        [`insert into public.documents (tenant_id, job_id, type, number, status) values ($1, $2, 'receipt', 'RC-1', 'final')`, [a.tenantId, a.jobId]],
-        [`insert into public.documents (tenant_id, job_id, type, number, total_pence) values ($1, $2, 'receipt', 'RC-1', 1)`, [a.tenantId, a.jobId]],
+        [`insert into public.documents (tenant_id, job_id, type, number, status) values ($1, $2, 'receipt', 'RCP-QT-Alpha-001', 'final')`, [a.tenantId, a.jobId]],
+        [`insert into public.documents (tenant_id, job_id, type, number, total_pence) values ($1, $2, 'receipt', 'RCP-QT-Alpha-001', 1)`, [a.tenantId, a.jobId]],
         [`update public.documents set total_pence = 1 where id = $1`, [a.docId]],
         [`update public.documents set status = 'final' where id = $1`, [a.docId]],
         [`update public.documents set finalised_at = now() where id = $1`, [a.docId]],
@@ -206,12 +206,12 @@ describe.skipIf(!dbAvailable)('002b hardening', () => {
     });
   });
 
-  it('quote numbers are 1 to 40 characters in used_numbers', async () => {
+  it('registry numbers are 1 to 64 characters in used_numbers', async () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');
       await expectFail(c, `insert into public.used_numbers (tenant_id, number) values ($1, '')`, [a.tenantId], /used_numbers_number_length/);
-      await expectFail(c, `insert into public.used_numbers (tenant_id, number) values ($1, $2)`, [a.tenantId, 'Q'.repeat(41)], /used_numbers_number_length/);
-      await c.query(`insert into public.used_numbers (tenant_id, number) values ($1, $2)`, [a.tenantId, 'Q'.repeat(40)]);
+      await expectFail(c, `insert into public.used_numbers (tenant_id, number) values ($1, $2)`, [a.tenantId, 'Q'.repeat(65)], /used_numbers_number_length/);
+      await c.query(`insert into public.used_numbers (tenant_id, number) values ($1, $2)`, [a.tenantId, 'Q'.repeat(64)]);
     });
   });
 

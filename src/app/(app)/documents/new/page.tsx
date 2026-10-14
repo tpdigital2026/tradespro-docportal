@@ -6,6 +6,8 @@ import { PageHeader } from '../../../../components/PageHeader';
 import { getQuoteContext, getQuoteDraft, isKnownId, QuoteError, type QuoteContext } from '../../../../lib/data/quotes';
 import { requireSession } from '../../../../lib/session';
 import { emptyQuoteForm } from '../../../../lib/validation/quote';
+import { isInvoiceType, isDocType } from '../../../../lib/job-stage';
+import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
 
 export const metadata: Metadata = { title: 'New document | TradesPro DocPortal' };
@@ -24,6 +26,10 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
         <DocTypeList />
       </div>
     );
+  }
+
+  if (isDocType(type) && (type === 'receipt' || isInvoiceType(type))) {
+    return <FollowOnView type={type} job={first(sp.job)} n={first(sp.n)} payment={first(sp.payment)} />;
   }
 
   if (type !== 'quotation') {

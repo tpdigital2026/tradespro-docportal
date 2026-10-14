@@ -74,6 +74,8 @@ async function committedFixture() {
     await setup.query(`insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'lock-hash', now() + interval '1 day')`, [tenantId, documentId]);
     await setup.query(`insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [tenantId, documentId]);
     await setup.query(`insert into public.ai_runs (tenant_id, document_id, model) values ($1, $2, 'm')`, [tenantId, documentId]);
+    const inv = await setup.query(`insert into public.documents (tenant_id, job_id, type, number, status) values ($1, $2, 'invoice_full', 'INV-QT-LOCK-001', 'final') returning id`, [tenantId, jobId]);
+    await setup.query(`insert into public.payments (tenant_id, job_id, document_id, amount_pence, paid_on, method) values ($1, $2, $3, 100, current_date, 'cash')`, [tenantId, jobId, inv.rows[0].id]);
     await setup.query(`update public.customers set purge_at = now() - interval '1 day' where id = $1`, [customerId]);
     return {
       tenantId: t.tenantId,
@@ -128,13 +130,13 @@ async function waitUntilBlocked(setup: Client, pid: number) {
 const WRITES: Record<string, (fx: Fx) => { sql: string; params: unknown[] }> = {
   'photo insert': (fx) => ({ sql: `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/photos/late.jpg`] }),
   'photo path update': (fx) => ({ sql: `update public.job_photos set storage_path = $2 where tenant_id = $1`, params: [fx.tenantId, `${fx.tenantId}/photos/moved.jpg`] }),
-  'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'receipt', 'IN-LOCK-002', $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
+  'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'guarantee', 'IN-LOCK-002', $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
   'job insert': (fx) => ({ sql: `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-003')`, params: [fx.tenantId, fx.customerId] }),
   'draft version update': (fx) => ({ sql: `update public.document_versions set input = '{"x":1}' where id = $1`, params: [fx.versionId] }),
 };
 
 // Tables the claim locks, in lock order. The schema-derived set below must equal this list minus customers.
-const LOCKED_TABLES = ['customers', 'jobs', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs'];
+const LOCKED_TABLES = ['customers', 'jobs', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs', 'payments'];
 
 describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
   it('the claim locks every table the customer cascade reaches', async () => {

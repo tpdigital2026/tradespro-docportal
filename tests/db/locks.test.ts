@@ -44,7 +44,7 @@ describe.skipIf(!dbAvailable)('002c draft locks', () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');
       // A second draft document in the same tenant, with its own version.
-      const doc2 = await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RC-Alpha-1') returning id`, [a.tenantId, a.jobId]);
+      const doc2 = await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-QT-Alpha-001-D') returning id`, [a.tenantId, a.jobId]);
       const ver2 = await c.query(`insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 1) returning id`, [a.tenantId, doc2.rows[0].id]);
       await actAs(c, a.userId);
       await c.query('savepoint x');
