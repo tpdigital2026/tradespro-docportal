@@ -37,11 +37,12 @@ const common: InvoiceCommon = {
   guarantee: { years: 20, text: 'The roofing system specified above allows us to provide a 20 year guarantee on this roof.' },
   bank,
   paymentRef: 'INV-JS-001-D',
+  terms: 'The 30% deposit is payable before works start. The remaining balance is due on completion of works.',
   disclaimer:
     'This invoice is generated using third-party software. The platform is not a party to any contract formed between the customer and the trader for the services listed within this document. The platform has not benchmarked, endorsed, or verified the services or prices stated. For information on how personal data is processed, please refer to the relevant Privacy Notice.',
 };
 
-export const depositInvoiceFixture: DepositInvoiceInput = { ...common, dueLabel: 'Before works start' };
+export const depositInvoiceFixture: DepositInvoiceInput = { ...common, dueLabel: 'Before works start', balanceDueLabel: 'Balance due on completion' };
 
 export const balanceInvoiceFixture: BalanceInvoiceInput = {
   ...common,
@@ -49,4 +50,7 @@ export const balanceInvoiceFixture: BalanceInvoiceInput = {
   paymentRef: 'INV-JS-001-B',
   adjustmentLines: [],
   depositReceiptRef: 'RCP-JS-001-D',
+  depositReceivedPence: 98820,
+  dueNote: 'Payment is due upon receipt of this invoice',
+  terms: 'Payment is due upon receipt of this invoice.',
 };

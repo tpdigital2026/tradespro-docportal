@@ -25,6 +25,15 @@ describe('pdf pipeline', () => {
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
   });
 
+  it('guard rejects a child wider than the page', async () => {
+    const doc = documentShell({
+      title: 't',
+      css,
+      body: raw('<section class="page"><div class="body"><div style="width:400mm;white-space:nowrap">wide</div></div></section>'),
+    });
+    await expect(renderPdf(page, doc)).rejects.toBeInstanceOf(PageOverflowError);
+  });
+
   it('does not run scripts in the document', async () => {
     const doc = documentShell({
       title: 't',

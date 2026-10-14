@@ -30,13 +30,14 @@ describe('deposit invoice', () => {
     for (const s of ['Deposit Invoice', 'INV-JS-001-D', 'QT-JS-001', '£988.20', '£823.50', '£164.70', '£3,294.00', '£2,305.80', '30% Deposit']) {
       expect(t).toContain(s);
     }
-    expect(t).toContain('The 30% deposit is payable before works start. The remaining balance of £2,305.80 is due on completion of works.');
+    expect(t).toContain(depositInvoiceFixture.terms);
+    expect(t).toContain('Balance due on completion');
   });
 
   it('shows the dummy bank details and the payment reference', async () => {
     await renderPdf(page, await buildDepositInvoice(page, depositInvoiceFixture, fakeTenant, fakeBrand));
     const t = await text();
-    for (const s of ['Metro Bank', '00-00-00', '00000000']) expect(t).toContain(s);
+    for (const s of ['Metro Bank', '00-00-00', '00000000', depositInvoiceFixture.paymentRef]) expect(t).toContain(s);
   });
 
   it('omits the guarantee band when there is no guarantee', async () => {
@@ -89,6 +90,41 @@ describe('deposit invoice', () => {
   });
 });
 
+// Unbroken tokens either fail closed or wrap; in both cases nothing may run off the page.
+async function outcome(run: () => Promise<unknown>): Promise<'rejected' | 'wrapped'> {
+  try {
+    await run();
+  } catch (e) {
+    expect(e).toBeInstanceOf(PageOverflowError);
+    return 'rejected';
+  }
+  const off = await page.$$eval('.page', (pages) =>
+    pages.flatMap((pg) => {
+      const pr = pg.getBoundingClientRect();
+      return [...pg.querySelectorAll<HTMLElement>('*')]
+        .filter((e) => e.tagName === 'IMG' || (e.children.length === 0 && (e.textContent ?? '').trim() !== ''))
+        .filter((e) => e.getBoundingClientRect().right > pr.right + 1)
+        .map((e) => e.className);
+    }),
+  );
+  expect(off).toEqual([]);
+  return 'wrapped';
+}
+
+describe('unbroken tokens', () => {
+  it('long customer name and payment reference', async () => {
+    const name = 'A'.repeat(120);
+    const r1 = await outcome(async () =>
+      renderPdf(page, await buildDepositInvoice(page, { ...depositInvoiceFixture, customer: { ...depositInvoiceFixture.customer, name } }, fakeTenant, fakeBrand)),
+    );
+    const ref = 'R'.repeat(63);
+    const r2 = await outcome(async () =>
+      renderPdf(page, await buildDepositInvoice(page, { ...depositInvoiceFixture, paymentRef: ref }, fakeTenant, fakeBrand)),
+    );
+    process.stderr.write(`unbroken invoice name: ${r1}; paymentRef: ${r2}\n`);
+  });
+});
+
 describe('balance invoice', () => {
   it('renders the balance split 1,921.50 + 384.30 = 2,305.80 with the deposit received', async () => {
     const pdf = await renderPdf(page, await buildBalanceInvoice(page, balanceInvoiceFixture, fakeTenant, fakeBrand));
@@ -97,7 +133,19 @@ describe('balance invoice', () => {
     for (const s of ['Balance Invoice', 'INV-JS-001-B', '£1,921.50', '£384.30', '£2,305.80', '£3,294.00', '30% deposit received', '£988.20', 'receipt RCP-JS-001-D']) {
       expect(t).toContain(s);
     }
-    expect(t).toContain('Payment is due upon receipt of this invoice.');
+    expect(t).toContain(balanceInvoiceFixture.terms);
+    expect(t).toContain(balanceInvoiceFixture.dueNote);
+  });
+
+  it('accepts a matching deposit and rejects a different one', async () => {
+    await expect(buildBalanceInvoice(page, { ...balanceInvoiceFixture, depositReceivedPence: 98820 }, fakeTenant, fakeBrand)).resolves.toBeDefined();
+    await expect(buildBalanceInvoice(page, { ...balanceInvoiceFixture, depositReceivedPence: 100000 }, fakeTenant, fakeBrand)).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('rejects mixed VAT and non-VAT lines', async () => {
+    const mixed = [...balanceInvoiceFixture.quoteLines, { description: 'Zero rated', kind: 'Work', qty: 1, unitNetPence: 1000, vatApplies: false }];
+    await expect(buildBalanceInvoice(page, { ...balanceInvoiceFixture, quoteLines: mixed }, fakeTenant, fakeBrand)).rejects.toThrow(/Mixed VAT/);
+    await expect(buildDepositInvoice(page, { ...depositInvoiceFixture, quoteLines: mixed }, fakeTenant, fakeBrand)).rejects.toThrow(/Mixed VAT/);
   });
 
   it('shows extras and credits on top of the quote', async () => {

@@ -12,8 +12,9 @@ export const depositReceiptFixture: ReceiptInput = {
   method: 'Bank transfer',
   amountPaidPence: 98820,
   previousPaymentsPence: [],
-  quoteGrossPence: 329400,
+  jobTotalGrossPence: 329400,
   vatIncluded: true,
+  balanceDueLabel: 'Due on completion of works',
 };
 
 export const finalReceiptFixture: ReceiptInput = {

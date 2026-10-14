@@ -130,7 +130,7 @@ table.px td .t{font-family:"Mono";font-size:6.4pt;letter-spacing:.14em;text-tran
 .sign .s .rl{font-family:"Mono";font-size:6pt;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
 
 /* ---------- single-page financial docs ---------- */
-.fhead{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 210 58' preserveAspectRatio='none'%3E%3Cg fill='none' stroke-width='.4'%3E%3Cpath d='M180 -64.85L264.85 20L180 104.85L95.15 20Z' stroke='rgb(127,166,220)' stroke-opacity='.13'/%3E%3Cpath d='M160 -84.85L244.85 0L160 84.85L75.15 0Z' stroke='rgb(127,166,220)' stroke-opacity='.09'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat,var(--navy);color:#fff;height:58mm;position:relative;padding:13mm 16mm 0;display:flex;justify-content:space-between;overflow:hidden}
+.fhead{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 210 58' preserveAspectRatio='none'%3E%3Cg fill='none' stroke-width='.4'%3E%3Cpath d='M180 -64.85L264.85 20L180 104.85L95.15 20Z' stroke='rgb(127,166,220)' stroke-opacity='.13'/%3E%3Cpath d='M160 -84.85L244.85 0L160 84.85L75.15 0Z' stroke='rgb(127,166,220)' stroke-opacity='.09'/%3E%3C/g%3E%3C/svg%3E") 0 0/210mm 58mm no-repeat,var(--navy);color:#fff;height:58mm;position:relative;padding:13mm 16mm 0;display:flex;justify-content:space-between;overflow:hidden}
 .fhead .l img{height:14mm}
 .fhead .l .addr{font-family:"Mono";font-size:6.2pt;letter-spacing:.14em;color:#b7c7dc;text-transform:uppercase;margin-top:5mm;line-height:1.9}
 .fhead .r{text-align:right;position:relative;z-index:1}
@@ -139,7 +139,8 @@ table.px td .t{font-family:"Mono";font-size:6.4pt;letter-spacing:.14em;text-tran
 .fhead .r .meta span:nth-child(odd){font-family:"Mono";font-size:6pt;letter-spacing:.18em;text-transform:uppercase;color:var(--sky);padding-top:.5mm}
 .fhead .r .meta span:nth-child(even){font-family:"Mono";font-size:8pt;color:#fff}
 .fbody{padding:8mm 16mm 0}
-.parties{display:grid;grid-template-columns:1.25fr 1fr;gap:8mm;margin-bottom:6mm}
+.parties{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:8mm;margin-bottom:6mm}
+.party,.duebox,.paycard .pg b,.panel,.terms .t p{overflow-wrap:anywhere}
 .party .eyebrow{display:block;margin-bottom:2mm}
 .party .nm{font-family:"Playfair";font-size:13pt;color:var(--ink);font-weight:600;margin-bottom:1mm}
 .party .ad{line-height:1.6;color:var(--body)}

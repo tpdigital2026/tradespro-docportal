@@ -39,6 +39,23 @@ export async function assertNoOverflow(page: Page): Promise<void> {
         }
       });
 
+      // Horizontal: nothing may run off the side of the page, and boxes must not be wider than themselves.
+      const pr = pg.getBoundingClientRect();
+      for (const el of pg.querySelectorAll<HTMLElement>('*')) {
+        const isLeaf = el.children.length === 0 && (el.textContent ?? '').trim() !== '';
+        if (!(isLeaf || el.tagName === 'IMG')) continue;
+        const e = el.getBoundingClientRect();
+        if (e.width === 0 && e.height === 0) continue;
+        if (e.right > pr.right + tol || e.left < pr.left - tol) {
+          problems.push(`page ${n}: content runs off the side of the page`);
+          break;
+        }
+      }
+      const boxes = new Set<HTMLElement>(pg.querySelectorAll<HTMLElement>('.body, .fbody, [data-fit]'));
+      boxes.forEach((el) => {
+        if (el.scrollWidth > el.clientWidth + tol) problems.push(`page ${n}: content is wider than its box`);
+      });
+
       // Reserved absolute boxes must not be overlapped by in-flow content.
       pg.querySelectorAll<HTMLElement>('[data-reserved]').forEach((box) => {
         const r = box.getBoundingClientRect();

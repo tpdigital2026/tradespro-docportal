@@ -18,22 +18,28 @@ export interface ReceiptInput {
   method: string;
   amountPaidPence: Pence;
   previousPaymentsPence: Pence[];
-  quoteGrossPence: Pence;
+  /** Job total including any extras, VAT inclusive where VAT applies. */
+  jobTotalGrossPence: Pence;
   vatIncluded: boolean;
+  /** Wording for a deposit balance still to come, for example "Due on completion of works". */
+  balanceDueLabel: string;
 }
 
 export function buildReceipt(input: ReceiptInput, tenant: Tenant, brand: Brand): string {
-  const remaining = balanceDue(input.quoteGrossPence, [...input.previousPaymentsPence, input.amountPaidPence]);
+  if (input.amountPaidPence <= 0) throw new RangeError('The amount paid must be greater than zero');
+  if (input.previousPaymentsPence.some((p) => p <= 0)) throw new RangeError('Previous payments must each be greater than zero');
+  const remaining = balanceDue(input.jobTotalGrossPence, [...input.previousPaymentsPence, input.amountPaidPence]);
   const paidInFull = remaining === 0;
   const stampLabel = paidInFull ? 'Paid in full' : input.kind === 'deposit' ? 'Deposit' : 'Part payment';
   const stampDate = input.paidDateLabel.split('/').join(' · ');
-  const outstanding = input.kind === 'deposit' ? 'due on completion of works' : 'still outstanding';
+  const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+  const outstanding = input.kind === 'deposit' ? lowerFirst(input.balanceDueLabel) : 'still outstanding';
   const amount = formatGBP(input.amountPaidPence);
-  const quoteTotal = `total ${formatGBP(input.quoteGrossPence)}${input.vatIncluded ? ' inc. VAT' : ''}`;
+  const quoteTotal = `total ${formatGBP(input.jobTotalGrossPence)}${input.vatIncluded ? ' inc. VAT' : ''}`;
   const remainingText = paidInFull
     ? `Paid in full – no balance outstanding (quote ${input.quoteRef}, ${quoteTotal}).`
     : `${formatGBP(remaining)} – ${outstanding} (quote ${input.quoteRef}, ${quoteTotal}).`;
-  const remainingNote = paidInFull ? 'Paid in full' : input.kind === 'deposit' ? 'Due on completion of works' : 'Still outstanding';
+  const remainingNote = paidInFull ? 'Paid in full' : input.kind === 'deposit' ? input.balanceDueLabel : 'Still outstanding';
   const row = {
     description: input.description,
     kind: input.kind === 'deposit' ? 'Deposit' : 'Balance',

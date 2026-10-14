@@ -27,18 +27,26 @@ export interface InvoiceCommon {
   guarantee: { years: number; text: string } | null;
   bank: F.BankDetails;
   paymentRef: string;
+  /** Payment terms wording, supplied by the caller. */
+  terms: string;
   disclaimer: string;
 }
 
 export interface DepositInvoiceInput extends InvoiceCommon {
   /** For example "Before works start". */
   dueLabel: string;
+  /** Label for the balance row, for example "Balance due on completion". */
+  balanceDueLabel: string;
 }
 
 export interface BalanceInvoiceInput extends InvoiceCommon {
   /** Extra works or credits on top of the quote. Credits have a negative unit price. */
   adjustmentLines: MoneyLine[];
   depositReceiptRef: string | null;
+  /** Deposit actually received. Must equal the deposit invoiced. */
+  depositReceivedPence: Pence;
+  /** Note under the amount due, for example "Payment is due upon receipt of this invoice". */
+  dueNote: string;
 }
 
 interface InvoiceSpec {
@@ -107,7 +115,14 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
   });
 }
 
-export function buildDepositInvoice(page: Page, input: DepositInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+function assertUniformVat(lines: MoneyLine[]): void {
+  if (lines.some((l) => l.vatApplies) && lines.some((l) => !l.vatApplies)) {
+    throw new Error('Mixed VAT and non-VAT lines are not supported on invoices yet');
+  }
+}
+
+export async function buildDepositInvoice(page: Page, input: DepositInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+  assertUniformVat(input.quoteLines);
   const quote = computeTotals(input.quoteLines, input.vatRateBp);
   const dep = depositOf(quote, input.depositPctBp);
   const showVat = input.quoteLines.some((l) => l.vatApplies);
@@ -140,32 +155,36 @@ export function buildDepositInvoice(page: Page, input: DepositInvoiceInput, tena
     grandPence: dep.grossPence,
     afterRows: [
       [`Quote total${showVat ? ' (inc. VAT)' : ''}`, formatGBP(quote.grossPence)],
-      ['Balance due on completion', formatGBP(balance)],
+      [input.balanceDueLabel, formatGBP(balance)],
     ],
     guarantee: input.guarantee,
     bank: input.bank,
     paymentRef: input.paymentRef,
-    terms: `The ${pct} deposit is payable ${input.dueLabel.toLowerCase()}. The remaining balance of ${formatGBP(balance)} is due on completion of works.`,
+    terms: input.terms,
     disclaimer: input.disclaimer,
   });
 }
 
-export function buildBalanceInvoice(page: Page, input: BalanceInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+export async function buildBalanceInvoice(page: Page, input: BalanceInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+  assertUniformVat([...input.quoteLines, ...input.adjustmentLines]);
   const st = balanceStatement(input.quoteLines, input.adjustmentLines, input.vatRateBp, input.depositPctBp);
+  if (input.depositReceivedPence !== st.deposit.grossPence) {
+    throw new RangeError('The deposit received differs from the deposit invoiced; a different deposit amount is not supported yet');
+  }
   const showVat = [...input.quoteLines, ...input.adjustmentLines].some((l) => l.vatApplies);
   const pct = `${input.depositPctBp / 100}%`;
   const rate = `${input.vatRateBp / 100}%`;
   const inc = showVat ? ' (inc. VAT)' : '';
   const afterRows: [string, string][] = [[`Quote total${inc}`, formatGBP(st.quote.grossPence)]];
   if (st.adjustments) afterRows.push([`Extras and credits${inc}`, formatGBP(st.adjustments.grossPence)]);
-  afterRows.push([`${pct} deposit received`, formatGBP(st.deposit.grossPence)]);
+  afterRows.push([`${pct} deposit received`, formatGBP(input.depositReceivedPence)]);
   return renderInvoice(page, tenant, brand, {
     title: 'Balance Invoice',
     invoiceNo: input.invoiceNo,
     dateLabel: input.dateLabel,
     metaRows: [['Quote ref.', input.quoteRef]],
     customer: input.customer,
-    due: { label: 'Total due', amountPence: st.balance.grossPence, note: 'Payment is due upon receipt of this invoice' },
+    due: { label: 'Total due', amountPence: st.balance.grossPence, note: input.dueNote },
     jobTitle: input.jobTitle,
     scope: input.scope,
     note: `Final balance invoice – ${pct} deposit already received${input.depositReceiptRef ? ` (receipt ${input.depositReceiptRef})` : ''}, remaining balance due below.`,
@@ -187,7 +206,7 @@ export function buildBalanceInvoice(page: Page, input: BalanceInvoiceInput, tena
     guarantee: input.guarantee,
     bank: input.bank,
     paymentRef: input.paymentRef,
-    terms: 'Payment is due upon receipt of this invoice.',
+    terms: input.terms,
     disclaimer: input.disclaimer,
   });
 }

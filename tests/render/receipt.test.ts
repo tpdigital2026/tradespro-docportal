@@ -56,6 +56,38 @@ describe('receipt', () => {
     expect(() => buildReceipt({ ...finalReceiptFixture, amountPaidPence: 999999 }, fakeTenant, fakeBrand)).toThrow(RangeError);
   });
 
+  it('rejects a zero or negative amount paid and non-positive previous payments', () => {
+    expect(() => buildReceipt({ ...depositReceiptFixture, amountPaidPence: 0 }, fakeTenant, fakeBrand)).toThrow(RangeError);
+    expect(() => buildReceipt({ ...depositReceiptFixture, amountPaidPence: -5 }, fakeTenant, fakeBrand)).toThrow(RangeError);
+    expect(() => buildReceipt({ ...finalReceiptFixture, previousPaymentsPence: [0] }, fakeTenant, fakeBrand)).toThrow(RangeError);
+    expect(() => buildReceipt({ ...finalReceiptFixture, previousPaymentsPence: [-100] }, fakeTenant, fakeBrand)).toThrow(RangeError);
+  });
+
+  it('takes the deposit balance wording from the input', async () => {
+    await renderPdf(page, buildReceipt({ ...depositReceiptFixture, balanceDueLabel: 'Due on practical completion' }, fakeTenant, fakeBrand));
+    const t = await text();
+    expect(t).toContain('Due on practical completion');
+    expect(t).toContain('due on practical completion (quote QT-JS-001');
+  });
+
+  it('long payment method: rejects or wraps without running off the page', async () => {
+    let result = 'wrapped';
+    try {
+      await renderPdf(page, buildReceipt({ ...depositReceiptFixture, method: 'M'.repeat(44) }, fakeTenant, fakeBrand));
+    } catch (e) {
+      expect(e).toBeInstanceOf(PageOverflowError);
+      result = 'rejected';
+    }
+    if (result === 'wrapped') {
+      const off = await page.$$eval('.page *', (els) => {
+        const pr = document.querySelector('.page')!.getBoundingClientRect();
+        return els.filter((e) => (e.children.length === 0 && (e.textContent ?? '').trim() !== '') || e.tagName === 'IMG').filter((e) => e.getBoundingClientRect().right > pr.right + 1).length;
+      });
+      expect(off).toBe(0);
+    }
+    process.stderr.write(`unbroken receipt method: ${result}\n`);
+  });
+
   it('omits the VAT number when the figures do not include VAT', async () => {
     const input = { ...depositReceiptFixture, vatIncluded: false, description: '30% Deposit – flat roof replacement' };
     await renderPdf(page, buildReceipt(input, fakeTenant, fakeBrand));

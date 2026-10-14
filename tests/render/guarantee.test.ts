@@ -20,6 +20,26 @@ afterAll(async () => {
 const text = () => page.evaluate(() => document.body.textContent ?? '');
 const pdfPages = (pdf: Buffer) => (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
 
+describe('guarantee certificate unbroken token', () => {
+  it('long address: rejects or wraps without running off the page', async () => {
+    let result = 'wrapped';
+    try {
+      await renderPdf(page, buildGuarantee({ ...guaranteeFixture, address: 'W'.repeat(80) }, fakeTenant, fakeBrand));
+    } catch (e) {
+      expect(e).toBeInstanceOf(PageOverflowError);
+      result = 'rejected';
+    }
+    if (result === 'wrapped') {
+      const off = await page.$$eval('.page *', (els) => {
+        const pr = document.querySelector('.page')!.getBoundingClientRect();
+        return els.filter((e) => (e.children.length === 0 && (e.textContent ?? '').trim() !== '') || e.tagName === 'IMG').filter((e) => e.getBoundingClientRect().right > pr.right + 1).length;
+      });
+      expect(off).toBe(0);
+    }
+    process.stderr.write(`unbroken guarantee address: ${result}\n`);
+  });
+});
+
 describe('guarantee certificate', () => {
   it('renders one page with the supplied wording', async () => {
     const pdf = await renderPdf(page, buildGuarantee(guaranteeFixture, fakeTenant, fakeBrand));
