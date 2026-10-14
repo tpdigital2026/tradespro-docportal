@@ -33,8 +33,8 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
   );
   const tenantId = t.rows[0].id as string;
   await db.query(
-    `insert into public.tenant_defaults (tenant_id, deposit_pct_bp, quote_validity_days, vat_default, vat_rate_bp, terms)
-     values ($1, 3000, 30, true, 2000, $2)`,
+    `insert into public.tenant_defaults (tenant_id, deposit_pct_bp, quote_validity_days, vat_default, vat_rate_bp, terms, retention_days)
+     values ($1, 3000, 30, true, 2000, $2, 90)`,
     [tenantId, JSON.stringify(wording)],
   );
   for (const [key, label, years] of JOB_TYPES) {

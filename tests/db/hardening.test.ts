@@ -185,7 +185,7 @@ describe.skipIf(!dbAvailable)('002b hardening', () => {
       const extended = async (step: string) => {
         await actAsServer(c);
         const r = await c.query(
-          `select purge_at between now() + interval '29 days' and now() + interval '31 days' ok from public.customers where id = $1`,
+          `select purge_at between now() + interval '89 days' and now() + interval '91 days' ok from public.customers where id = $1`,
           [a.customerId],
         );
         expect(r.rows[0].ok, step).toBe(true);

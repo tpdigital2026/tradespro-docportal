@@ -28,13 +28,13 @@ export default async function Home() {
     <div className="page page-wide">
       <header className="home-head">
         <p className="eyebrow">{demo ? 'Demo mode, dummy data' : `Hello, ${firstName}`}</p>
-        <h1 id="make-h">
+        <h1>
           <span className="muted">What do you</span>
           need to make?
         </h1>
       </header>
 
-      <section aria-labelledby="make-h" className="home-section">
+      <section className="home-section">
         <DocTypeList />
       </section>
 

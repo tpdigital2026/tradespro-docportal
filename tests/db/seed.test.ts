@@ -14,7 +14,7 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       const t = await c.query(`select * from public.tenants where id = $1`, [first.tenantId]);
       expect(t.rows[0]).toMatchObject({ name: 'FJC Roofing Ltd', company_number: '13855379', vat_registered: true, owner_name: 'Ben Cunningham', owner_title: 'Director' });
       const d = await c.query(`select * from public.tenant_defaults where tenant_id = $1`, [first.tenantId]);
-      expect(d.rows[0]).toMatchObject({ deposit_pct_bp: 3000, quote_validity_days: 30, vat_rate_bp: 2000 });
+      expect(d.rows[0]).toMatchObject({ deposit_pct_bp: 3000, quote_validity_days: 30, vat_rate_bp: 2000, retention_days: 90 });
       expect(() => tenantWordingSchema.parse(d.rows[0].terms)).not.toThrow();
       const jt = await c.query(`select key, guarantee_years from public.job_types where tenant_id = $1 order by key`, [first.tenantId]);
       expect(jt.rows).toEqual([

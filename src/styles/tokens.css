@@ -51,4 +51,8 @@
   --tick-h-now: 8px;
   --tick-gap: 3px;
   --stage-w: 12rem;
+  --job-action-w: 17rem;
+  --form-w: 28rem;
+  --recent-num-w: 12rem;
+  --recent-date-w: 4rem;
 }

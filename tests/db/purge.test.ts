@@ -184,7 +184,7 @@ describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
         expect(settled).toBe(false);
         await claimer.query('rollback');
         await pending;
-        const c = await fx.setup.query(`select purge_at > now() + interval '29 days' as kept from public.customers where id = $1`, [fx.customerId]);
+        const c = await fx.setup.query(`select purge_at > now() + interval '89 days' as kept from public.customers where id = $1`, [fx.customerId]);
         expect(c.rows[0].kept).toBe(true);
       });
     });
@@ -308,7 +308,7 @@ describe.skipIf(!dbAvailable)('purge protocol and erase', () => {
       const old = await customerWithJob(c, t.tenantId, 'QT-OLD-001', `now() - interval '1 day'`);
       const claimed = await c.query(`select id from private.claim_expired_customers(now())`);
       expect(claimed.rows).toHaveLength(1);
-      await c.query(`update public.customers set purge_at = now() + interval '30 days' where id = $1`, [old.customerId]);
+      await c.query(`update public.customers set purge_at = now() + interval '90 days' where id = $1`, [old.customerId]);
       const r = await c.query(`select private.purge_customers($1::uuid[], now()) as ids`, [claimed.rows.map((x) => x.id)]);
       expect(r.rows[0].ids).toEqual([]);
       for (const table of ['customers', 'jobs', 'documents', 'document_versions', 'job_photos']) expect(await count(c, table, t.tenantId), table).toBe(1);

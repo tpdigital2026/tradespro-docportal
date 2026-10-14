@@ -31,7 +31,7 @@ export function DocTypeList() {
     <div className="picker">
       {groups.map((g) => (
         <div key={g.label} className="picker-group">
-          <h3 className="group-label">{g.label}</h3>
+          <h2 className="group-label">{g.label}</h2>
           <ul className="rows">
             {g.items.map((i) => (
               <li key={i.type}>

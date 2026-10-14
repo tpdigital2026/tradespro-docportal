@@ -17,6 +17,8 @@ export type DemoCustomer = {
   postcode: string;
   email: string | null;
   phone: string | null;
+  /** Days of the retention period left, so demo mode can show both the calm and the warning state. */
+  daysLeft: number;
 };
 
 export const demoCustomers: DemoCustomer[] = [
@@ -27,6 +29,16 @@ export const demoCustomers: DemoCustomer[] = [
     postcode: 'BR2 8BG',
     email: null,
     phone: null,
+    daysLeft: 90,
+  },
+  {
+    id: 'demo-customer-2',
+    name: 'Mrs Jane Example',
+    addressLines: ['9 Sample Close'],
+    postcode: 'AB1 2CD',
+    email: null,
+    phone: null,
+    daysLeft: 9,
   },
 ];
 

@@ -23,7 +23,7 @@ The database is a hosted Supabase project. Put its connection details in `.env.l
 - `npm run test:db` runs the database tests (each in a rolled-back transaction, except the few that clean up after themselves).
 - `npm run invite -- <email> "<business name>" <owner|staff> "<full name>" [--tenant-id <uuid>]` registers a person against one business. Business names are unique ignoring case; it refuses if more than one business matches, and removes the new login again if the profile cannot be created. It is invite only, there are no passwords, and it needs `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_URL` in `.env.local`. It stops with a clear message if either is missing. People who have not been invited cannot log in.
 
-Security model in one paragraph: every table has row level security (enabled and forced); signed-in users only ever see their own business; bank details are encrypted in the app and unreadable to the app role; sensitive writes happen on the server after a fresh email code; the audit log is append only and holds no personal data; customer data is purged 30 days after last activity.
+Security model in one paragraph: every table has row level security (enabled and forced); signed-in users only ever see their own business; bank details are encrypted in the app and unreadable to the app role; sensitive writes happen on the server after a fresh email code; the audit log is append only and holds no personal data; customer data is purged after a per-business retention period (default 90 days) with no activity.
 
 ### Tenant wording
 
@@ -63,7 +63,7 @@ New `public` table checklist: row level security enabled and forced, explicit gr
 
 ### Purge job protocol
 
-Customer data is removed 30 days after last activity. The scheduled job runs the whole protocol in ONE transaction, on a service connection with no `request.jwt.claims` (a leaked claim makes the final-version guard refuse the purge, which fails closed), with a generous `statement_timeout`:
+Customer data is removed once a customer's `purge_at` passes. `purge_at` is last activity plus the business's `tenant_defaults.retention_days` (30 to 730, default 90; set by migration 004, existing dates are only ever extended, never shortened). The scheduled job runs the whole protocol in ONE transaction, on a service connection with no `request.jwt.claims` (a leaked claim makes the final-version guard refuse the purge, which fails closed), with a generous `statement_timeout`:
 
 1. `private.claim_expired_customers` locks the expired customers and everything under them.
 2. `private.expired_storage_paths` lists their files.
@@ -71,6 +71,10 @@ Customer data is removed 30 days after last activity. The scheduled job runs the
 4. `private.purge_customers` deletes the claimed customers and writes a `purge_log` row (a zero-count run is a heartbeat).
 
 Residual risk: if the connection drops after the files are deleted, the customer stays expired and is purged on the next run. A write in that gap can leave a kept customer pointing at deleted files. A single transaction and a long statement timeout keep this window small.
+
+### Retention and the in-app notice
+
+No email is sent in Phase 1, so the owner is told on screen. A customer's page and the customers list show "Data kept until {date}". With 14 days or fewer left they show a warning and a one-tap "Keep for another {retention_days} days". That action runs on the server through `private.extend_customer_retention(tenant, customer)` (service role only, tenant scoped, only ever extends) and writes an audit entry with the customer id and nothing else. The app role has no write grant on `purge_at`.
 
 ### Owner-requested erasure protocol
 
@@ -80,6 +84,8 @@ Same shape as the purge, one customer, ONE transaction on a service connection w
 2. `private.customer_storage_paths(tenant, customer)` lists the files.
 3. Delete those files from storage; abort and roll back on any failure.
 4. `private.erase_customer(tenant, customer)`, then commit.
+
+In the app this is `eraseCustomerWith` (`src/lib/data/customer-admin.ts`). It needs the owner role and a fresh emailed code (`requireFreshStepUpForRequest`, which verifies the token's signature before reading `amr`). Storage deletion goes through the `StorageDeleter` interface (`src/lib/storage.ts`); until buckets exist this is an in-memory stand-in, so wire the real bucket client in before launch.
 
 ### More server rules
 
