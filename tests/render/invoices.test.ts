@@ -1,0 +1,130 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Browser, Page } from 'playwright-core';
+import { launchBrowser, newLockedPage } from '../../src/pdf/browser';
+import { PageOverflowError, renderPdf } from '../../src/pdf/render';
+import { buildBalanceInvoice, buildDepositInvoice } from '../../src/templates/invoice';
+import { fakeBrand, fakeTenant } from '../fixtures/fake';
+import { balanceInvoiceFixture, depositInvoiceFixture } from '../fixtures/invoices';
+
+let browser: Browser;
+let page: Page;
+beforeAll(async () => {
+  browser = await launchBrowser();
+  page = await newLockedPage(browser);
+});
+afterAll(async () => {
+  await browser.close();
+});
+
+// textContent, not innerText: innerText applies the stylesheet's text-transform:uppercase to labels.
+const text = () => page.evaluate(() => document.body.textContent ?? '');
+const pdfPages = (pdf: Buffer) => (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+
+describe('deposit invoice', () => {
+  it('renders two pages with the deposit maths from money.ts', async () => {
+    const doc = await buildDepositInvoice(page, depositInvoiceFixture, fakeTenant, fakeBrand);
+    const pdf = await renderPdf(page, doc);
+    expect(await page.$$eval('.page', (p) => p.length)).toBe(2);
+    expect(pdfPages(pdf)).toBe(2);
+    const t = await text();
+    for (const s of ['Deposit Invoice', 'INV-JS-001-D', 'QT-JS-001', '£988.20', '£823.50', '£164.70', '£3,294.00', '£2,305.80', '30% Deposit']) {
+      expect(t).toContain(s);
+    }
+    expect(t).toContain('The 30% deposit is payable before works start. The remaining balance of £2,305.80 is due on completion of works.');
+  });
+
+  it('shows the dummy bank details and the payment reference', async () => {
+    await renderPdf(page, await buildDepositInvoice(page, depositInvoiceFixture, fakeTenant, fakeBrand));
+    const t = await text();
+    for (const s of ['Metro Bank', '00-00-00', '00000000']) expect(t).toContain(s);
+  });
+
+  it('omits the guarantee band when there is no guarantee', async () => {
+    const doc = await buildDepositInvoice(page, { ...depositInvoiceFixture, guarantee: null }, fakeTenant, fakeBrand);
+    await renderPdf(page, doc);
+    expect(await page.$$eval('.gband', (e) => e.length)).toBe(0);
+  });
+
+  it('drops VAT rows and the VAT number when the job has no VAT', async () => {
+    const input = {
+      ...depositInvoiceFixture,
+      quoteLines: depositInvoiceFixture.quoteLines.map((l) => ({ ...l, vatApplies: false })),
+    };
+    await renderPdf(page, await buildDepositInvoice(page, input, fakeTenant, fakeBrand));
+    const t = await text();
+    expect(t).not.toContain('VAT registration number');
+    expect(t).not.toContain('Subtotal');
+    expect(t).toContain('Quote total');
+    expect(t).not.toContain('Quote total (inc. VAT)');
+  });
+
+  it('escapes customer text', async () => {
+    const input = { ...depositInvoiceFixture, customer: { ...depositInvoiceFixture.customer, name: '<img src=x onerror=alert(1)>' } };
+    await renderPdf(page, await buildDepositInvoice(page, input, fakeTenant, fakeBrand));
+    expect(await page.$$eval('img[onerror]', (e) => e.length)).toBe(0);
+    expect(await text()).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('flows a long scope onto extra pages with consistent footers', async () => {
+    const extra = depositInvoiceFixture.scope.map((s) => ({ ...s, heading: `${s.heading} (additional)` }));
+    const input = { ...depositInvoiceFixture, scope: [...depositInvoiceFixture.scope, ...extra, ...extra, ...extra] };
+    const pdf = await renderPdf(page, await buildDepositInvoice(page, input, fakeTenant, fakeBrand));
+    const count = await page.$$eval('.page', (p) => p.length);
+    expect(count).toBeGreaterThan(2);
+    expect(pdfPages(pdf)).toBe(count);
+    const pg = await page.$$eval('.rf .pg', (els) => els.map((e) => e.textContent ?? ''));
+    expect(pg).toHaveLength(count);
+    pg.forEach((t, i) => expect(t).toContain(`${String(i + 1).padStart(2, '0')} / ${String(count).padStart(2, '0')}`));
+  });
+
+  it('rejects an empty scope', async () => {
+    await expect(buildDepositInvoice(page, { ...depositInvoiceFixture, scope: [] }, fakeTenant, fakeBrand)).rejects.toThrow(/scope/i);
+  });
+
+  it('fails closed when the pricing page would collide with the disclaimer', async () => {
+    const lines = Array.from({ length: 14 }, (_, i) => ({
+      description: `Extra line ${i + 1} with a reasonably long description so it wraps`,
+      kind: 'Work',
+      qty: 1,
+      unitNetPence: 10000,
+      vatApplies: true,
+    }));
+    const input = { ...depositInvoiceFixture, quoteLines: lines };
+    await expect(renderPdf(page, await buildDepositInvoice(page, input, fakeTenant, fakeBrand))).resolves.toBeDefined();
+    // Deposit invoices show one row whatever the quote holds, so the collision risk is the notes below it. A long note must trip the guard.
+    const long = { ...depositInvoiceFixture, disclaimer: 'x '.repeat(4000) };
+    await expect(renderPdf(page, await buildDepositInvoice(page, long, fakeTenant, fakeBrand))).rejects.toBeInstanceOf(PageOverflowError);
+  });
+});
+
+describe('balance invoice', () => {
+  it('renders the balance split 1,921.50 + 384.30 = 2,305.80 with the deposit received', async () => {
+    const pdf = await renderPdf(page, await buildBalanceInvoice(page, balanceInvoiceFixture, fakeTenant, fakeBrand));
+    expect(pdfPages(pdf)).toBe(2);
+    const t = await text();
+    for (const s of ['Balance Invoice', 'INV-JS-001-B', '£1,921.50', '£384.30', '£2,305.80', '£3,294.00', '30% deposit received', '£988.20', 'receipt RCP-JS-001-D']) {
+      expect(t).toContain(s);
+    }
+    expect(t).toContain('Payment is due upon receipt of this invoice.');
+  });
+
+  it('shows extras and credits on top of the quote', async () => {
+    const input = {
+      ...balanceInvoiceFixture,
+      adjustmentLines: [
+        { description: 'Extra ply boards', kind: 'Extra', qty: 2, unitNetPence: 5000, vatApplies: true },
+        { description: 'Goodwill credit', kind: 'Credit', qty: 1, unitNetPence: -2500, vatApplies: true },
+      ],
+    };
+    await renderPdf(page, await buildBalanceInvoice(page, input, fakeTenant, fakeBrand));
+    const t = await text();
+    expect(t).toContain('Extras and credits (inc. VAT)');
+    expect(t).toContain('£90.00'); // (10000 - 2500) net + 20% = 9000p
+  });
+
+  it('leaves the receipt reference out when there is none', async () => {
+    const input = { ...balanceInvoiceFixture, depositReceiptRef: null };
+    await renderPdf(page, await buildBalanceInvoice(page, input, fakeTenant, fakeBrand));
+    expect(await text()).not.toContain('(receipt');
+  });
+});
