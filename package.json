@@ -12,7 +12,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:render": "vitest run -c vitest.render.config.ts",
+    "test:render": "vitest run -c vitest.render.config.mts",
     "spike": "tsx scripts/render-spike.ts"
   },
   "keywords": [],
