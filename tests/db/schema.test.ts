@@ -57,4 +57,37 @@ describe.skipIf(!dbAvailable)('schema', () => {
       await expect(c.query(ins, [a.tenantId, cust.rows[0].id])).rejects.toThrow(/duplicate key|unique/i);
     });
   });
+
+  it('allows a new default once the old default is archived', async () => {
+    await withRollback(async (c) => {
+      const a = await createTenantWithUser(c, 'Tenant A');
+      const ins = `insert into public.bank_accounts (tenant_id, account_name, bank_name, sort_code_enc, account_number_enc, last4, is_default, archived_at)
+                   values ($1, 'x', 'y', 'enc', 'enc', '0000', true, $2)`;
+      await c.query(ins, [a.tenantId, new Date()]);
+      await expect(c.query(ins, [a.tenantId, null])).resolves.toBeDefined();
+    });
+  });
+
+  it('lets another tenant have its own default bank account', async () => {
+    await withRollback(async (c) => {
+      const a = await createTenantWithUser(c, 'Tenant A');
+      const b = await createTenantWithUser(c, 'Tenant B');
+      const ins = `insert into public.bank_accounts (tenant_id, account_name, bank_name, sort_code_enc, account_number_enc, last4, is_default)
+                   values ($1, 'x', 'y', 'enc', 'enc', '0000', true)`;
+      await c.query(ins, [a.tenantId]);
+      await expect(c.query(ins, [b.tenantId])).resolves.toBeDefined();
+    });
+  });
+
+  it('allows the same quote reference in a different tenant', async () => {
+    await withRollback(async (c) => {
+      const a = await createTenantWithUser(c, 'Tenant A');
+      const b = await createTenantWithUser(c, 'Tenant B');
+      const ca = await c.query(`insert into public.customers (tenant_id, name) values ($1, 'C') returning id`, [a.tenantId]);
+      const cb = await c.query(`insert into public.customers (tenant_id, name) values ($1, 'C') returning id`, [b.tenantId]);
+      const ins = `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-JS-001')`;
+      await c.query(ins, [a.tenantId, ca.rows[0].id]);
+      await expect(c.query(ins, [b.tenantId, cb.rows[0].id])).resolves.toBeDefined();
+    });
+  });
 });

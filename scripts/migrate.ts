@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { connect } from '../src/db/connect';
+import { redactSecrets } from '../src/db/env';
 import { applyMigrations } from '../src/db/migrate';
 
 async function main() {
@@ -13,6 +14,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(String(e.message ?? e));
+  console.error(redactSecrets(String(e.message ?? e)));
   process.exit(1);
 });

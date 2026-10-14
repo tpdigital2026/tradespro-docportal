@@ -9,6 +9,15 @@ export async function applyMigrations(client: Queryable, dir: string): Promise<s
   await client.query(`create table if not exists public._migrations (name text primary key, applied_at timestamptz not null default now())`);
   await client.query(`alter table public._migrations enable row level security`);
   await client.query(`revoke all on public._migrations from anon, authenticated`);
+  await client.query('select pg_advisory_lock(727270001)');
+  try {
+    return await run(client, dir);
+  } finally {
+    await client.query('select pg_advisory_unlock(727270001)').catch(() => undefined);
+  }
+}
+
+async function run(client: Queryable, dir: string): Promise<string[]> {
   const done = new Set((await client.query('select name from public._migrations')).rows.map((r: { name: string }) => r.name));
   const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
   const applied: string[] = [];
@@ -21,7 +30,7 @@ export async function applyMigrations(client: Queryable, dir: string): Promise<s
       await client.query('commit');
       applied.push(file);
     } catch (e) {
-      await client.query('rollback');
+      await client.query('rollback').catch(() => undefined);
       throw e;
     }
   }

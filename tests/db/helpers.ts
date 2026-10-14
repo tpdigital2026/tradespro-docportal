@@ -5,6 +5,11 @@ import { databaseUrl } from '../../src/db/env';
 
 export const dbAvailable = databaseUrl() !== null;
 
+if (!dbAvailable) {
+  if (process.env.REQUIRE_DB === '1') throw new Error('REQUIRE_DB=1 but DATABASE_URL is not set: refusing to pass vacuously');
+  console.warn('WARNING: DB tests are being SKIPPED because DATABASE_URL is not set.');
+}
+
 /** Runs fn in a transaction that is always rolled back, so tests leave no trace. */
 export async function withRollback<T>(fn: (c: Client) => Promise<T>): Promise<T> {
   const c = await connect();

@@ -34,6 +34,16 @@ describe('applyMigrations', () => {
     expect(await applyMigrations(c as never, dir)).toEqual(['001_a.sql', '002_b.sql']);
     expect([...c.applied]).toEqual(['001_a.sql', '002_b.sql']);
   });
+  it('commits per applied file and secures the tracking table', async () => {
+    const c = fakeClient();
+    const dir = dirWith({ '001_a.sql': 'select 1;', '002_b.sql': 'select 2;' });
+    await applyMigrations(c as never, dir);
+    expect(c.log.filter((l) => l === 'commit')).toHaveLength(2);
+    expect(c.log.some((l) => l.includes('enable row level security'))).toBe(true);
+    expect(c.log.some((l) => l.startsWith('revoke all on public._migrations'))).toBe(true);
+    expect(c.log.some((l) => l.includes('pg_advisory_lock'))).toBe(true);
+    expect(c.log.some((l) => l.includes('pg_advisory_unlock'))).toBe(true);
+  });
   it('skips migrations already applied', async () => {
     const c = fakeClient();
     c.applied.add('001_a.sql');

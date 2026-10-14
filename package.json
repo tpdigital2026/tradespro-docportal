@@ -12,7 +12,8 @@
     "spike": "tsx scripts/render-spike.ts",
     "test:db": "vitest run -c vitest.db.config.mts",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed-fjc.ts"
+    "db:seed": "tsx scripts/seed-fjc.ts",
+    "test:db:ci": "REQUIRE_DB=1 vitest run -c vitest.db.config.mts"
   },
   "keywords": [],
   "author": "",
