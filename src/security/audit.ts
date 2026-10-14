@@ -1,4 +1,6 @@
-import type { Db } from './login-guard';
+import { normaliseIp, type Db } from './login-guard';
+
+export const MAX_USER_AGENT_LENGTH = 256;
 
 const MAX_JSON_LENGTH = 8192;
 const MAX_DEPTH = 8;
@@ -86,6 +88,6 @@ export async function writeAudit(db: Db, e: AuditEntry): Promise<void> {
   await db.query(
     `insert into public.audit_log (tenant_id, user_id, impersonator_id, action, entity, entity_id, ip, user_agent, meta)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [e.tenantId, e.userId, e.impersonatorId ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.ip ?? null, e.userAgent ?? null, metaJson],
+    [e.tenantId, e.userId, e.impersonatorId ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.ip ? normaliseIp(e.ip) : null, e.userAgent ? e.userAgent.slice(0, MAX_USER_AGENT_LENGTH) : null, metaJson],
   );
 }

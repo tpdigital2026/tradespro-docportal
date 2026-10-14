@@ -92,3 +92,14 @@ describe.skipIf(!dbAvailable)('schema', () => {
     });
   });
 });
+
+describe.skipIf(!dbAvailable)('tenant names', () => {
+  it('are unique ignoring case', async () => {
+    await withRollback(async (c) => {
+      await c.query(`insert into public.tenants (name, trade_type, owner_name, owner_title) values ('Dup Test Co', 'roofing', 'O', 'Director')`);
+      await c.query('savepoint s');
+      await expect(c.query(`insert into public.tenants (name, trade_type, owner_name, owner_title) values ('DUP TEST CO', 'roofing', 'O', 'Director')`)).rejects.toThrow(/tenants_name_lower_key/);
+      await c.query('rollback to savepoint s');
+    });
+  });
+});

@@ -21,3 +21,10 @@ describe('tenantWordingSchema', () => {
     expect(text).not.toMatch(/\d{2}-\d{2}-\d{2}/);
   });
 });
+
+describe('tenantWordingSchema is strict', () => {
+  it('rejects unknown keys at the top and inside sections', () => {
+    expect(() => tenantWordingSchema.parse({ ...FJC_WORDING, extra: { terms: 'x' } })).toThrow();
+    expect(() => tenantWordingSchema.parse({ ...FJC_WORDING, quote: { terms: 'x', surprise: 'y' } })).toThrow();
+  });
+});

@@ -447,3 +447,50 @@ describe.skipIf(!dbAvailable)('purge protocol and erase', () => {
     });
   });
 });
+
+describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
+  it('claim_customer locks the tree: a photo insert waits, and the erase then stops it', async () => {
+    await withFixture(async (fx) => {
+      const claimer = await fx.client();
+      const rival = await fx.client();
+      const pid = (await rival.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+      await claimer.query('begin');
+      const wrong = await claimer.query(`select private.claim_customer($1, $2) as ok`, [fx.tenantId, '00000000-0000-0000-0000-000000000000']);
+      expect(wrong.rows[0].ok).toBe(false);
+      const claimed = await claimer.query(`select private.claim_customer($1, $2) as ok`, [fx.tenantId, fx.customerId]);
+      expect(claimed.rows[0].ok).toBe(true);
+      for (const table of LOCKED_TABLES) {
+        const other = await fx.client();
+        await other.query('begin');
+        await expect(other.query(`select 1 from public.${table} where tenant_id = $1 for update nowait`, [fx.tenantId]), table).rejects.toThrow(/could not obtain lock/i);
+        await other.query('rollback');
+      }
+      const pending = rival
+        .query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [fx.tenantId, fx.jobId, `${fx.tenantId}/photos/late.jpg`])
+        .then(() => null, (e) => e as { code?: string });
+      await waitUntilBlocked(fx.setup, pid);
+      const paths = await claimer.query(`select private.customer_storage_paths($1, $2) as p`, [fx.tenantId, fx.customerId]);
+      expect(paths.rows.map((r) => r.p)).not.toContain(`${fx.tenantId}/photos/late.jpg`);
+      const erased = await claimer.query(`select private.erase_customer($1, $2) as n`, [fx.tenantId, fx.customerId]);
+      expect(erased.rows[0].n).toBe(1);
+      await claimer.query('commit');
+      expect((await pending)?.code).toBe('23503');
+    });
+  });
+
+  it('claim_customer is not callable by the app role or anon', async () => {
+    await withRollback(async (c) => {
+      const t = await createTenantWithUser(c, 'Alpha');
+      for (const role of ['authenticated', 'anon']) {
+        await c.query(`set local role ${role}`);
+        await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: t.userId, role })]);
+        for (const sql of [`select private.claim_customer(gen_random_uuid(), gen_random_uuid())`, `select private.lock_customer_tree(array[]::uuid[])`]) {
+          await c.query('savepoint s');
+          await expect(c.query(sql), `${role} ${sql}`).rejects.toThrow(/permission denied/i);
+          await c.query('rollback to savepoint s');
+        }
+        await c.query('reset role');
+      }
+    });
+  });
+});

@@ -21,7 +21,7 @@ The database is a hosted Supabase project. Put its connection details in `.env.l
 - `npm run db:migrate` applies pending SQL in `supabase/migrations/`. Applied migrations are never edited; add a new numbered file.
 - `npm run db:seed` seeds the FJC business (facts and wording only, no bank details, no users, no customers).
 - `npm run test:db` runs the database tests (each in a rolled-back transaction, except the few that clean up after themselves).
-- `npm run invite -- <email> "<business name>" <owner|staff> "<full name>"` registers a person against one business. It is invite only, there are no passwords, and it needs `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_URL` in `.env.local`. It stops with a clear message if either is missing. People who have not been invited cannot log in.
+- `npm run invite -- <email> "<business name>" <owner|staff> "<full name>" [--tenant-id <uuid>]` registers a person against one business. Business names are unique ignoring case; it refuses if more than one business matches, and removes the new login again if the profile cannot be created. It is invite only, there are no passwords, and it needs `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_URL` in `.env.local`. It stops with a clear message if either is missing. People who have not been invited cannot log in.
 
 Security model in one paragraph: every table has row level security (enabled and forced); signed-in users only ever see their own business; bank details are encrypted in the app and unreadable to the app role; sensitive writes happen on the server after a fresh email code; the audit log is append only and holds no personal data; customer data is purged 30 days after last activity.
 
@@ -68,3 +68,24 @@ Customer data is removed 30 days after last activity. The scheduled job runs the
 4. `private.purge_customers` deletes the claimed customers and writes a `purge_log` row (a zero-count run is a heartbeat).
 
 Residual risk: if the connection drops after the files are deleted, the customer stays expired and is purged on the next run. A write in that gap can leave a kept customer pointing at deleted files. A single transaction and a long statement timeout keep this window small.
+
+### Owner-requested erasure protocol
+
+Same shape as the purge, one customer, ONE transaction on a service connection with no `request.jwt.claims`:
+
+1. `private.claim_customer(tenant, customer)` takes the same lock set and order as the batch claim (`private.lock_customer_tree`). It returns false if the customer is not in that business.
+2. `private.customer_storage_paths(tenant, customer)` lists the files.
+3. Delete those files from storage; abort and roll back on any failure.
+4. `private.erase_customer(tenant, customer)`, then commit.
+
+### More server rules
+
+- Uploads: insert the database row first, then upload the file, and delete the row (and any partial file) if the upload fails. A storage orphan sweep (files with no row) is still needed and is not built yet.
+- Bank accounts: the app role can only read the safe columns; every write goes through the server on the service role. The server must check `role = owner` AND a fresh step-up before any bank write. The database does not check the owner role on these writes because the app role has no write grant at all.
+- Share tokens: generate them on the server. The server applies the 14-day default expiry; the database only enforces a 30-day maximum.
+- Deleting a staff auth user fails if they created finalised versions. Disable the person (`disabled_at`) and never delete them.
+- `audit_log` IP addresses have no retention rule yet (decision pending). The audit personal-data check cannot catch names or addresses typed into free text, so callers must pass ids and codes only.
+
+### Known residual risk (open decision for Plan 5)
+
+Supabase Auth's own `/auth/v1/otp` and `/auth/v1/verify` endpoints are reachable with the public anon key, so the 5-wrong-codes lock in `verifyWithGuard` does not stop someone guessing codes directly against them. Mitigations in place: single-use 10-minute 6-digit codes and tight Supabase rate limits. Plan 5 must decide between server-issued codes (so the guard sits in front of every guess) and accepting Supabase's own limits.

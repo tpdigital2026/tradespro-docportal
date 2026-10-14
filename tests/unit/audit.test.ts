@@ -143,3 +143,18 @@ describe('writeAudit', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe('writeAudit ip and user agent', () => {
+  it('normalises the ip and truncates the user agent', async () => {
+    const calls: { params?: unknown[] }[] = [];
+    const db = { query: async (_s: string, params?: unknown[]) => (calls.push({ params }), { rows: [] }) };
+    await writeAudit(db, { tenantId: 't', userId: 'u', action: 'x', ip: '203.0.113.9:4433, 10.0.0.1', userAgent: 'a'.repeat(1000) });
+    await writeAudit(db, { tenantId: 't', userId: 'u', action: 'x', ip: 'not an ip' });
+    await writeAudit(db, { tenantId: 't', userId: 'u', action: 'x' });
+    expect(calls[0].params![6]).toBe('203.0.113.9');
+    expect(String(calls[0].params![7])).toHaveLength(256);
+    expect(calls[1].params![6]).toBe('0.0.0.0');
+    expect(calls[2].params![6]).toBeNull();
+    expect(calls[2].params![7]).toBeNull();
+  });
+});

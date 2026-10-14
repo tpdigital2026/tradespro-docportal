@@ -3,12 +3,12 @@ import { z } from 'zod';
 const text = z.string().trim().min(1);
 
 /** Document wording owned by each business (terms, due labels, guarantee wording). Never written by code. */
-export const tenantWordingSchema = z.object({
-  quote: z.object({ terms: text }),
-  deposit_invoice: z.object({ terms: text, dueLabel: text, balanceDueLabel: text }),
-  balance_invoice: z.object({ terms: text, dueNote: text }),
-  receipt: z.object({ balanceDueLabel: text }),
-  guarantee: z.object({ statement: text, disclaimerLine: text.nullable() }),
+export const tenantWordingSchema = z.strictObject({
+  quote: z.strictObject({ terms: text }),
+  deposit_invoice: z.strictObject({ terms: text, dueLabel: text, balanceDueLabel: text }),
+  balance_invoice: z.strictObject({ terms: text, dueNote: text }),
+  receipt: z.strictObject({ balanceDueLabel: text }),
+  guarantee: z.strictObject({ statement: text, disclaimerLine: text.nullable() }),
 });
 
 export type TenantWording = z.infer<typeof tenantWordingSchema>;
