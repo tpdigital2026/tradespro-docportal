@@ -18,6 +18,88 @@ describe('assertNoPersonalData', () => {
   });
 });
 
+describe('assertNoPersonalData bypass attempts', () => {
+  const rejected: [string, unknown][] = [
+    ['toJSON', { toJSON: () => ({ email: 'a' }), safe: 1 }],
+    ['email as a key', { 'ben@example.com': 1 }],
+    ['customer.name', { customer: { name: 'x' } }],
+    ['e-mail', { 'e-mail': 'x' }],
+    ['firstname', { firstname: 'x' }],
+    ['first_name camel', { firstName: 'x' }],
+    ['surname', { surname: 'x' }],
+    ['EMAILADDRESS', { EMAILADDRESS: 'x' }],
+    ['emails', { emails: ['x'] }],
+    ['tel', { tel: '1' }],
+    ['telephone', { telephone: '1' }],
+    ['phone_number', { phone_number: '1' }],
+    ['recipient', { recipient: 'x' }],
+    ['iban', { iban: 'x' }],
+    ['file_name (fails closed)', { file_name: 'x' }],
+    ['cyrillic lookalike key', { 'n\u0430me': 'x' }],
+    ['phone value', { note: 'call 07700 900123' }],
+    ['phone value with +44', { note: '+44 7700 900123' }],
+    ['postcode value', { note: 'BR1 1AA' }],
+    ['postcode value lowercase', { note: 'sw1a 1aa' }],
+    ['email in nested array', { list: [{ x: 'a@b.co' }] }],
+  ];
+  for (const [label, meta] of rejected) {
+    it(`rejects ${label}`, () => {
+      expect(() => assertNoPersonalData(meta)).toThrow(/personal/i);
+    });
+  }
+  it('rejects cyclic objects', () => {
+    const a: Record<string, unknown> = {};
+    a.self = a;
+    expect(() => assertNoPersonalData(a)).toThrow(/serialised/i);
+  });
+  it('rejects values that do not serialise', () => {
+    expect(() => assertNoPersonalData(undefined)).toThrow(/serialised/i);
+    expect(() => assertNoPersonalData({ n: 10n })).toThrow(/serialised/i);
+  });
+  it('rejects 20,000-deep nesting', () => {
+    let o: Record<string, unknown> = {};
+    for (let i = 0; i < 20_000; i++) o = { a: o };
+    expect(() => assertNoPersonalData(o)).toThrow();
+  });
+  it('rejects nesting deeper than 8', () => {
+    let o: unknown = 1;
+    for (let i = 0; i < 10; i++) o = { a: o };
+    expect(() => assertNoPersonalData(o)).toThrow(/nested too deeply/i);
+    let ok: unknown = 1;
+    for (let i = 0; i < 7; i++) ok = { a: ok };
+    expect(() => assertNoPersonalData(ok)).not.toThrow();
+  });
+  it('rejects oversized meta', () => {
+    expect(() => assertNoPersonalData({ blob: 'x'.repeat(9000) })).toThrow(/too large/i);
+  });
+  it('does not reject ids, references, dates or amounts', () => {
+    expect(() =>
+      assertNoPersonalData({
+        id: '3f0c2b9e-7a41-4e0d-9c55-0a1b2c3d4e5f',
+        zero_id: '00000000-0000-0000-0000-000000000000',
+        ref: 'QT-JS-001',
+        number: 'INV-FJC-0042',
+        date: '2026-10-14',
+        at: '2026-01-04T10:30:00.000Z',
+        total_pence: 900600,
+        pence_text: '900600',
+        action: 'document.finalised',
+        path: 'tenant/pdfs/QT-JS-001-v1.pdf',
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('writeAudit top-level fields', () => {
+  it('rejects an email in entityId, entity or action', async () => {
+    const db = { query: async () => ({ rows: [] }) };
+    await expect(writeAudit(db, { tenantId: 't', userId: 'u', action: 'x', entityId: 'ben@example.com' })).rejects.toThrow(/personal/i);
+    await expect(writeAudit(db, { tenantId: 't', userId: 'u', action: 'x', entity: 'BR1 1AA' })).rejects.toThrow(/personal/i);
+    await expect(writeAudit(db, { tenantId: 't', userId: 'u', action: '07700 900123' })).rejects.toThrow(/personal/i);
+  });
+});
+
+
 describe('writeAudit', () => {
   it('inserts a row with the given fields', async () => {
     const calls: { sql: string; params?: unknown[] }[] = [];

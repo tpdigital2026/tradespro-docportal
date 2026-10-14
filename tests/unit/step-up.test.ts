@@ -29,11 +29,39 @@ describe('assertRecentStepUp', () => {
     expect(() => assertRecentStepUp({ amr: [{ method: 'otp', timestamp: now + 30 }] }, now)).not.toThrow();
   });
   it('has a friendly message and name', () => {
+    expect.assertions(2);
     try {
       assertRecentStepUp({}, now);
     } catch (e) {
       expect((e as Error).name).toBe('StepUpRequiredError');
       expect((e as Error).message).toMatch(/fresh email code/i);
     }
+  });
+  it('never throws anything but StepUpRequiredError, whatever the claims look like', () => {
+    const bad: unknown[] = [
+      null,
+      undefined,
+      { amr: { method: 'otp', timestamp: now } },
+      { amr: 'otp' },
+      { amr: [null, 1, 'x'] },
+      { amr: [{ method: 5, timestamp: now }] },
+      { amr: [{ method: 'otp', timestamp: String(now) }] },
+      { amr: [{ method: 'otp', timestamp: Number.NaN }] },
+      { amr: [{ method: 'email', timestamp: now }] },
+    ];
+    for (const claims of bad) {
+      expect(() => assertRecentStepUp(claims as never, now), JSON.stringify(claims)).toThrow(StepUpRequiredError);
+    }
+  });
+  it('accepts magiclink', () => {
+    expect(() => assertRecentStepUp({ amr: [{ method: 'magiclink', timestamp: now - 5 }] }, now)).not.toThrow();
+  });
+  it('skips junk entries before a valid one', () => {
+    expect(() => assertRecentStepUp({ amr: [null, 1, { method: 'otp', timestamp: now }] as never }, now)).not.toThrow();
+  });
+  it('ignores entries after the first 20', () => {
+    const amr = Array.from({ length: 20 }, () => ({ method: 'password', timestamp: now }));
+    amr.push({ method: 'otp', timestamp: now });
+    expect(() => assertRecentStepUp({ amr }, now)).toThrow(StepUpRequiredError);
   });
 });
