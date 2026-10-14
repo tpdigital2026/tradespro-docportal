@@ -1,4 +1,9 @@
 import { createHmac } from 'node:crypto';
+import { isIP } from 'node:net';
+
+// Retention: old login_attempts rows are purged by the purge migration in a later task
+// (private.purge_old_login_attempts); nothing here deletes rows.
+
 
 export const WINDOW_MS = 15 * 60 * 1000;
 export const MAX_FAILURES = 5;
@@ -35,7 +40,9 @@ export function hashEmail(email: string, pepper: string): string {
  * Five wrong codes within 15 minutes starts a lock that lasts 15 minutes from the
  * failure that triggered it; each further wrong code extends it. A success clears
  * earlier failures, but a success recorded while locked is ignored: callers must use
- * verifyWithGuard, which never accepts a code during a lock.
+ * verifyWithGuard, which never accepts a code during a lock. Failures older than
+ * 2 x WINDOW are not loaded, so an extension chain written outside the guard (direct
+ * recordAttempt) could be missed; the guard itself never writes failures while locked.
  */
 export function decideVerify(attempts: Attempt[], now: Date): Decision {
   const verifies = attempts.filter((a) => a.kind === 'verify').sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -78,16 +85,30 @@ export function decideIpRequests(ipRequestsInWindow: number): Decision {
   return ipRequestsInWindow >= IP_MAX_REQUESTS ? { allowed: false, reason: 'ip_blocked', retryAt: null } : OK;
 }
 
+/** Unknown clients share this address, so they are limited together rather than bypassing the IP limits. */
+export const UNKNOWN_IP = '0.0.0.0';
+
+/** Reduces a raw forwarded-for style value to a bare IP address, or the shared sentinel. */
+export function normaliseIp(raw: string | null | undefined): string {
+  if (!raw) return UNKNOWN_IP;
+  let v = raw.split(',')[0].trim();
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(v);
+  if (bracketed) v = bracketed[1];
+  else if (/^[^:]+:\d+$/.test(v)) v = v.slice(0, v.lastIndexOf(':'));
+  return isIP(v) ? v : UNKNOWN_IP;
+}
+
+/** Must be a single connection (a pg Client, or a PoolClient from pool.connect()), never a pool. */
 export type Db = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> };
 
 export async function recordAttempt(
   db: Db,
-  a: { emailHash: string; ip: string | null; kind: 'request' | 'verify'; success: boolean },
+  a: { emailHash: string; ip: string; kind: 'request' | 'verify'; success: boolean },
 ): Promise<void> {
   if (!/^[0-9a-f]{64}$/.test(a.emailHash)) throw new Error('emailHash must be a 64 character hex hash');
   await db.query(`insert into public.login_attempts (email_hash, ip, kind, success) values ($1, $2, $3, $4)`, [
     a.emailHash,
-    a.ip,
+    normaliseIp(a.ip),
     a.kind,
     a.success,
   ]);
@@ -103,37 +124,43 @@ export async function recentAttempts(db: Db, emailHash: string, now: Date): Prom
   return r.rows.map((x) => ({ kind: x.kind, success: x.success, at: new Date(x.at) })).sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
-export async function recentIpFailures(db: Db, ip: string | null, now: Date): Promise<number> {
-  if (!ip) return 0;
+export async function recentIpFailures(db: Db, ip: string, now: Date): Promise<number> {
   const since = new Date(now.getTime() - WINDOW_MS);
   const r = await db.query(
     `select count(*)::int as n from public.login_attempts where ip = $1 and kind = 'verify' and success = false and at > $2`,
-    [ip, since],
+    [normaliseIp(ip), since],
   );
   return r.rows[0].n;
 }
 
-export async function recentIpRequests(db: Db, ip: string | null, now: Date): Promise<number> {
-  if (!ip) return 0;
+export async function recentIpRequests(db: Db, ip: string, now: Date): Promise<number> {
   const since = new Date(now.getTime() - WINDOW_MS);
-  const r = await db.query(`select count(*)::int as n from public.login_attempts where ip = $1 and kind = 'request' and at > $2`, [ip, since]);
+  const r = await db.query(`select count(*)::int as n from public.login_attempts where ip = $1 and kind = 'request' and at > $2`, [normaliseIp(ip), since]);
   return r.rows[0].n;
 }
 
 interface GuardInput {
   emailHash: string;
-  ip: string | null;
+  /** Raw client address (for example a forwarded-for header); normalised inside the guard. */
+  ip: string | null | undefined;
   now?: Date;
-  /** Set when the caller already owns a transaction (tests); skips begin/commit/rollback. */
-  inTransaction?: boolean;
+  /** TEST ONLY: the caller already opened a transaction; never pass this in production, an advisory lock in autocommit is released immediately. */
+  callerOwnsTransaction?: boolean;
 }
 
 async function inGuardTransaction<T>(db: Db, input: GuardInput, fn: () => Promise<T>): Promise<T> {
-  const own = !input.inTransaction;
+  const own = !input.callerOwnsTransaction;
   if (own) await db.query('begin');
   try {
+    const pid = async () => (await db.query('select pg_backend_pid() as pid')).rows[0].pid;
+    const check = async () => {
+      if (own && (await pid()) !== pid1) throw new Error('login guard requires a dedicated database connection, not a pool');
+    };
+    const pid1 = own ? await pid() : null;
     await db.query('select pg_advisory_xact_lock(hashtext($1))', [input.emailHash]);
+    await check();
     const result = await fn();
+    await check();
     if (own) await db.query('commit');
     return result;
   } catch (e) {
@@ -143,6 +170,10 @@ async function inGuardTransaction<T>(db: Db, input: GuardInput, fn: () => Promis
 }
 
 /**
+ * checkCode must be pure or use the same transaction; it runs while the email lock is held,
+ * so keep it fast. If it consumes a one-time code on another connection and a later step
+ * fails, the code is spent but no attempt is recorded.
+ *
  * Checks the limits, runs checkCode and records the outcome under one per-email lock, so
  * concurrent guesses cannot slip past the limit. checkCode is never called while blocked.
  */
@@ -151,13 +182,14 @@ export async function verifyWithGuard(
   input: GuardInput & { checkCode: () => Promise<boolean> },
 ): Promise<{ outcome: 'verified' } | { outcome: 'wrong_code' } | { outcome: 'blocked'; decision: Decision }> {
   const now = input.now ?? new Date();
+  const ip = normaliseIp(input.ip);
   return inGuardTransaction(db, input, async () => {
-    const ipDecision = decideIp(await recentIpFailures(db, input.ip, now));
+    const ipDecision = decideIp(await recentIpFailures(db, ip, now));
     if (!ipDecision.allowed) return { outcome: 'blocked' as const, decision: ipDecision };
     const decision = decideVerify(await recentAttempts(db, input.emailHash, now), now);
     if (!decision.allowed) return { outcome: 'blocked' as const, decision };
     const ok = await input.checkCode();
-    await recordAttempt(db, { emailHash: input.emailHash, ip: input.ip, kind: 'verify', success: ok });
+    await recordAttempt(db, { emailHash: input.emailHash, ip, kind: 'verify', success: ok });
     return ok ? { outcome: 'verified' as const } : { outcome: 'wrong_code' as const };
   });
 }
@@ -168,12 +200,13 @@ export async function requestCodeWithGuard(
   input: GuardInput,
 ): Promise<{ outcome: 'allowed' } | { outcome: 'blocked'; decision: Decision }> {
   const now = input.now ?? new Date();
+  const ip = normaliseIp(input.ip);
   return inGuardTransaction(db, input, async () => {
-    const ipDecision = decideIpRequests(await recentIpRequests(db, input.ip, now));
+    const ipDecision = decideIpRequests(await recentIpRequests(db, ip, now));
     if (!ipDecision.allowed) return { outcome: 'blocked' as const, decision: ipDecision };
     const decision = decideRequest(await recentAttempts(db, input.emailHash, now), now);
     if (!decision.allowed) return { outcome: 'blocked' as const, decision };
-    await recordAttempt(db, { emailHash: input.emailHash, ip: input.ip, kind: 'request', success: true });
+    await recordAttempt(db, { emailHash: input.emailHash, ip, kind: 'request', success: true });
     return { outcome: 'allowed' as const };
   });
 }

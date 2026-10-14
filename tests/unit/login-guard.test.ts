@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   type Attempt,
   MAX_CODE_REQUESTS,
@@ -9,6 +9,9 @@ import {
   decideRequest,
   decideVerify,
   hashEmail,
+  normaliseIp,
+  requestCodeWithGuard,
+  verifyWithGuard,
 } from '../../src/security/login-guard';
 
 const P = 'test-pepper-0123456789-0123456789';
@@ -149,5 +152,38 @@ describe('decideIpRequests', () => {
     expect(decideIpRequests(29).allowed).toBe(true);
     const d = decideIpRequests(30);
     expect(d).toEqual({ allowed: false, reason: 'ip_blocked', retryAt: null });
+  });
+});
+
+describe('normaliseIp', () => {
+  it.each([
+    ['203.0.113.5', '203.0.113.5'],
+    ['203.0.113.5:4433', '203.0.113.5'],
+    ['2001:db8::1', '2001:db8::1'],
+    ['[2001:db8::1]:4433', '2001:db8::1'],
+    ['[::1]:5678', '::1'],
+    ['203.0.113.5, 10.0.0.1', '203.0.113.5'],
+    ['not-an-ip', '0.0.0.0'],
+    ['', '0.0.0.0'],
+    [null, '0.0.0.0'],
+    [undefined, '0.0.0.0'],
+  ])('%s -> %s', (raw, expected) => {
+    expect(normaliseIp(raw as any)).toBe(expected);
+  });
+});
+
+describe('connection guard', () => {
+  it('refuses a pool-like connection that changes backend and never runs checkCode', async () => {
+    let pids = 0;
+    const fake = {
+      query: async (sql: string) => {
+        if (sql.includes('pg_backend_pid')) return { rows: [{ pid: ++pids }] };
+        return { rows: [] };
+      },
+    };
+    const checkCode = vi.fn(async () => true);
+    await expect(verifyWithGuard(fake, { emailHash: 'a'.repeat(64), ip: '203.0.113.5', checkCode })).rejects.toThrow(/dedicated database connection/);
+    expect(checkCode).not.toHaveBeenCalled();
+    await expect(requestCodeWithGuard(fake, { emailHash: 'a'.repeat(64), ip: '203.0.113.5' })).rejects.toThrow(/dedicated database connection/);
   });
 });
