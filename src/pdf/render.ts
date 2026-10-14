@@ -2,17 +2,23 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from 'playwright-core';
 
-export class PageOverflowError extends Error {}
+export class PageOverflowError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PageOverflowError';
+  }
+}
 
 async function load(page: Page, docHtml: string): Promise<void> {
   await page.setContent(docHtml, { waitUntil: 'load' });
-  await page.evaluate(() => document.fonts.ready);
   await page.emulateMedia({ media: 'print' });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 export async function assertNoOverflow(page: Page): Promise<void> {
   const bad = await page.evaluate(() => {
     const out: number[] = [];
+    if (document.querySelectorAll('.page').length === 0) return [0];
     document.querySelectorAll<HTMLElement>('.page').forEach((pg, i) => {
       const body = pg.querySelector<HTMLElement>('.body');
       const bodyOver = body ? body.scrollHeight > body.clientHeight + 1 : false;
@@ -20,6 +26,7 @@ export async function assertNoOverflow(page: Page): Promise<void> {
     });
     return out;
   });
+  if (bad[0] === 0) throw new PageOverflowError('No .page elements found');
   if (bad.length > 0) throw new PageOverflowError(`Content overflows page ${bad.join(', ')}`);
 }
 

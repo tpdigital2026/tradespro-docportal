@@ -9,7 +9,7 @@ export async function measureFragments(page: Page, css: string, widthMm: number,
   const inner = fragments.map((f) => `<div data-m style="display:flow-root">${f.value}</div>`).join('');
   const doc = documentShell({ title: 'measure', css, body: raw(`<div style="width:${widthMm}mm">${inner}</div>`) });
   await page.setContent(doc, { waitUntil: 'load' });
-  await page.evaluate(() => document.fonts.ready);
   await page.emulateMedia({ media: 'print' });
+  await page.evaluate(() => document.fonts.ready);
   return page.$$eval('[data-m]', (els) => els.map((e) => e.getBoundingClientRect().height));
 }

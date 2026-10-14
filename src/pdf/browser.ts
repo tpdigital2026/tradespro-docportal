@@ -6,7 +6,10 @@ export async function launchBrowser(): Promise<Browser> {
   return chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? DEFAULT_CHROME });
 }
 
-/** A page that cannot reach the network. data: URLs are not intercepted, so embedded assets still load. */
+/**
+ * A page that cannot reach the network. data: URLs are not intercepted, so embedded assets still load.
+ * Callers must call `page.context().close()` when done.
+ */
 export async function newLockedPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({
     deviceScaleFactor: 2,

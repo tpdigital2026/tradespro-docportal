@@ -54,6 +54,45 @@ describe('pdf pipeline', () => {
     await expect(renderPdf(page, doc)).rejects.toBeInstanceOf(PageOverflowError);
   });
 
+  it('rejects when only the .body box overflows', async () => {
+    const doc = documentShell({
+      title: 't',
+      css,
+      body: raw('<section class="page"><div class="body"><div style="height:255mm"></div></div></section>'),
+    });
+    await expect(renderPdf(page, doc)).rejects.toBeInstanceOf(PageOverflowError);
+  });
+
+  it('accepts content just inside the .body box', async () => {
+    const doc = documentShell({
+      title: 't',
+      css,
+      body: raw('<section class="page"><div class="body"><div style="height:245mm"></div></div></section>'),
+    });
+    const pdf = await renderPdf(page, doc);
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+  });
+
+  it('route layer alone aborts remote requests (no CSP)', async () => {
+    const failed: string[] = [];
+    const onFail = (r: { url(): string }) => failed.push(r.url());
+    page.on('requestfailed', onFail);
+    await page.setContent('<!doctype html><img id="x" src="https://example.com/route.png">');
+    await page.waitForFunction(() => (document.getElementById('x') as HTMLImageElement).complete);
+    page.off('requestfailed', onFail);
+    expect(failed).toContain('https://example.com/route.png');
+  });
+
+  it('CSP layer alone blocks inline script (route cannot see inline script)', async () => {
+    const doc = documentShell({ title: 't', css, body: raw('<script>document.body.dataset.ran="1"</script>') });
+    await page.setContent(doc);
+    expect(await page.evaluate(() => document.body.dataset.ran)).toBeUndefined();
+    const bare = await page.context().newPage();
+    await bare.setContent('<!doctype html><body><script>document.body.dataset.ran="1"</script>');
+    expect(await bare.evaluate(() => document.body.dataset.ran)).toBe('1');
+    await bare.close();
+  });
+
   it('measures fragment heights', async () => {
     const [a, b] = await measureFragments(page, css, 178, [raw('<div style="height:100px"></div>'), raw('<div style="height:250px"></div>')]);
     expect(a).toBeCloseTo(100, 0);
