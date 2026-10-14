@@ -18,6 +18,7 @@ afterAll(async () => {
 
 // textContent, not innerText: innerText applies the stylesheet's text-transform:uppercase to labels.
 const text = () => page.evaluate(() => document.body.textContent ?? '');
+const stamp = () => page.$eval('.stamp', (e) => e.textContent ?? '');
 const pdfPages = (pdf: Buffer) => (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
 
 describe('receipt', () => {
@@ -25,9 +26,10 @@ describe('receipt', () => {
     const pdf = await renderPdf(page, buildReceipt(depositReceiptFixture, fakeTenant, fakeBrand));
     expect(pdfPages(pdf)).toBe(1);
     const t = await text();
-    for (const s of ['Receipt', 'RCP-JS-001-D', 'INV-JS-001-D', '£988.20', '£2,305.80', 'Bank transfer', 'DEPOSIT', '07 · 10 · 2026']) {
+    for (const s of ['Receipt', 'RCP-JS-001-D', 'INV-JS-001-D', '£988.20', '£2,305.80', 'Bank transfer']) {
       expect(t.toUpperCase()).toContain(s.toUpperCase());
     }
+    expect(await stamp()).toBe('DepositPAID07 · 10 · 2026');
     expect(t).toContain('due on completion of works (quote QT-JS-001, total £3,294.00 inc. VAT)');
     expect(t).toContain('GB 408094403');
   });
@@ -37,7 +39,7 @@ describe('receipt', () => {
     const t = await text();
     expect(t).toContain('£2,305.80');
     expect(t).toContain('£0.00');
-    expect(t.toUpperCase()).toContain('PAID IN FULL');
+    expect(await stamp()).toBe('Paid in fullPAID11 · 10 · 2026');
     expect(t).toContain('Paid in full – no balance outstanding (quote QT-JS-001, total £3,294.00 inc. VAT).');
   });
 
@@ -45,7 +47,7 @@ describe('receipt', () => {
     const input = { ...finalReceiptFixture, amountPaidPence: 100000 };
     await renderPdf(page, buildReceipt(input, fakeTenant, fakeBrand));
     const t = await text();
-    expect(t.toUpperCase()).toContain('PART PAYMENT');
+    expect(await stamp()).toBe('Part paymentPAID11 · 10 · 2026');
     expect(t).toContain('£1,305.80');
     expect(t).toContain('still outstanding');
   });
@@ -62,10 +64,25 @@ describe('receipt', () => {
     expect(t).not.toContain('inc. VAT');
   });
 
-  it('escapes customer text', async () => {
-    const input = { ...depositReceiptFixture, customer: { ...depositReceiptFixture.customer, name: '<img src=x onerror=alert(1)>' } };
-    await renderPdf(page, buildReceipt(input, fakeTenant, fakeBrand));
+  it('escapes untrusted text in every free-text field', async () => {
+    const payload = '<img src=x onerror=alert(1)>';
+    const input = {
+      ...depositReceiptFixture,
+      customer: { ...depositReceiptFixture.customer, name: payload },
+      method: payload,
+      description: payload,
+      invoiceRef: payload,
+      receiptNo: payload,
+      paidDateLabel: payload,
+    };
+    const doc = buildReceipt(input, fakeTenant, fakeBrand);
+    expect(doc).not.toContain('<script');
+    await renderPdf(page, doc);
     expect(await page.$$eval('img[onerror]', (e) => e.length)).toBe(0);
+    expect(await page.$$eval('script', (e) => e.length)).toBe(0);
+    const t = await text();
+    expect(t).toContain(payload);
+    expect(t.split(payload).length - 1).toBeGreaterThanOrEqual(2);
   });
 
   it('fails closed when content runs into the footer', async () => {
