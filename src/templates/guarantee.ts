@@ -17,10 +17,17 @@ export interface GuaranteeInput {
 
 // Circumference of the r=74 text circle, minus a little so the end never touches the start.
 const SEAL_TEXT_LENGTH = 458;
+const SEAL_MIN_FONT_PX = 6;
+const SEAL_MAX_FONT_PX = 10;
+// Approximate advance width of one monospace glyph, in em.
+const GLYPH_EM = 0.62;
 
 function seal(t: Tenant, years: number): Raw {
   const label = `${t.name.toUpperCase()} · ${years} YEAR GUARANTEE · `;
-  return html`<svg viewBox="0 0 200 200" width="46mm" height="46mm" role="img" aria-label="${years} year guarantee seal"><defs><path id="seal-arc" d="M100,100 m-74,0 a74,74 0 1,1 148,0 a74,74 0 1,1 -148,0"/></defs><circle cx="100" cy="100" r="96" style="fill:var(--navy)"/><circle cx="100" cy="100" r="89" style="fill:none;stroke:var(--gold);stroke-width:1.6"/><circle cx="100" cy="100" r="60" style="fill:none;stroke:var(--gold);stroke-width:.8"/><text style="font-family:Mono;font-size:10px;fill:var(--gold2)"><textPath href="#seal-arc" textLength="${SEAL_TEXT_LENGTH}" lengthAdjust="spacing">${label}</textPath></text><text x="100" y="113" text-anchor="middle" style="font-family:Playfair;font-weight:600;font-size:50px;fill:#fff">${years}</text><text x="100" y="134" text-anchor="middle" style="font-family:Mono;font-size:8.5px;letter-spacing:3px;fill:var(--gold)">YEARS</text></svg>`;
+  // Shrink the type to suit the label so lengthAdjust never has to squeeze glyphs into each other.
+  const fontPx = Math.round(Math.min(SEAL_MAX_FONT_PX, SEAL_TEXT_LENGTH / (label.length * GLYPH_EM)) * 100) / 100;
+  if (fontPx < SEAL_MIN_FONT_PX) throw new Error('The business name is too long for the guarantee seal');
+  return html`<svg viewBox="0 0 200 200" width="46mm" height="46mm" role="img" aria-label="${years} year guarantee seal"><defs><path id="seal-arc" d="M100,100 m-74,0 a74,74 0 1,1 148,0 a74,74 0 1,1 -148,0"/></defs><circle cx="100" cy="100" r="96" style="fill:var(--navy)"/><circle cx="100" cy="100" r="89" style="fill:none;stroke:var(--gold);stroke-width:1.6"/><circle cx="100" cy="100" r="60" style="fill:none;stroke:var(--gold);stroke-width:.8"/><text style="font-family:Mono;font-size:${fontPx}px;fill:var(--gold2)"><textPath href="#seal-arc" textLength="${SEAL_TEXT_LENGTH}" lengthAdjust="spacing">${label}</textPath></text><text x="100" y="113" text-anchor="middle" style="font-family:Playfair;font-weight:600;font-size:50px;fill:#fff">${years}</text><text x="100" y="134" text-anchor="middle" style="font-family:Mono;font-size:8.5px;letter-spacing:3px;fill:var(--gold)">YEARS</text></svg>`;
 }
 
 export function buildGuarantee(input: GuaranteeInput, tenant: Tenant, brand: Brand): string {

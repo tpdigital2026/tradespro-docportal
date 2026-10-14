@@ -42,13 +42,28 @@ describe('guarantee certificate', () => {
     expect(t.toUpperCase()).toContain('WE CANNOT BE HELD RESPONSIBLE FOR MISUSE OF OUR PRODUCTS BY THE CUSTOMER');
   });
 
-  it('seal text names the business and the years and is sized to the circle', async () => {
+  const sealFont = () => page.$eval('svg textPath', (el) => ({ text: el.textContent ?? '', px: parseFloat(getComputedStyle(el.parentElement as Element).fontSize) }));
+
+  it('seal text names the business and the years at full size for a normal name', async () => {
     await renderPdf(page, buildGuarantee(guaranteeFixture, fakeTenant, fakeBrand));
-    const seal = await page.$eval('svg textPath', (el) => ({ text: el.textContent ?? '', length: el.getAttribute('textLength') }));
+    const seal = await sealFont();
     expect(seal.text).toContain('FJC ROOFING LTD');
     expect(seal.text).toContain('20 YEAR GUARANTEE');
-    expect(Number(seal.length)).toBeGreaterThan(400);
-    expect(Number(seal.length)).toBeLessThan(465);
+    expect(seal.px).toBe(10);
+  });
+
+  it('shrinks the seal text for a long business name so it cannot overlap', async () => {
+    const tenant = { ...fakeTenant, name: 'Bromley Kitchens and Bathrooms Roofing Ltd '.padEnd(60, 'x') };
+    expect(tenant.name).toHaveLength(60);
+    await renderPdf(page, buildGuarantee(guaranteeFixture, tenant, fakeBrand));
+    const { px } = await sealFont();
+    expect(px).toBeLessThan(10);
+    expect(px).toBeGreaterThanOrEqual(6);
+  });
+
+  it('fails closed when the business name cannot fit the seal', () => {
+    const tenant = { ...fakeTenant, name: 'N'.repeat(200) };
+    expect(() => buildGuarantee(guaranteeFixture, tenant, fakeBrand)).toThrow(/too long/);
   });
 
   it('leaves the disclaimer line out when none is given', async () => {
@@ -60,7 +75,12 @@ describe('guarantee certificate', () => {
     const tenant = { ...fakeTenant, name: 'A <b>&</b> Co' };
     const input = { ...guaranteeFixture, address: '<img src=x onerror=alert(1)>' };
     await renderPdf(page, buildGuarantee(input, tenant, fakeBrand));
-    expect(await page.$$eval('img[onerror], svg b', (e) => e.length)).toBe(0);
+    expect(await page.$$eval('img[onerror]', (e) => e.length)).toBe(0);
+    // The seal label is the uppercased tenant name, escaped: literal text, not markup.
+    expect((await sealFont()).text).toContain('A <B>&</B> CO');
+    // The HTML parser hoists a stray <b> out of <svg>, so count every <b> in the page.
+    // The template emits exactly one: the "installed by" business name, whose content is escaped text.
+    expect(await page.$$eval('b', (e) => e.length)).toBe(1);
   });
 
   it('fails closed when the content does not fit the frame', async () => {
