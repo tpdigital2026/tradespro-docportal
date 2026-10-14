@@ -12,7 +12,8 @@ Phase 1 is a single-tenant MVP for FJC Roofing Ltd, but the data model is multi-
 
 ### Where it lives
 - Separate repo (`TradesPro DocPortal`) and separate Vercel project. The marketing site is not touched.
-- Served at `docs.tradespro.digital`. SPF/DKIM already exist for the domain.
+- Served at `docs.tradesprodigital.io`. DNS for `tradesprodigital.io` is already managed in the ClickSmart Vercel team, so adding the domain to the project configures it automatically.
+- Outgoing email is independent of the web address. SPF/DKIM exist for the `tradespro.digital` sending domain; confirm which sender address and domain the app uses before Send to customer is built.
 - Alfie pushes with GitHub Desktop and sets up Vercel in the browser. Claude commits locally only.
 - Hosted Supabase dev project (no Docker or Homebrew on this machine). Keys go in `.env.local`, never in chat.
 
