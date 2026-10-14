@@ -82,3 +82,31 @@ export function formatGBP(pence: Pence): string {
   const rest = String(abs % 100).padStart(2, '0');
   return `${pence < 0 ? '-' : ''}£${pounds}.${rest}`;
 }
+
+export interface BalanceStatement {
+  quote: Totals;
+  adjustments: Totals | null;
+  deposit: { netPence: Pence; vatPence: Pence; grossPence: Pence };
+  balance: { netPence: Pence; vatPence: Pence; grossPence: Pence };
+  totalGrossPence: Pence;
+}
+
+/** Balance invoice maths. The deposit is taken on the original quote only; extras and credits sit on top. */
+export function balanceStatement(
+  quoteLines: MoneyLine[],
+  adjustmentLines: MoneyLine[],
+  rateBp: number,
+  depositPctBp: number,
+): BalanceStatement {
+  const quote = computeTotals(quoteLines, rateBp);
+  const adjustments = adjustmentLines.length > 0 ? computeTotals(adjustmentLines, rateBp) : null;
+  const all = computeTotals([...quoteLines, ...adjustmentLines], rateBp);
+  const deposit = depositOf(quote, depositPctBp);
+  const balance = {
+    netPence: all.netPence - deposit.netPence,
+    vatPence: all.vatPence - deposit.vatPence,
+    grossPence: all.grossPence - deposit.grossPence,
+  };
+  if (balance.grossPence < 0) throw new RangeError('The deposit is larger than the total');
+  return { quote, adjustments, deposit, balance, totalGrossPence: all.grossPence };
+}

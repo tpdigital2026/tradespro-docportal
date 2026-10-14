@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   balanceDue,
+  balanceStatement,
   computeTotals,
   depositOf,
   formatGBP,
@@ -118,5 +119,43 @@ describe('formatGBP', () => {
   });
   it('rejects non-integers', () => {
     expect(() => formatGBP(1.5)).toThrow(RangeError);
+  });
+});
+
+describe('balanceStatement', () => {
+  const quote: MoneyLine[] = [line(274500)];
+
+  it('splits the balance into net and VAT by subtraction: 1,921.50 + 384.30 = 2,305.80', () => {
+    const s = balanceStatement(quote, [], 2000, 3000);
+    expect(s.quote.grossPence).toBe(329400);
+    expect(s.adjustments).toBeNull();
+    expect(s.deposit.grossPence).toBe(98820);
+    expect(s.balance.netPence).toBe(192150);
+    expect(s.balance.vatPence).toBe(38430);
+    expect(s.balance.grossPence).toBe(230580);
+    expect(s.totalGrossPence).toBe(329400);
+  });
+
+  it('adds extra works to the balance without changing the deposit', () => {
+    const s = balanceStatement(quote, [line(50000, { description: 'Extra ply boards' })], 2000, 3000);
+    expect(s.adjustments?.grossPence).toBe(60000);
+    expect(s.deposit.grossPence).toBe(98820);
+    expect(s.totalGrossPence).toBe(389400);
+    expect(s.balance.grossPence).toBe(290580);
+  });
+
+  it('subtracts a credit (negative line)', () => {
+    const s = balanceStatement(quote, [line(-10000, { description: 'Goodwill credit' })], 2000, 3000);
+    expect(s.adjustments?.grossPence).toBe(-12000);
+    expect(s.balance.grossPence).toBe(218580);
+  });
+
+  it('balance plus deposit always equals the total', () => {
+    const s = balanceStatement([line(123457)], [line(3333)], 2000, 2500);
+    expect(s.balance.grossPence + s.deposit.grossPence).toBe(s.totalGrossPence);
+  });
+
+  it('rejects a deposit larger than the total', () => {
+    expect(() => balanceStatement([line(100000)], [line(-100000)], 2000, 3000)).toThrow(RangeError);
   });
 });
