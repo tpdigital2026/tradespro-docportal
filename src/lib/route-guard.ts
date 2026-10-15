@@ -3,7 +3,7 @@ import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, S
 import { isDemo } from './demo';
 import { isValidSlug } from './slug';
 import { isSameOrigin, SAFE_METHODS } from './same-origin';
-import { ACTIVITY_REFRESH_SECONDS, activityCookieName, checkSessionPolicy, readActivity, SESSION_EXPIRED_MESSAGE, signActivity, type Activity } from './session-policy';
+import { ACTIVITY_REFRESH_SECONDS, activityCookieName, checkSessionPolicy, isActivityCookieName, readActivity, SESSION_EXPIRED_MESSAGE, signActivity, type Activity, type PolicyVerdict } from './session-policy';
 
 export interface Refreshed {
   access_token: string;
@@ -27,12 +27,24 @@ const CRON = (path: string) => path === '/api/cron/maintenance';
 const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/') || isSigninSlug(path) || CRON(path);
 const REFRESH_SKEW_SECONDS = 30;
 
-function clearCookies(res: NextResponse) {
-  for (const name of [accessCookieName(), refreshCookieName(), startCookieName(), activityCookieName()]) {
-    res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
-  }
+const expire = (res: NextResponse, name: string) => res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
+
+/** Clears the session cookies, and every activity cookie the browser sent (they are named per Supabase session). */
+function clearCookies(res: NextResponse, req: NextRequest) {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName()]) expire(res, name);
+  for (const c of req.cookies.getAll()) if (isActivityCookieName(c.name)) expire(res, c.name);
   return res;
 }
+
+/** The session-policy verdict for the cookies this request carries, with the activity cookie's own limits. */
+function policyOf(req: NextRequest, secret: string, now: number): { verdict: PolicyVerdict; activity: Activity | null; sessionId: string | null } {
+  const start = readSessionStart(secret, req.cookies.get(startCookieName())?.value, now);
+  if (!start) return { verdict: 'invalid', activity: null, sessionId: null };
+  const activity = readActivity(secret, req.cookies.get(activityCookieName(start.sessionId))?.value);
+  return { verdict: checkSessionPolicy({ start, activity, nowSeconds: now, limits: activity ?? { idleMinutes: 0, maxDays: 0 } }), activity, sessionId: start.sessionId };
+}
+
+const SESSION_COOKIES = (req: NextRequest) => Boolean(req.cookies.get(accessCookieName()) || req.cookies.get(refreshCookieName()) || req.cookies.get(startCookieName()));
 
 function deny(req: NextRequest, clear: boolean, signedOut = false) {
   const path = req.nextUrl.pathname;
@@ -40,7 +52,7 @@ function deny(req: NextRequest, clear: boolean, signedOut = false) {
     path.startsWith('/api/')
       ? NextResponse.json({ ok: false, message: signedOut ? `${SESSION_EXPIRED_MESSAGE} Please sign in again.` : 'Please sign in.' }, { status: 401 })
       : NextResponse.redirect(new URL(signedOut ? '/login?notice=signed-out' : '/login', req.url));
-  return clear ? clearCookies(res) : res;
+  return clear ? clearCookies(res, req) : res;
 }
 
 /**
@@ -53,7 +65,21 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
     return NextResponse.json({ ok: false, message: 'Request not allowed.' }, { status: 403 });
   }
   const path = req.nextUrl.pathname;
-  if (PUBLIC(path) || isDemo()) return NextResponse.next();
+  if (isDemo()) return NextResponse.next();
+  if (PUBLIC(path)) {
+    // A sign-in page reached with the cookies of a session that has ended (idle, past the maximum, forged): clear
+    // them, so the sign-in that follows starts a new session rather than looking like a step-up of the old one.
+    if ((path === '/login' || isSigninSlug(path)) && SESSION_COOKIES(req)) {
+      let secret: string | null = null;
+      try {
+        secret = deps.sessionSecret();
+      } catch {
+        secret = null;
+      }
+      if (secret && policyOf(req, secret, deps.nowSeconds()).verdict !== 'ok') return clearCookies(NextResponse.next(), req);
+    }
+    return NextResponse.next();
+  }
 
   const access = req.cookies.get(accessCookieName())?.value;
   const refresh = req.cookies.get(refreshCookieName())?.value;
@@ -61,7 +87,7 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
   // The 30 day ceiling: the signed login-time cookie must be genuine and recent. Token refreshes never
   // renew it. Then the business's session policy: idle time and its own (shorter) cap, from the signed
   // activity cookie, which must belong to the same person and Supabase session.
-  let touched: string | null = null;
+  let touched: { name: string; value: string } | null = null;
   if (access || refresh) {
     let secret: string;
     try {
@@ -70,18 +96,16 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
       return deny(req, false);
     }
     const now = deps.nowSeconds();
-    const start = readSessionStart(secret, req.cookies.get(startCookieName())?.value, now);
-    if (!start) return deny(req, true);
-    const activity = readActivity(secret, req.cookies.get(activityCookieName())?.value);
-    const verdict = checkSessionPolicy({ start, activity, nowSeconds: now, limits: activity ?? { idleMinutes: 0, maxDays: 0 } });
-    if (verdict !== 'ok') return deny(req, true, verdict === 'idle' || verdict === 'expired');
+    const p = policyOf(req, secret, now);
+    if (p.verdict !== 'ok') return deny(req, true, p.verdict === 'idle' || p.verdict === 'expired');
     // Activity is recorded on the response only. The request keeps the time the browser sent, so getSession can
-    // check it against the limits in the database now.
-    const a = activity as Activity;
-    if (now - a.lastAt >= ACTIVITY_REFRESH_SECONDS) touched = signActivity(secret, { ...a, lastAt: now });
+    // check it against the limits in the database now. The cookie written is the one named for THIS request's
+    // session, so a request that was in flight across a step-up can never overwrite the new session's cookie.
+    const a = p.activity as Activity;
+    if (now - a.lastAt >= ACTIVITY_REFRESH_SECONDS) touched = { name: activityCookieName(a.sessionId), value: signActivity(secret, { ...a, lastAt: now }) };
   }
   const touch = (res: NextResponse) => {
-    if (touched) res.cookies.set(activityCookieName(), touched, cookieOptions(SESSION_MAX_AGE_SECONDS));
+    if (touched) res.cookies.set(touched.name, touched.value, cookieOptions(SESSION_MAX_AGE_SECONDS));
     return res;
   };
   const exp = tokenExpiresAt(access);

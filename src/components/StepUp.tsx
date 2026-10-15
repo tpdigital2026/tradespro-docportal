@@ -67,7 +67,7 @@ export function StepUp({
     if (busy) return;
     setBusy(true);
     setError('');
-    const r = demo ? await postJson('/api/demo/step-up', { action: 'verify', code }) : await postJson('/api/auth/verify', { email, code });
+    const r = demo ? await postJson('/api/demo/step-up', { action: 'verify', code }) : await postJson('/api/auth/verify', { email, code, stepUp: true });
     if (!r.ok) {
       setBusy(false);
       return setError(r.message);

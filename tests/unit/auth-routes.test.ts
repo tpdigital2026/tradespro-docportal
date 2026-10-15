@@ -12,7 +12,7 @@ vi.mock('../../src/security/login-guard', async (orig) => ({
 
 import { handleExpired, handleLogout, handleRequestCode, handleVerify, type AuthApi, type AuthDeps } from '../../src/lib/auth-handlers';
 import { readSessionStart, signSessionStart, startCookieName } from '../../src/lib/auth-cookies';
-import { activityCookieName, readActivity } from '../../src/lib/session-policy';
+import { activityCookieName, readActivity, signActivity } from '../../src/lib/session-policy';
 import { OTP_LENGTH } from '../../src/lib/otp';
 import { getClientIp } from '../../src/lib/client-ip';
 
@@ -291,7 +291,7 @@ describe('verify', () => {
     expect(readSessionStart(SECRET, value, now)).toMatchObject({ userId: 'user-1', sessionId: 'sess-1' });
     expect(Math.abs(readSessionStart(SECRET, value, now)!.at - now)).toBeLessThan(5);
     // The activity cookie carries the business's limits (defaults here: no settings row) and is bound to the same session.
-    const la = cookies.find((c) => c.includes('dp-la='))!;
+    const la = cookies.find((c) => c.includes('dp-la-'))!;
     const act = readActivity(SECRET, decodeURIComponent(la.split(';')[0].split('=').slice(1).join('=')));
     expect(act).toMatchObject({ userId: 'user-1', sessionId: 'sess-1', idleMinutes: 30, maxDays: 7 });
   });
@@ -311,19 +311,59 @@ describe('verify', () => {
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
     runGuard('real');
     const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(limitsDb({ idle_logout_minutes: 15, max_session_days: 2 }), auth));
-    expect(readActivity(SECRET, cookieValue(res, activityCookieName()))).toMatchObject({ idleMinutes: 15, maxDays: 2 });
+    expect(readActivity(SECRET, cookieValue(res, activityCookieName('sess-1')))).toMatchObject({ idleMinutes: 15, maxDays: 2 });
   });
 
-  it('a step-up code keeps the original login time, so it cannot stretch the session past the maximum', async () => {
+  /** The cookies of a browser signed in `daysAgo` days ago on session old-session, last active `idleMin` minutes ago. */
+  const priorCookies = (daysAgo: number, idleMin: number, o: { maxDays?: number } = {}) => {
+    const now = Math.floor(Date.now() / 1000);
+    const at = now - Math.round(daysAgo * 86400);
+    return {
+      at,
+      cookie: `${startCookieName()}=${signSessionStart(SECRET, 'user-1', 'old-session', at)}; ${activityCookieName('old-session')}=${signActivity(SECRET, { userId: 'user-1', sessionId: 'old-session', lastAt: now - idleMin * 60, idleMinutes: 30, maxDays: o.maxDays ?? 7 })}`,
+    };
+  };
+  const verifyWith = (body: Record<string, unknown>, cookie: string) => {
     const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
     runGuard('real');
+    return handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678', ...body }, { cookie }), deps(limitsDb({ idle_logout_minutes: 30, max_session_days: 7 }), auth));
+  };
+
+  it('a true step-up during an active session keeps the original login time, so it cannot stretch the maximum', async () => {
     const now = Math.floor(Date.now() / 1000);
-    const loggedIn = now - 5 * 86400;
-    // Signed in five days ago on another Supabase session; entering a code now (step-up) gives a new session.
-    const cookie = `${startCookieName()}=${signSessionStart(SECRET, 'user-1', 'old-session', loggedIn)}`;
-    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }, { cookie }), deps(limitsDb({ idle_logout_minutes: 30, max_session_days: 7 }), auth));
-    const st = readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!;
-    expect(st).toEqual({ userId: 'user-1', sessionId: 'sess-1', at: loggedIn });
+    const p = priorCookies(5, 2);
+    const res = await verifyWith({ stepUp: true }, p.cookie);
+    expect(readSessionStart(SECRET, cookieValue(res, startCookieName()), now)).toEqual({ userId: 'user-1', sessionId: 'sess-1', at: p.at });
+    // The new session gets its own activity cookie; the old session's is cleared.
+    expect(readActivity(SECRET, cookieValue(res, activityCookieName('sess-1')))).toMatchObject({ sessionId: 'sess-1' });
+    expect(res.headers.getSetCookie().find((c) => c.startsWith(`${activityCookieName('old-session')}=`))).toMatch(/Max-Age=0/i);
+    // Two days later the original seven-day cap still ends it: the step-up did not move the clock.
+    expect(readSessionStart(SECRET, cookieValue(res, startCookieName()), now + 2.1 * 86400, 7 * 86400)).toBeNull();
+  });
+
+  it('signing in again after an idle sign-out starts a new login time, even with the old cookies still present', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const body of [{}, { stepUp: true }]) {
+      const res = await verifyWith(body, priorCookies(5, 45).cookie);
+      expect(Math.abs(readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!.at - now)).toBeLessThan(5);
+    }
+  });
+
+  it('a sign-in from /login or /{slug} (no step-up flag) always starts a new login time, even mid-session', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const res = await verifyWith({}, priorCookies(5, 2).cookie);
+    expect(Math.abs(readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!.at - now)).toBeLessThan(5);
+  });
+
+  it('a step-up with no or a forged activity cookie, or past the business maximum now, starts a new login time', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const p = priorCookies(5, 2);
+    const noActivity = p.cookie.split('; ')[0];
+    const forged = p.cookie.replace(/=([^=;]+)$/, '=user-1.old-session.1.30.7.AAAA');
+    for (const cookie of [noActivity, forged, priorCookies(8, 2, { maxDays: 30 }).cookie]) {
+      const res = await verifyWith({ stepUp: true }, cookie);
+      expect(Math.abs(readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!.at - now), cookie).toBeLessThan(5);
+    }
   });
 
   it('a login-time cookie that is forged, someone else\'s or past the maximum starts a new sign-in now', async () => {
@@ -409,7 +449,7 @@ describe('verify', () => {
 
 describe('logout', () => {
   const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
-  const logoutReq = (origin = ORIGIN) => new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin } });
+  const logoutReq = (origin = ORIGIN) => new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { origin, cookie: `${activityCookieName('sess-1')}=x` } });
 
   it('clears all session cookies, revokes a live access token and redirects to /login', async () => {
     const d = deps(makeDb([]), makeAuth());
@@ -447,11 +487,11 @@ describe('logout', () => {
 
 describe('expired', () => {
   it('clears every session cookie and sends the person to sign in with the notice', () => {
-    const res = handleExpired(new Request(`${ORIGIN}/api/auth/expired`));
+    const res = handleExpired(new Request(`${ORIGIN}/api/auth/expired`, { headers: { cookie: `${activityCookieName('sess-1')}=x; ${activityCookieName('older')}=y` } }));
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(`${ORIGIN}/login?notice=signed-out`);
     const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(4);
+    expect(cookies).toHaveLength(5);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/i);
     expect(res.headers.get('cache-control')).toBe('no-store');
   });

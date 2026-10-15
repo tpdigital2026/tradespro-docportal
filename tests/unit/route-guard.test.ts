@@ -16,7 +16,7 @@ interface Pol { idleAgoMin?: number; idle?: number; maxDays?: number; userId?: s
 /** The login-time cookie and the activity cookie, as a signed-in browser holds them (by default: 30 day cap, active 5 minutes ago). */
 const start = (ageDays = 1, secret = SECRET, o: Pol = {}) => ({
   [startCookieName()]: signSessionStart(secret, 'user-1', 'sess-1', NOW - ageDays * DAY),
-  [activityCookieName()]: signActivity(o.activitySecret ?? secret, { userId: o.userId ?? 'user-1', sessionId: o.sessionId ?? 'sess-1', lastAt: NOW - (o.idleAgoMin ?? 5) * 60, idleMinutes: o.idle ?? 30, maxDays: o.maxDays ?? 30 }),
+  [activityCookieName('sess-1')]: signActivity(o.activitySecret ?? secret, { userId: o.userId ?? 'user-1', sessionId: o.sessionId ?? 'sess-1', lastAt: NOW - (o.idleAgoMin ?? 5) * 60, idleMinutes: o.idle ?? 30, maxDays: o.maxDays ?? 30 }),
 });
 
 function req(path: string, opts: { method?: string; cookies?: Record<string, string>; headers?: Record<string, string> } = {}) {
@@ -146,29 +146,51 @@ describe('session policy in the proxy', () => {
   });
   it('refuses a missing, forged, other person\'s or other session\'s activity cookie (plain sign-in, cookies cleared)', async () => {
     const st = { [startCookieName()]: start()[startCookieName()] };
+    const n = activityCookieName('sess-1');
     const bad = [
       {},
-      { [activityCookieName()]: start(1, SECRET, { activitySecret: 'another-secret-0123456789-0123456789' })[activityCookieName()] },
-      { [activityCookieName()]: start(1, SECRET, { userId: 'user-2' })[activityCookieName()] },
-      { [activityCookieName()]: start(1, SECRET, { sessionId: 'sess-2' })[activityCookieName()] },
-      { [activityCookieName()]: start()[activityCookieName()].replace(/\.30\.30\./, '.480.30.') },
-      { [activityCookieName()]: start(1, SECRET, { idleAgoMin: -10 })[activityCookieName()] },
+      { [n]: start(1, SECRET, { activitySecret: 'another-secret-0123456789-0123456789' })[n] },
+      { [n]: start(1, SECRET, { userId: 'user-2' })[n] },
+      // Another session's activity, under this session's name or its own.
+      { [n]: start(1, SECRET, { sessionId: 'sess-2' })[n] },
+      { [activityCookieName('sess-2')]: start(1, SECRET, { sessionId: 'sess-2' })[n] },
+      { [n]: start()[n].replace(/\.30\.30\./, '.480.30.') },
+      { [n]: start(1, SECRET, { idleAgoMin: -10 })[n] },
     ];
     for (const a of bad) {
       const r = await guardRequest(req('/', { cookies: { ...live, ...st, ...a } }), deps());
       expect(loc(r), JSON.stringify(a)).toBe('/login');
       expect(at(r)).not.toMatch(/notice/);
-      expect(cleared(r)).toBe(4);
+      expect(cleared(r)).toBeGreaterThanOrEqual(3);
     }
   });
   it('records activity on the response (not the request) once the stored time is a minute old', async () => {
     const r = await guardRequest(req('/', { cookies: { ...live, ...start(1, SECRET, { idleAgoMin: 5 }) } }), deps());
-    const set = r.headers.getSetCookie().find((c) => c.startsWith(`${activityCookieName()}=`))!;
+    const set = r.headers.getSetCookie().find((c) => c.startsWith(`${activityCookieName('sess-1')}=`))!;
     const value = decodeURIComponent(set.split(';')[0].split('=').slice(1).join('='));
     expect(readActivity(SECRET, value)).toMatchObject({ userId: 'user-1', sessionId: 'sess-1', lastAt: NOW, idleMinutes: 30, maxDays: 30 });
     expect(r.headers.get('x-middleware-request-cookie') ?? '').not.toContain(value);
     const quiet = await guardRequest(req('/', { cookies: { ...live, ...start(1, SECRET, { idleAgoMin: 0.5 }) } }), deps());
     expect(quiet.headers.getSetCookie()).toHaveLength(0);
+  });
+  it('an in-flight request from before a step-up refreshes only its own session\'s cookie, never the new one', async () => {
+    // The browser sent the old session's cookies; meanwhile a step-up gave session sess-2 its own dp-la-sess2.
+    const r = await guardRequest(req('/', { cookies: { ...live, ...start(1, SECRET, { idleAgoMin: 5 }) } }), deps());
+    const names = r.headers.getSetCookie().map((c) => c.split('=')[0]);
+    expect(names).toEqual([activityCookieName('sess-1')]);
+    expect(names).not.toContain(activityCookieName('sess-2'));
+  });
+  it('a sign-in page clears the cookies of a session that has ended, and leaves a live one alone', async () => {
+    for (const p of ['/login', '/fjc']) {
+      const ended = await guardRequest(req(p, { cookies: { ...live, ...start(1, SECRET, { idleAgoMin: 45 }) } }), deps());
+      expect(isNext(ended)).toBe(true);
+      expect(cleared(ended)).toBe(4);
+      const forged = await guardRequest(req(p, { cookies: { ...live, [startCookieName()]: 'user-1.sess-1.1.AAAA' } }), deps());
+      expect(cleared(forged)).toBeGreaterThanOrEqual(3);
+      const fine = await guardRequest(req(p, { cookies: { ...live, ...start(1, SECRET, { idleAgoMin: 5 }) } }), deps());
+      expect(fine.headers.getSetCookie()).toHaveLength(0);
+    }
+    expect((await guardRequest(req('/login'), deps())).headers.getSetCookie()).toHaveLength(0);
   });
   it('the cron route is reachable without a session (it checks its own bearer secret)', async () => {
     expect(isNext(await guardRequest(req('/api/cron/maintenance'), deps()))).toBe(true);

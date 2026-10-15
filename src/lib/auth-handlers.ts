@@ -2,7 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashEmail, requestCodeWithGuard, verifyWithGuard } from '../security/login-guard';
 import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt, tokenSessionId } from './auth-cookies';
-import { activityCookieName, DEFAULT_LIMITS, limitsFrom, signActivity, type SessionLimits } from './session-policy';
+import { activityCookieName, checkSessionPolicy, DEFAULT_LIMITS, isActivityCookieName, limitsFrom, readActivity, signActivity, type SessionLimits } from './session-policy';
 import { OTP_PATTERN } from './otp';
 import { getClientIp } from './client-ip';
 import { isSameOrigin } from './same-origin';
@@ -55,7 +55,8 @@ const json = (status: number, ok: boolean, message: string, headers?: Record<str
 
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 const requestSchema = z.object({ email: emailSchema });
-const verifySchema = z.object({ email: emailSchema, code: z.string().trim() });
+// stepUp: sent only by the fresh-code step inside the app (components/StepUp.tsx), never by the sign-in pages.
+const verifySchema = z.object({ email: emailSchema, code: z.string().trim(), stepUp: z.boolean().optional() });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -152,6 +153,7 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   const parsed = verifySchema.safeParse(await readJson(req));
   if (!parsed.success) return json(400, false, MSG_INVALID);
   const { email, code } = parsed.data;
+  const stepUp = parsed.data.stepUp === true;
 
   const started = Date.now();
   const respond = (res: Response) => atLeast(started, deps.minDurationMs, res);
@@ -221,8 +223,10 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   const res = json(200, true, 'Signed in.');
   res.cookies.set(accessCookieName(), s.access_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   res.cookies.set(refreshCookieName(), s.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
-  res.cookies.set(startCookieName(), signSessionStart(secret, userId, sessionId, loginTimeFor(req, secret, userId, now, limits)), cookieOptions(SESSION_MAX_AGE_SECONDS));
-  res.cookies.set(activityCookieName(), signActivity(secret, { userId, sessionId, lastAt: now, ...limits }), cookieOptions(SESSION_MAX_AGE_SECONDS));
+  res.cookies.set(startCookieName(), signSessionStart(secret, userId, sessionId, loginTimeFor(req, secret, userId, now, limits, stepUp)), cookieOptions(SESSION_MAX_AGE_SECONDS));
+  // Earlier sessions' activity cookies go; the new session gets its own.
+  for (const name of cookieNames(req)) if (isActivityCookieName(name)) res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
+  res.cookies.set(activityCookieName(sessionId), signActivity(secret, { userId, sessionId, lastAt: now, ...limits }), cookieOptions(SESSION_MAX_AGE_SECONDS));
   return respond(res);
 }
 
@@ -235,15 +239,27 @@ export function cookieFrom(req: Request, name: string): string | undefined {
   return undefined;
 }
 
+/** Every cookie name in a request's Cookie header. */
+export function cookieNames(req: Request): string[] {
+  return (req.headers.get('cookie') ?? '').split(';').map((p) => p.slice(0, Math.max(0, p.indexOf('='))).trim()).filter(Boolean);
+}
+
 /**
- * The login time to sign into the new dp-st. A step-up (the same person entering a code while still signed in) keeps
- * the original login time, so a fresh code can never stretch the session past the business's maximum. A genuine,
- * unexpired login-time cookie for this person is the only thing that counts as "still signed in"; anything else
- * (none, forged, someone else's, past the maximum days) is a new sign-in that starts now.
+ * The login time to sign into the new dp-st. A step-up (the fresh-code step inside the app, while the person is STILL
+ * signed in) keeps the original login time, so a fresh code can never stretch the session past the business's maximum.
+ * "Still signed in" means all of: the request says it is a step-up; a genuine login-time cookie for this person; that
+ * session's genuine activity cookie; and the session policy (the stricter of the cookie's limits and the business's
+ * limits now) says the session has not ended. Anything else (a sign-in from /login or /{slug}, a session that went idle
+ * or passed its maximum, a forged or someone else's cookie) is a new sign-in that starts now.
  */
-export function loginTimeFor(req: Request, secret: string, userId: string, now: number, limits: SessionLimits): number {
+export function loginTimeFor(req: Request, secret: string, userId: string, now: number, limits: SessionLimits, stepUp = false): number {
+  if (!stepUp) return now;
   const prior = readSessionStart(secret, cookieFrom(req, startCookieName()), now, limits.maxDays * 86400);
-  return prior && prior.userId === userId ? prior.at : now;
+  if (!prior || prior.userId !== userId) return now;
+  const activity = readActivity(secret, cookieFrom(req, activityCookieName(prior.sessionId)));
+  if (!activity) return now;
+  const strictest = { idleMinutes: Math.min(activity.idleMinutes, limits.idleMinutes), maxDays: Math.min(activity.maxDays, limits.maxDays) };
+  return checkSessionPolicy({ start: prior, activity, nowSeconds: now, limits: strictest }) === 'ok' ? prior.at : now;
 }
 
 export async function handleLogout(
@@ -261,11 +277,11 @@ export async function handleLogout(
   } catch {
     /* best effort; the cookies are cleared either way */
   }
-  return clearAll(NextResponse.redirect(new URL('/login', req.url), 303));
+  return clearAll(req, NextResponse.redirect(new URL('/login', req.url), 303));
 }
 
-function clearAll(res: NextResponse): NextResponse {
-  for (const name of [accessCookieName(), refreshCookieName(), startCookieName(), activityCookieName()]) {
+function clearAll(req: Request, res: NextResponse): NextResponse {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName(), ...cookieNames(req).filter(isActivityCookieName)]) {
     res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
   }
   res.headers.set('Cache-Control', 'no-store');
@@ -278,5 +294,5 @@ function clearAll(res: NextResponse): NextResponse {
  * out, which is also all a forged link to it could do.
  */
 export function handleExpired(req: Request): Response {
-  return clearAll(NextResponse.redirect(new URL('/login?notice=signed-out', req.url), 303));
+  return clearAll(req, NextResponse.redirect(new URL('/login?notice=signed-out', req.url), 303));
 }

@@ -124,7 +124,7 @@ describe('getSession login-time cap', () => {
     jar.get.mockImplementation((name: string) => {
       if (name.endsWith('dp-at')) return { value: tok(SID, nowS() + 600) };
       if (name.endsWith('dp-st') && startValue) return { value: startValue };
-      if (name.endsWith('dp-la') && activity) return { value: activity };
+      if (name.includes('dp-la-') && activity) return { value: activity };
       return undefined;
     });
   }
@@ -144,14 +144,14 @@ describe('getSession login-time cap', () => {
     jar.get.mockImplementation((name: string) => {
       if (name.endsWith('dp-at')) return { value: tok(SID, nowS() + 3600) }; // refreshed access token
       if (name.endsWith('dp-st')) return { value: signSessionStart(SECRET, USER, SID, nowS() - 20 * 86400) };
-      if (name.endsWith('dp-la')) return { value: act() };
+      if (name.includes('dp-la-')) return { value: act() };
       return undefined;
     });
     expect((await getSession())?.userId).toBe(USER);
     jar.get.mockImplementation((name: string) => {
       if (name.endsWith('dp-at')) return { value: tok('attacker-session', nowS() + 3600) };
       if (name.endsWith('dp-st')) return { value: signSessionStart(SECRET, USER, SID, nowS()) };
-      if (name.endsWith('dp-la')) return { value: act({ sid: 'attacker-session' }) };
+      if (name.includes('dp-la-')) return { value: act({ sid: 'attacker-session' }) };
       return undefined;
     });
     expect(await getSession()).toBeNull();
@@ -178,7 +178,7 @@ describe('getSession session policy (the limits stored for the business now)', (
     jar.get.mockImplementation((name: string) => {
       if (name.endsWith('dp-at')) return { value: tok(SID, nowS() + 600) };
       if (name.endsWith('dp-st')) return { value: signSessionStart(SECRET, USER, SID, nowS() - (o.loginDaysAgo ?? 0) * 86400) };
-      if (name.endsWith('dp-la') && activity) return { value: activity };
+      if (name.includes('dp-la-') && activity) return { value: activity };
       return undefined;
     });
   }

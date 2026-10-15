@@ -21,8 +21,22 @@ export { SESSION_EXPIRED_MESSAGE } from './signed-out';
 export const ACTIVITY_REFRESH_SECONDS = 60;
 
 const ACTIVITY = 'dp-la';
-export function activityCookieName(): string {
-  return cookiesAreSecure() ? `__Host-${ACTIVITY}` : ACTIVITY;
+const activityPrefix = () => (cookiesAreSecure() ? `__Host-${ACTIVITY}-` : `${ACTIVITY}-`);
+
+/**
+ * The activity cookie of ONE Supabase session: its name carries the session id. A request that was already in flight
+ * when a step-up replaced the session can therefore only ever refresh the old session's cookie, never overwrite the
+ * new one (which would sign the person out on the next request). Old sessions' cookies are cleared when seen.
+ */
+export function activityCookieName(sessionId: string): string {
+  const id = sessionId.replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
+  if (!id) throw new Error('Invalid session id');
+  return `${activityPrefix()}${id}`;
+}
+
+/** True for any session's activity cookie name (for clearing them all). */
+export function isActivityCookieName(name: string): boolean {
+  return name.startsWith(activityPrefix()) && /^[A-Za-z0-9]{1,40}$/.test(name.slice(activityPrefix().length));
 }
 
 export interface Activity extends SessionLimits {

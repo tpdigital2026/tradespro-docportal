@@ -97,12 +97,11 @@ async function loadState(): Promise<SessionState> {
   if (isDemo()) return { session: demoSession, expired: false };
   let token: string | undefined;
   let start: string | undefined;
-  let activity: string | undefined;
+  let jar: Awaited<ReturnType<typeof cookies>>;
   try {
-    const jar = await cookies();
+    jar = await cookies();
     token = jar.get(accessCookieName())?.value;
     start = jar.get(startCookieName())?.value;
-    activity = jar.get(activityCookieName())?.value;
   } catch {
     return { session: null, expired: false };
   }
@@ -116,6 +115,7 @@ async function loadState(): Promise<SessionState> {
     const now = Math.floor(Date.now() / 1000);
     const bound = readSessionStart(secret, start, now);
     if (!bound || bound.userId !== session.userId || bound.sessionId !== tokenSessionId(token)) return { session: null, expired: false };
+    const activity = jar.get(activityCookieName(bound.sessionId))?.value;
     const verdict = checkSessionPolicy({ start: bound, activity: readActivity(secret, activity), nowSeconds: now, limits });
     if (verdict === 'idle' || verdict === 'expired') return { session: null, expired: true };
     if (verdict !== 'ok') return { session: null, expired: false };

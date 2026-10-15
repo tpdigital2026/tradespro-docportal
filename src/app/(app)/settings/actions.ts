@@ -117,10 +117,29 @@ export async function setRetentionAction(raw: { days?: unknown }): Promise<Setti
   if (!parsed.success) return { status: 'invalid', errors: fieldErrors(parsed.error.issues) };
   const days = parsed.data.days;
   return guarded({ stepUp: true }, async (s) => {
-    if (isDemo()) demoSettings().retentionDays = days;
-    else await withServiceConnection((db) => setRetentionWith(db, actor(s), days));
-    return `Customer data is now kept for ${days} days after the last activity. Customers already on file keep the later of their old and new dates.`;
+    let previous: number;
+    let extended: number | null = null;
+    if (isDemo()) {
+      previous = demoSettings().retentionDays;
+      demoSettings().retentionDays = days;
+    } else {
+      const r = await withServiceConnection((db) => setRetentionWith(db, actor(s), days));
+      previous = r.previous;
+      extended = r.extended;
+    }
+    return retentionMessage(days, previous, extended);
   });
+}
+
+/** What the owner is told after changing how long customer data is kept: honest about which dates moved. */
+function retentionMessage(days: number, previous: number, extended: number | null): string {
+  const base = `Customer data is now kept for ${days} days after the last activity.`;
+  if (days > previous) {
+    if (extended === null) return `${base} Customers already on file get the longer time too.`;
+    return `${base} ${extended === 1 ? '1 customer already on file was' : `${extended} customers already on file were`} given the longer time.`;
+  }
+  if (days < previous) return `${base} Customers already on file keep their current deletion date until something happens on their record.`;
+  return base;
 }
 
 /** The signed-in owner's own activity cookie carries the new limits straight away (others' from their next sign-in). */
@@ -130,9 +149,11 @@ async function reissueOwnActivity(s: Session, limits: SessionLimits): Promise<vo
     const secret = sessionSecret();
     const now = Math.floor(Date.now() / 1000);
     const start = readSessionStart(secret, jar.get(startCookieName())?.value, now);
-    const act = readActivity(secret, jar.get(activityCookieName())?.value);
-    if (!start || !act || start.userId !== s.userId || act.userId !== s.userId || act.sessionId !== start.sessionId) return;
-    jar.set(activityCookieName(), signActivity(secret, { ...act, lastAt: now, ...limits }), cookieOptions(SESSION_MAX_AGE_SECONDS));
+    if (!start || start.userId !== s.userId) return;
+    const name = activityCookieName(start.sessionId);
+    const act = readActivity(secret, jar.get(name)?.value);
+    if (!act || act.userId !== s.userId || act.sessionId !== start.sessionId) return;
+    jar.set(name, signActivity(secret, { ...act, lastAt: now, ...limits }), cookieOptions(SESSION_MAX_AGE_SECONDS));
   } catch {
     /* the database is the truth; getSession enforces it either way */
   }
