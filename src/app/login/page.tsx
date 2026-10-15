@@ -2,13 +2,10 @@ import { redirect } from 'next/navigation';
 import { SignIn } from '../../components/SignIn';
 import { TRADESPRO_BRAND } from '../../lib/brand';
 import { getSession } from '../../lib/session';
+import { signInMetadata } from '../../lib/site';
 import { LoginForm } from './LoginForm';
 
-export const metadata = {
-  title: 'Sign in | TradesPro Digital',
-  description: 'Sign in to TradesPro DocPortal with an emailed code.',
-  robots: { index: false, follow: false },
-};
+export const metadata = signInMetadata(TRADESPRO_BRAND);
 
 export default async function LoginPage() {
   if (await getSession()) redirect('/');

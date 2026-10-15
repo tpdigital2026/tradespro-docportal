@@ -12,7 +12,16 @@ import { PAYMENT_METHOD_LABELS, todayLondon, type PaymentMethod } from '../../..
 import { requireSession } from '../../../../../lib/session';
 import { MarkAsPaid } from './MarkAsPaid';
 
-export const metadata: Metadata = { title: 'Job | TradesPro DocPortal' };
+export async function generateMetadata({ params }: { params: Promise<{ quote: string }> }): Promise<Metadata> {
+  const { quote } = await params;
+  let shown = quote;
+  try {
+    shown = decodeURIComponent(quote);
+  } catch {
+    shown = quote;
+  }
+  return { title: `Job ${shown.slice(0, 40)}`, description: 'Invoices, payments and receipts for one job.' };
+}
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 

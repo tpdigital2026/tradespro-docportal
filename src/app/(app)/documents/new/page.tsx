@@ -6,13 +6,26 @@ import { PageHeader } from '../../../../components/PageHeader';
 import { getQuoteContext, getQuoteDraft, isKnownId, QuoteError, type QuoteContext } from '../../../../lib/data/quotes';
 import { requireSession } from '../../../../lib/session';
 import { emptyQuoteForm } from '../../../../lib/validation/quote';
-import { isInvoiceType, isDocType } from '../../../../lib/job-stage';
+import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-stage';
 import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
 
-export const metadata: Metadata = { title: 'New document | TradesPro DocPortal' };
-
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+
+export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
+  const sp = await searchParams;
+  const type = first(sp.type) ?? '';
+  if (type === 'quotation') {
+    const draftId = first(sp.draft);
+    if (draftId && isKnownId(draftId)) {
+      const draft = await getQuoteDraft(draftId).catch(() => null);
+      if (draft?.values.quoteNumber) return { title: `Quote ${draft.values.quoteNumber}`, description: 'Carry on with a draft quotation.' };
+    }
+    return { title: 'New quotation', description: 'Price a job step by step. The draft saves as you go.' };
+  }
+  if (isDocType(type)) return { title: `New ${DOC_TYPE_NAMES[type].toLowerCase()}`, description: 'Start a document from a saved job.' };
+  return { title: 'New document', description: 'Choose the document you need: a quotation, an invoice, a receipt or a guarantee.' };
+}
 
 export default async function NewDocumentPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireSession();

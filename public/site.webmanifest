@@ -1,0 +1,17 @@
+{
+  "name": "TradesPro DocPortal",
+  "short_name": "DocPortal",
+  "description": "Quotes, invoices, receipts and guarantees for your business, in one place.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "lang": "en-GB",
+  "background_color": "#071626",
+  "theme_color": "#071626",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

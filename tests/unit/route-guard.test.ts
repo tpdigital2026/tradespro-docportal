@@ -122,7 +122,7 @@ describe('proxy matcher', () => {
   });
   it('skips only framework assets and static files for pages', () => {
     for (const p of ['/', '/customers', '/customers/abc', '/login', '/documents/new']) expect(pages.test(p)).toBe(true);
-    for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg', '/fonts/a.woff2']) expect(pages.test(p)).toBe(false);
+    for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg', '/fonts/a.woff2', '/robots.txt', '/site.webmanifest']) expect(pages.test(p)).toBe(false);
   });
 });
 

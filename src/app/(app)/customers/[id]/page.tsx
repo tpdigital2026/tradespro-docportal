@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CustomerForm } from '../../../../components/customers/CustomerForm';
@@ -13,6 +14,7 @@ import type { CustomerFormValues } from '../../../../lib/validation/customer';
 import { updateCustomerAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Customer details', description: 'A customer, their documents and how long their details are kept.' };
 
 const TYPE_NAMES: Record<string, string> = {
   quotation: 'Quotation',

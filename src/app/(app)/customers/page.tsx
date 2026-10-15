@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { ButtonLink } from '../../../components/Button';
 import { CustomerSearch, type CustomerListItem } from '../../../components/customers/CustomerSearch';
 import { PageHeader } from '../../../components/PageHeader';
@@ -6,6 +7,7 @@ import { daysLeft, formatKeptUntilShort, isRunningOut } from '../../../lib/reten
 import { requireSession } from '../../../lib/session';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Customers', description: 'Find, add and update the customers you make documents for.' };
 
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ deleted?: string }> }) {
   await requireSession();

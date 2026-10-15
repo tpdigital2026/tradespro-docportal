@@ -5,7 +5,7 @@ import { isDemo } from '../../../lib/demo';
 import { LOCKED_TEXT, LoginForm, type PreviewState } from '../../login/LoginForm';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Sign in preview', robots: { index: false, follow: false } };
+export const metadata = { title: 'Sign in preview' };
 
 const STATES: Record<string, PreviewState> = {
   email: { step: 'email' },

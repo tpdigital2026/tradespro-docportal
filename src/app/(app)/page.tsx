@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { DocTypeList } from '../../components/DocTypeList';
 import { JobRow, type Job } from '../../components/JobRow';
@@ -7,6 +8,8 @@ import { byUrgency, DOC_TYPE_NAMES } from '../../lib/job-stage';
 import { listJobSummaries } from '../../lib/data/billing';
 import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
 import { requireSession } from '../../lib/session';
+
+export const metadata: Metadata = { title: 'Home', description: 'Start a document, pick up a draft and see what is next for each job.' };
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
