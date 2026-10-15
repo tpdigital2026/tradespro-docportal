@@ -5,6 +5,7 @@ import { getSession } from '../../../../lib/session';
 import { handleSignatureGet, handleSignaturePost, type SignatureDeps } from '../../../../lib/signature-handlers';
 import { requireFreshStepUpForRequest } from '../../../../lib/step-up-check';
 import { getStorage } from '../../../../lib/storage';
+import { logRenderFailure } from '../../../../pdf/diagnostics';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -17,7 +18,14 @@ const deps: SignatureDeps = {
     const path = await withServiceConnection((db) => signaturePathWith(db, tenantId));
     return path ? getStorage().get(path) : null;
   },
-  reencode: async (bytes, image) => (await import('../../../../lib/render-service')).reencodeSignature(bytes, image),
+  reencode: async (bytes, image) => {
+    try {
+      return await (await import('../../../../lib/render-service')).reencodeSignature(bytes, image);
+    } catch (e) {
+      logRenderFailure('signature', e);
+      throw e;
+    }
+  },
   save: async (s, image) => {
     if (isDemo()) {
       demoSettings().signature = image;

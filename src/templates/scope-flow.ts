@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core';
+import type { RenderPage as Page } from '../pdf/engine';
 import type { Raw } from '../lib/html';
 import { measureFragments, PX_PER_MM } from '../pdf/measure';
 import { paginate } from '../pdf/paginate';

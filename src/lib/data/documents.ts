@@ -26,6 +26,7 @@ import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
 import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
 import { withServiceConnection } from './customer-admin';
+import { tagFailures } from '../../pdf/diagnostics';
 import { ownerClient } from './customers';
 import type { Db } from '../../security/login-guard';
 import { demoDraftRows, demoRemoveDraft, demoRestoreDraft, isKnownId, isRealId } from './quotes';
@@ -321,7 +322,7 @@ export async function getPreview(id: string): Promise<PreviewState | null> {
     const head = await loadHeadWith(db, s.tenantId, id);
     if (!head) return null;
     if (head.status !== 'draft') return { state: 'final' } as const;
-    const res = await previewWith(db, getStorage(), { tenantId: s.tenantId, userId: s.userId }, id, { render: r, secret });
+    const res = await previewWith(db, tagFailures(getStorage(), 'upload'), { tenantId: s.tenantId, userId: s.userId }, id, { render: r, secret });
     if (!res.ok) return { state: 'missing', missing: res.missing } as const;
     return { state: 'ready', versionId: res.preview.versionId, key: res.preview.key, pageCount: res.preview.pageCount, confirmation: confirmationFor(res.loaded.business?.wording) } as const;
   });
@@ -379,7 +380,7 @@ export async function finaliseDocument(id: string, body: FinaliseBody): Promise<
   if (isDemo()) return demoFinalise(s, args, secret);
   if (!isRealId(id)) throw new DocumentError('not_found', 'That document could not be found.');
   const r = await render();
-  return retryOnDeadlock(() => withServiceConnection((db) => finaliseWith(db, getStorage(), { tenantId: s.tenantId, userId: s.userId, role: s.role }, args, { render: r, secret })));
+  return retryOnDeadlock(() => withServiceConnection((db) => finaliseWith(db, tagFailures(getStorage(), 'upload'), { tenantId: s.tenantId, userId: s.userId, role: s.role }, args, { render: r, secret })));
 }
 
 // ---------------------------------------------------------------- download

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Browser, Page } from 'playwright-core';
+import type { RenderBrowser as Browser, RenderPage as Page } from '../../src/pdf/browser';
 import { html } from '../../src/lib/html';
 import { launchBrowser, newLockedPage } from '../../src/pdf/browser';
 import { PaginationError } from '../../src/pdf/paginate';

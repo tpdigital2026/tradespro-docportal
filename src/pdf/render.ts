@@ -1,6 +1,7 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { Page } from 'playwright-core';
+import { inStage, tagStage } from './diagnostics';
+import type { RenderPage } from './engine';
 
 export class PageOverflowError extends Error {
   constructor(message: string) {
@@ -9,14 +10,18 @@ export class PageOverflowError extends Error {
   }
 }
 
-async function load(page: Page, docHtml: string): Promise<void> {
-  await page.setContent(docHtml, { waitUntil: 'load' });
-  await page.emulateMedia({ media: 'print' });
-  await page.evaluate(() => document.fonts.ready);
+async function load(page: RenderPage, docHtml: string): Promise<void> {
+  await inStage('layout', async () => {
+    await page.setContent(docHtml);
+    await page.emulatePrint();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+  });
 }
 
-export async function assertNoOverflow(page: Page): Promise<void> {
-  const result = await page.evaluate(() => {
+export async function assertNoOverflow(page: RenderPage): Promise<void> {
+  const result = await inStage('check', () => page.evaluate(() => {
     const problems: string[] = [];
     const pages = [...document.querySelectorAll<HTMLElement>('.page')];
     if (pages.length === 0) return { none: true, problems };
@@ -73,25 +78,30 @@ export async function assertNoOverflow(page: Page): Promise<void> {
       });
     });
     return { none: false, problems: [...new Set(problems)] };
-  });
-  if (result.none) throw new PageOverflowError('No .page elements found');
-  if (result.problems.length > 0) throw new PageOverflowError(result.problems.join('; '));
+  }));
+  if (result.none) throw tagStage(new PageOverflowError('No .page elements found'), 'check');
+  if (result.problems.length > 0) throw tagStage(new PageOverflowError(result.problems.join('; ')), 'check');
 }
 
-export async function renderPdf(page: Page, docHtml: string): Promise<Buffer> {
+export async function renderPdf(page: RenderPage, docHtml: string): Promise<Buffer> {
   await load(page, docHtml);
   await assertNoOverflow(page);
-  return page.pdf({ preferCSSPageSize: true, printBackground: true });
+  return inStage('pdf', () => page.pdf());
 }
 
-export async function screenshotPages(page: Page, docHtml: string, outDir: string): Promise<string[]> {
+/** One PNG per .page of the document currently in the page (call after renderPdf). */
+export function screenshotEachPage(page: RenderPage): Promise<Buffer[]> {
+  return inStage('screenshot', () => page.screenshotAll('.page'));
+}
+
+export async function screenshotPages(page: RenderPage, docHtml: string, outDir: string): Promise<string[]> {
   mkdirSync(outDir, { recursive: true });
   await load(page, docHtml);
-  const pages = await page.$$('.page');
+  const pngs = await screenshotEachPage(page);
   const files: string[] = [];
-  for (let i = 0; i < pages.length; i++) {
+  for (let i = 0; i < pngs.length; i++) {
     const file = path.join(outDir, `page-${String(i + 1).padStart(2, '0')}.png`);
-    await pages[i].screenshot({ path: file });
+    writeFileSync(file, pngs[i]);
     files.push(file);
   }
   return files;

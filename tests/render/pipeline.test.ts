@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Browser, Page } from 'playwright-core';
+import type { RenderBrowser as Browser, RenderPage as Page } from '../../src/pdf/browser';
 import { raw } from '../../src/lib/html';
 import { launchBrowser, newLockedPage } from '../../src/pdf/browser';
 import { documentShell } from '../../src/pdf/document';
+import { renderEngine } from '../../src/pdf/engine';
 import { measureFragments } from '../../src/pdf/measure';
 import { PageOverflowError, renderPdf } from '../../src/pdf/render';
 
@@ -18,7 +19,11 @@ afterAll(async () => {
   await browser.close();
 });
 
-describe('pdf pipeline', () => {
+describe(`pdf pipeline (${renderEngine()})`, () => {
+  it('runs on the engine this environment asked for', () => {
+    expect(browser.engine).toBe(renderEngine());
+  });
+
   it('produces a PDF', async () => {
     const doc = documentShell({ title: 't', css, body: raw('<section class="page"><div class="body">Hi</div></section>') });
     const pdf = await renderPdf(page, doc);
@@ -84,11 +89,10 @@ describe('pdf pipeline', () => {
 
   it('route layer alone aborts remote requests (no CSP)', async () => {
     const failed: string[] = [];
-    const onFail = (r: { url(): string }) => failed.push(r.url());
-    page.on('requestfailed', onFail);
+    const off = page.onRequestFailed((url) => failed.push(url));
     await page.setContent('<!doctype html><img id="x" src="https://example.com/route.png">');
     await page.waitForFunction(() => (document.getElementById('x') as HTMLImageElement).complete);
-    page.off('requestfailed', onFail);
+    off();
     expect(failed).toContain('https://example.com/route.png');
   });
 
@@ -96,7 +100,7 @@ describe('pdf pipeline', () => {
     const doc = documentShell({ title: 't', css, body: raw('<script>document.body.dataset.ran="1"</script>') });
     await page.setContent(doc);
     expect(await page.evaluate(() => document.body.dataset.ran)).toBeUndefined();
-    const bare = await page.context().newPage();
+    const bare = await browser.newUnlockedPageForTests();
     await bare.setContent('<!doctype html><body><script>document.body.dataset.ran="1"</script>');
     expect(await bare.evaluate(() => document.body.dataset.ran)).toBe('1');
     await bare.close();

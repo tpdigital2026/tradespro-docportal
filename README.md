@@ -5,8 +5,48 @@ Branded trade paperwork from a short form. See `docs/superpowers/specs/` for the
 ## Scripts
 
 - `npm test` runs fast unit tests.
-- `npm run test:render` runs Chromium rendering tests. It needs Chrome and the reference zip extracted to `reference/` (see below).
+- `npm run test:render` runs the Chromium rendering tests twice, once on each render engine (`test:render:playwright`, `test:render:puppeteer`). It needs Chrome and the reference zip extracted to `reference/` (see below).
+- `npm run check:render-bundle` runs `next build` and fails unless every rendering route's trace carries the serverless Chromium, the fonts, the document stylesheet and the brand files (`--no-build` checks an existing `.next`).
+- `npm run ci` runs typecheck, unit tests, both render runs, the bundle check and `npm audit`.
 - `npm run spike` renders the quotation to `out/`.
+
+## Rendering on Vercel
+
+Documents are drawn by a headless Chromium. Two engines sit behind one small interface (`src/pdf/engine.ts`: `RenderBrowser`, `RenderPage`), chosen by the environment:
+
+| Where | Engine | Browser |
+|---|---|---|
+| Vercel (`VERCEL` set) or `RENDER_RUNTIME=serverless` | puppeteer-core | `@sparticuz/chromium` (Linux x64), launched in `src/pdf/serverless-chromium.ts` |
+| Local, default | playwright-core | Chrome at `CHROMIUM_PATH`, else `/Applications/Google Chrome.app/...` |
+| Local, `RENDER_ENGINE=puppeteer` | puppeteer-core | the same local Chrome |
+
+Why two: playwright-core supports only its own Chromium build (1.64 drives Chromium 156), while `@sparticuz/chromium` is built for puppeteer-core with the matching Chrome major. The pair is pinned exactly: `@sparticuz/chromium` 153.0.0 and `puppeteer-core` 25.11.0 (Chrome 153.0.8010.36, see `node_modules/puppeteer-core/lib/puppeteer/revisions.js`). Bump them together, to a puppeteer-core whose Chrome major equals the new `@sparticuz/chromium` major, then run `npm run ci`.
+
+Required settings:
+
+- Nothing to set for the renderer itself. Do not set `CHROMIUM_PATH`, `RENDER_ENGINE`, `RENDER_RUNTIME`, `FONTCONFIG_PATH` or `LD_LIBRARY_PATH` in the Vercel project: `@sparticuz/chromium` sets the last two itself on import, and a value in the project would override it.
+- Node.js 22.x or 24.x (Project Settings, Build and Deployment). puppeteer-core 25 needs Node 22.12 or later, and `@sparticuz/chromium` only adds the Amazon Linux 2023 libraries on Node 20 or later.
+- Memory: at least 2 GB (the Standard function size on Pro is 2 GB, 1 vCPU; Performance, 4 GB and 2 vCPU, makes cold starts faster). Set it under Project Settings, Functions. `@sparticuz/chromium` recommends 1600 MB or more.
+- Duration: the rendering routes declare `maxDuration = 60` (preview page, finalise, signature). A cold start inflates about 70 MB of Chromium into `/tmp` before the first launch; later requests on a warm instance skip that.
+- The page also needs the usual real-mode secrets (`SESSION_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `BANK_ENCRYPTION_KEY` for invoices). A missing one shows the same "We could not draw the pages just now" page, logged with `"stage":"prepare"`.
+
+Bundle: `next.config.ts` keeps `@sparticuz/chromium`, `puppeteer-core` and `playwright-core` external and adds `node_modules/@sparticuz/chromium/bin/**`, the fonts, `src/themes/fjc/base.css` and `public/brands/**` to every rendering route with `outputFileTracingIncludes`. Those files are read by path at run time, so the tracer cannot find them alone. `npm run check:render-bundle` proves they are in `.next/server/**/*.nft.json`; without the Chromium entry the deployed error is `The input directory ".../@sparticuz/chromium/bin" does not exist`.
+
+Reading the logs (Vercel, Project, Logs, filter on `[render]`). Every failed render writes one line, with no document content:
+
+```
+[render] {"event":"render_failed","where":"preview","stage":"extract","engine":"puppeteer","runtime":"serverless","error":"Error","detail":"The input directory ... does not exist ..."}
+```
+
+- `where`: `preview`, `finalise` or `signature`.
+- `stage`: `extract` (inflating Chromium into /tmp: missing bin files or a full /tmp), `launch` (the browser process did not start: a missing shared library or a version mismatch; `detail` carries the launch message), `page` (opening a page or setting the network lock), `layout` (loading the document, fonts, print media), `check` (the overflow guard refused the layout: a content problem, not a deployment one), `pdf`, `screenshot`, `decode` (signature picture), `upload` (storage), `prepare` (anything before the renderer: database, settings, a missing secret).
+- `error` and `code` are the error's class name and code. A message is logged only for `extract` and `launch`, which run before any document exists.
+
+On serverless a successful render also writes `[render] {"event":"render_ok","where":"document","engine":"puppeteer","cold":true,"ms":{"launch":...,"build":...,"pdf":...,"screenshot":...},"pages":3}`, so a slow cold start is visible. Set `RENDER_DEBUG=1` to see it locally.
+
+Testing on a preview deployment: push the branch, open the Vercel preview URL, sign in, open a draft and choose Preview and finalise. The first visit after a deploy is a cold start (allow 10 to 20 seconds). Then check the function logs for the `render_ok` line, or the `render_failed` line and its stage. Try a second preview straight away to see the warm timing, and upload a signature picture in Settings to exercise the `signature` route.
+
+Within one function instance renders run one at a time on serverless (Chromium runs with `--single-process` there, so one crashed page would take the browser down for every render in flight). A browser that has died is relaunched on the next request, and a render whose browser died mid-way is retried once on a fresh browser.
 
 ## Reference material (not committed)
 

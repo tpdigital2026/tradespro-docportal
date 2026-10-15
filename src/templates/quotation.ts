@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core';
+import type { RenderPage as Page } from '../pdf/engine';
 import { html, raw } from '../lib/html';
 import { computeTotals, formatGBP, type MoneyLine } from '../lib/money';
 import { documentShell } from '../pdf/document';

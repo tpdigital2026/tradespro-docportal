@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { DocumentError, finaliseDocument } from '../../../../../lib/data/documents';
 import { getSession } from '../../../../../lib/session';
 import { isSameOrigin } from '../../../../../lib/same-origin';
+import { logRenderFailure } from '../../../../../pdf/diagnostics';
 
 export const dynamic = 'force-dynamic';
 // Rendering a document takes a few seconds.
@@ -43,6 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, documentId: r.documentId, already: r.already });
   } catch (e) {
     if (e instanceof DocumentError) return NextResponse.json({ ok: false, code: e.code, message: e.message, missing: e.missing }, { status: STATUS[e.code] });
+    logRenderFailure('finalise', e);
     return NextResponse.json({ ok: false, code: 'failed', message: 'We could not finalise that just now. Nothing was changed. Please try again.' }, { status: 500 });
   }
 }

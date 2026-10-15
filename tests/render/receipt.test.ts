@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Browser, Page } from 'playwright-core';
+import type { RenderBrowser as Browser, RenderPage as Page } from '../../src/pdf/browser';
 import { launchBrowser, newLockedPage } from '../../src/pdf/browser';
 import { PageOverflowError, renderPdf } from '../../src/pdf/render';
 import { buildReceipt } from '../../src/templates/receipt';
