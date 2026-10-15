@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { FJC_COLOURS } from '../../src/db/seed-fjc';
 import { FJC_WORDING } from '../../src/db/wording';
-import { approveSurveyPartWith, deleteSurveyPhotoWith, readSurveyPhotoWith, saveSurveyWith, SurveyError, uploadSurveyPhotoWith } from '../../src/lib/data/surveys';
+import { approveSurveyPartWith, deleteSurveyPhotoWith, PHOTO_ROW_CAP, readSurveyPhotoWith, saveSurveyWith, startQuoteFromSurveyWith, SurveyError, UNUSED_PHOTOS, uploadSurveyPhotoWith } from '../../src/lib/data/surveys';
+import type { QuoteFormValues } from '../../src/lib/validation/quote';
 import { DEFAULT_CONFIRMATION } from '../../src/lib/documents/confirmation';
 import { DocumentError, finaliseWith, previewWith, reviseWith, type RenderFn } from '../../src/lib/documents/finalise';
 import { readToken } from '../../src/lib/documents/read-proof';
@@ -285,6 +286,13 @@ describe.skipIf(!dbAvailable)('survey reports', () => {
       const { surveyApprovalProblemsWith } = await import('../../src/lib/survey/approval-sql');
       const problems = await surveyApprovalProblemsWith(c, owner.tenantId, s.documentId, { ...forged, opinionHash: forgedHash });
       expect(problems.join(' ')).toMatch(/approved by the person who signs it/);
+      // Bound by user id: the staff approval itself passes, but naming the owner as its signer does not.
+      expect(a.values.opinionSignerId).toBe(staff.userId);
+      expect((await surveyApprovalProblemsWith(c, owner.tenantId, s.documentId, a.values)).filter((m) => /opinion/i.test(m))).toEqual([]);
+      expect((await surveyApprovalProblemsWith(c, owner.tenantId, s.documentId, { ...a.values, opinionSignerId: owner.userId })).join(' ')).toMatch(/person who signs it/);
+      // A signer whose profile has since been disabled no longer signs anything.
+      await c.query(`update public.profiles set disabled_at = now() where id = $1`, [staff.userId]);
+      expect((await surveyApprovalProblemsWith(c, owner.tenantId, s.documentId, a.values)).join(' ')).toMatch(/person who signs it/);
     });
   });
 
@@ -324,8 +332,24 @@ describe.skipIf(!dbAvailable)('survey reports', () => {
       expect(blocked.ok).toBe(false);
       // A change of address in the correction does not reach the quote until it is issued.
       await saveSurveyWith(c, f, { documentId: s.documentId, customer: null, job: null, values: { ...v2.rows[0].input.survey, propertyAddress: '9 Changed Street, BR1 1AA' } }, '2026-10-14', nested);
-      const issued = await c.query(`select input from public.document_versions where document_id = $1 and finalised_at is not null order by version desc limit 1`, [s.documentId]);
-      expect(issued.rows[0].input.survey.propertyAddress).toBe('123 Bromley Road, BR1 1AA');
+      let saved: { form: QuoteFormValues; jobId: string } | null = null;
+      const out = await startQuoteFromSurveyWith(c, f.tenantId, s.documentId, {
+        save: async (form, jobId) => {
+          saved = { form, jobId };
+        },
+        defaults: async () => ({ vatDefault: true, depositPctBp: 3000 }),
+        today: '2026-10-15',
+      });
+      expect(out.href).toBe(`/documents/new?type=quotation&draft=${s.jobId}&from=survey`);
+      const q = saved as unknown as { form: QuoteFormValues; jobId: string };
+      expect(q.jobId).toBe(s.jobId);
+      expect(q.form.propertyAddress).toBe('123 Bromley Road, BR1 1AA');
+      expect(q.form.customerId).toBe(s.customerId);
+      expect(q.form.quoteNumber).toBe(s.jobReference);
+      expect(q.form.scope.note).toBe(`Read alongside survey report ${s.number}`);
+      // Another business cannot start a quote from it.
+      const other = await business(c, false);
+      await expect(startQuoteFromSurveyWith(c, other.tenantId, s.documentId, { save: async () => undefined, defaults: async () => ({ vatDefault: true, depositPctBp: 3000 }), today: '2026-10-15' })).rejects.toBeInstanceOf(SurveyError);
     });
   });
 
@@ -338,6 +362,28 @@ describe.skipIf(!dbAvailable)('survey reports', () => {
       storage.failNext = true;
       await deleteSurveyPhotoWith(c, storage, f, s.documentId, photo.id, nested);
       expect((await c.query(`select 1 from public.job_photos where id = $1`, [photo.id])).rowCount).toBe(0);
+    });
+  });
+
+  it('a hard cap on stored photos: repeated uploads to an empty finding stop at the cap with a plain message; removing unused photos frees room', async () => {
+    await withRollback(async (c) => {
+      const f = await business(c);
+      const storage = new InMemoryStorage();
+      const s = await withFinding(c, f);
+      const ids: string[] = [];
+      // The draft never takes these into the finding, so every one is "not in a finding".
+      for (let i = 0; i < 4; i++) ids.push((await uploadSurveyPhotoWith(c, storage, f, s.documentId, F1, await placeholderPhoto(i, 300, 200), nested)).id);
+      await expect(uploadSurveyPhotoWith(c, storage, f, s.documentId, F1, await placeholderPhoto(5, 300, 200), nested)).rejects.toSatisfy((e: unknown) => e instanceof SurveyError && e.code === 'limit' && e.message === UNUSED_PHOTOS);
+      expect((await c.query(`select count(*)::int as n from public.job_photos where job_id = $1`, [s.jobId])).rows[0].n).toBe(4);
+      await deleteSurveyPhotoWith(c, storage, f, s.documentId, ids[0], nested);
+      await uploadSurveyPhotoWith(c, storage, f, s.documentId, F1, await placeholderPhoto(6, 300, 200), nested);
+      // And in all, however they are used: twice what one report can show.
+      for (let i = 0; i < PHOTO_ROW_CAP; i++) {
+        await c.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [f.tenantId, s.jobId, s.customerId]);
+      }
+      const all = (await c.query(`select id from public.job_photos where job_id = $1 order by id limit 3`, [s.jobId])).rows.map((r) => String(r.id));
+      await saveSurveyWith(c, f, { documentId: s.documentId, customer: null, job: null, values: values({ findings: [{ ...emptyFinding(F1), photoIds: all }] }) }, '2026-10-14', nested);
+      await expect(uploadSurveyPhotoWith(c, storage, f, s.documentId, F1, Buffer.from('never decoded'), nested)).rejects.toSatisfy((e: unknown) => e instanceof SurveyError && e.code === 'limit');
     });
   });
 });

@@ -98,6 +98,9 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
   // ---- the autosave: one at a time, never losing the newest edit
   const runSave = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
+    // Nothing waiting: do not start a loop. (A loop that ends without awaiting would clear inFlight before it is set,
+    // leaving a finished promise behind that every later save would return without saving.)
+    if (!docRef.current || savedRev.current === rev.current) return Promise.resolve();
     const p = (async () => {
       try {
         while (docRef.current && savedRev.current !== rev.current) {
@@ -239,6 +242,8 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
           setPhotos((m) => new Map(m).set(ph.id, { width: ph.width, height: ph.height }));
           patch((v) => ({ ...v, findings: v.findings.map((f) => (f.id === findingId && f.photoIds.length < SURVEY_LIMITS.photosPerFinding ? { ...f, photoIds: [...f.photoIds, ph.id] } : f)) }));
           setAnnounce('Photo added.');
+          // Save it into the finding before the next one goes up, so the server sees it is in use.
+          await flushSave();
         }
       } catch {
         setUiOf(findingId, { error: 'That photo could not be added. Check your connection and try again.' });
@@ -300,7 +305,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
       settleApprovals(
         findingId
           ? { ...v, findings: v.findings.map((f) => { const s = server.findings.find((x) => x.id === f.id); return f.id === findingId && s ? { ...f, approvedAt: s.approvedAt, approvalHash: s.approvalHash } : f; }) }
-          : { ...v, opinionApprovedAt: server.opinionApprovedAt, opinionHash: server.opinionHash },
+          : { ...v, opinionApprovedAt: server.opinionApprovedAt, opinionHash: server.opinionHash, opinionSignerId: server.opinionSignerId },
       ),
     );
     setAnnounce(findingId ? 'Finding approved.' : 'Professional opinion approved.');
@@ -320,9 +325,27 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     setOpinionUi((o) => ({ ...o, notice: d.notice ?? (d.engine === 'ai' ? 'Drafted. Read it as if you were signing it, because you are.' : 'Your line is in the opinion box. Write it out in full as yourself.'), uncertain: d.uncertain }));
   };
 
+  /** A stored photo no finding shows (an upload whose finding was deleted, or one left behind): it can be removed. */
+  const removeUnused = async (photoId: string) => {
+    const id = docRef.current;
+    if (!id) return;
+    await flushSave();
+    const res = await deleteSurveyPhotoAction(id, photoId).catch(() => null);
+    if (res && res.ok) {
+      setPhotos((m) => {
+        const n = new Map(m);
+        n.delete(photoId);
+        return n;
+      });
+      setAnnounce('Photo removed.');
+    }
+  };
+
   // ---- derived
   const problems = useMemo(() => surveyProblems(values), [values]);
   const approvedCount = values.findings.filter(isFindingApproved).length;
+  const shownIds = new Set(values.findings.flatMap((f) => f.photoIds));
+  const unusedPhotos = [...photos.keys()].filter((id) => !shownIds.has(id) && !Object.values(ui).some((u) => u.uploading > 0));
   const usedPhotos = values.findings.flatMap((f, fi) => f.photoIds.map((id, k) => ({ id, label: photoLabel(fi + 1, k + 1) })));
   const saveText =
     save.kind === 'saving' ? 'Saving the draft' : save.kind === 'saved' ? `Draft saved at ${save.at}` : save.kind === 'error' ? save.message : locked ? 'The draft saves as you go.' : 'The draft starts saving once you continue from this step.';
@@ -557,6 +580,22 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
           ) : (
             <p className="hint">{SURVEY_LIMITS.findings} findings is the most one report can hold.</p>
           )}
+
+          {unusedPhotos.length ? (
+            <section className="sv-unused" aria-labelledby="sv-unused-h">
+              <h3 id="sv-unused-h" className="sv-legend">Photos not in a finding</h3>
+              <p className="hint">These were added but no finding shows them, so they are not on the report. Remove them to make room for new ones.</p>
+              <ul className="sv-unused-list">
+                {unusedPhotos.map((pid) => (
+                  <li key={pid}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/api/surveys/photos/${pid}`} alt="A photo not in any finding" width={160} height={120} loading="lazy" decoding="async" />
+                    <Button type="button" variant="secondary" onClick={() => void removeUnused(pid)}>Remove</Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           <div className="sv-cover-pick">
           <fieldset className="sv-fieldset">

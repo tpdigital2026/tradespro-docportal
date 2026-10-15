@@ -39,7 +39,7 @@ import { suggestNextNumber } from '../quote-number';
 import { requireSession, type Session } from '../session';
 import { getStorage, type DocumentStorage } from '../storage';
 import { customerSchema } from '../validation/customer';
-import { NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, emptyQuoteForm } from '../validation/quote';
+import { NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, emptyQuoteForm, type QuoteFormValues } from '../validation/quote';
 import { FJC_WORDING, tenantWordingSchema } from '../../db/wording';
 import { compactId, withServiceConnection, type Actor } from './customer-admin';
 import { isKnownId, isRealId, saveQuoteDraft, getQuoteDefaultsWith, demoRestoreDraft } from './quotes';
@@ -343,7 +343,7 @@ export async function approveSurveyPartWith(db: Db, actor: Actor, documentId: st
       if (!tidyPara(values.opinion)) throw new SurveyError('invalid', 'Write your professional opinion before you approve it.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(values.signDate)) throw new SurveyError('invalid', 'Add the date you sign the report before you approve the opinion.');
       hash = opinionHash(values);
-      values = { ...values, opinionApprovedAt: at, opinionHash: hash };
+      values = { ...values, opinionApprovedAt: at, opinionHash: hash, opinionSignerId: actor.userId };
       meta = { part: 'opinion', engine: values.opinionEngine ?? 'none', role: signer.role, hash };
     }
     await db.query(`update public.document_versions set input = $1::jsonb where id = $2 and tenant_id = $3`, [stored(values), s.versionId, actor.tenantId]);
@@ -369,10 +369,21 @@ async function photoRoomWith(db: Db, tenantId: string, documentId: string, findi
   const f = s.stored?.findings.find((x) => x.id === findingId);
   if (!f) throw new SurveyError('not_found', 'That finding is not saved yet. Wait a moment and try again.');
   if (f.photoIds.length >= SURVEY_LIMITS.photosPerFinding) throw new SurveyError('limit', `Finding photos are limited to ${SURVEY_LIMITS.photosPerFinding}. Remove one to add another.`);
-  const used = (s.stored?.findings ?? []).reduce((t, x) => t + x.photoIds.length, 0);
-  if (used >= SURVEY_LIMITS.photosPerSurvey) throw new SurveyError('limit', `This report already shows ${SURVEY_LIMITS.photosPerSurvey} photos, the most it can hold.`);
+  const shown = new Set((s.stored?.findings ?? []).flatMap((x) => x.photoIds));
+  if (shown.size >= SURVEY_LIMITS.photosPerSurvey) throw new SurveyError('limit', `This report already shows ${SURVEY_LIMITS.photosPerSurvey} photos, the most it can hold.`);
+  // A hard cap on stored photos, whatever the draft says: at most twice the report limit in all, and never more than
+  // a finding's worth that no finding shows (uploads still being added, or left behind). Under the lock in the
+  // transaction, so two uploads at once cannot both slip under it.
+  const rows = await db.query(`select id from public.job_photos where job_id = $1 and tenant_id = $2`, [s.jobId, tenantId]);
+  const ids = rows.rows.map((r) => String(r.id));
+  const unused = ids.filter((id) => !shown.has(id)).length;
+  if (ids.length >= PHOTO_ROW_CAP || unused >= SURVEY_LIMITS.photosPerFinding) throw new SurveyError('limit', UNUSED_PHOTOS);
   return s;
 }
+
+/** Stored photos a job may hold in all (twice what one report can show). */
+export const PHOTO_ROW_CAP = 2 * SURVEY_LIMITS.photosPerSurvey;
+export const UNUSED_PHOTOS = 'There are photos waiting that are not in any finding. Remove them under "Photos not in a finding", then add this one.';
 
 /** As lockSurveyWith, without the locks: for the cheap checks made before any work. */
 async function readSurveyWith(db: Db, tenantId: string, documentId: string): Promise<LockedSurvey> {
@@ -596,9 +607,14 @@ export async function approveSurveyPart(documentId: string, values: SurveyFormVa
 /** Sixty photo uploads per person in ten minutes. Per process. */
 const uploadLimiter = createRateLimiter(60, 10 * 60_000);
 
+/** One upload counted against the person's limit. The upload route asks this before it reads the body. */
+export function takeUploadPermit(userId: string): boolean {
+  return uploadLimiter.take(userId);
+}
+export const UPLOAD_LIMITED = 'You have added a lot of photos in the last few minutes. Wait a little, then try again.';
+
 export async function uploadSurveyPhoto(documentId: string, findingId: string, raw: Uint8Array): Promise<UploadedPhoto> {
   const s = await requireSession();
-  if (!uploadLimiter.take(s.userId)) throw new SurveyError('limit', 'You have added a lot of photos in the last few minutes. Wait a little, then try again.');
   if (isDemo()) return demoUpload(documentId, findingId, raw);
   if (!isRealId(documentId)) throw new SurveyError('not_found', 'That survey could not be found.');
   return withServiceConnection((db) => uploadSurveyPhotoWith(db, getStorage(), SESSION_ACTOR(s), documentId, findingId, raw));
@@ -671,54 +687,61 @@ export async function draftSurveyOpinion(documentId: string, values: SurveyFormV
   return { opinion: d.opinion, uncertain: d.uncertain, engine: d.engine, notice: d.notice };
 }
 
+export interface QuoteFromSurveyDeps {
+  /** Saves the new draft quote on the job (the owner's own save in the app). */
+  save: (form: QuoteFormValues, jobId: string) => Promise<unknown>;
+  defaults: () => Promise<{ vatDefault: boolean; depositPctBp: number }>;
+  today: string;
+}
+
 /**
- * "Create quote from this survey": a draft quote on the same job, for the same customer and address, with the
- * business's "read alongside" wording in the note. If the job already has a quote, that quote is returned instead.
+ * "Create quote from this survey": a draft quote on the same job, for the same customer, with the address from the
+ * newest FINALISED version (never a correction still in draft) and the business's "read alongside" wording in the
+ * note. If the job already has a quote, that quote is returned instead. Reads on a service connection, filtered by
+ * the session's tenant.
  */
+export async function startQuoteFromSurveyWith(db: Db, tenantId: string, documentId: string, deps: QuoteFromSurveyDeps): Promise<{ href: string }> {
+  if (!UUID.test(documentId)) throw new SurveyError('not_found', 'That survey could not be found.');
+  const d = await db.query(
+    `select d.id, d.job_id, d.number, j.customer_id, j.reference, td.terms
+       from public.documents d join public.jobs j on j.id = d.job_id and j.tenant_id = d.tenant_id
+       left join public.tenant_defaults td on td.tenant_id = d.tenant_id
+      where d.id = $1 and d.tenant_id = $2 and d.type = 'survey_report'`,
+    [documentId, tenantId],
+  );
+  const r = d.rows[0];
+  if (!r) throw new SurveyError('not_found', 'That survey could not be found.');
+  const jobId = String(r.job_id);
+  const q = await db.query(`select id, status::text as status from public.documents where job_id = $1 and tenant_id = $2 and type = 'quotation'`, [jobId, tenantId]);
+  if (q.rows[0]) return { href: q.rows[0].status === 'draft' ? `/documents/new?type=quotation&draft=${jobId}` : `/documents/${q.rows[0].id}` };
+  const v = await db.query(
+    `select v.input from public.document_versions v where v.document_id = $1 and v.tenant_id = $2 and v.finalised_at is not null order by v.version desc limit 1`,
+    [documentId, tenantId],
+  );
+  const issued = v.rows[0] ? parseSurveyInput(v.rows[0].input) : null;
+  if (!issued) throw new SurveyError('invalid', 'Finalise the survey report first, then make the quote from it.');
+  const wording = tenantWordingSchema.safeParse(r.terms);
+  const link = quoteLinkLine(wording.success ? wording.data.survey : null, String(r.number));
+  const defaults = await deps.defaults();
+  const form = emptyQuoteForm({ date: deps.today, vatApplies: defaults.vatDefault, depositPctBp: defaults.depositPctBp, quoteNumber: String(r.reference) });
+  form.customerId = String(r.customer_id);
+  form.propertyAddress = tidyPara(issued.propertyAddress).replace(/\n+/g, ', ');
+  if (link) form.scope = { ...form.scope, note: link };
+  await deps.save(form, jobId);
+  return { href: `/documents/new?type=quotation&draft=${jobId}&from=survey` };
+}
+
 export async function startQuoteFromSurvey(documentId: string): Promise<{ href: string }> {
   const s = await requireSession();
   if (isDemo()) return demoStartQuote(documentId);
   if (!isRealId(documentId)) throw new SurveyError('not_found', 'That survey could not be found.');
-  const facts = await withServiceConnection(async (db) => {
-    const d = await db.query(
-      `select d.id, d.job_id, d.number, d.status::text as status, j.customer_id, j.reference, j.property_address, td.terms
-         from public.documents d join public.jobs j on j.id = d.job_id and j.tenant_id = d.tenant_id
-         left join public.tenant_defaults td on td.tenant_id = d.tenant_id
-        where d.id = $1 and d.tenant_id = $2 and d.type = 'survey_report'`,
-      [documentId, s.tenantId],
-    );
-    const r = d.rows[0];
-    if (!r) return null;
-    const q = await db.query(`select id, status::text as status from public.documents where job_id = $1 and tenant_id = $2 and type = 'quotation'`, [r.job_id, s.tenantId]);
-    // The address as issued: the newest FINALISED version, never a correction still in draft.
-    const v = await db.query(
-      `select v.input from public.document_versions v where v.document_id = $1 and v.tenant_id = $2 and v.finalised_at is not null order by v.version desc limit 1`,
-      [documentId, s.tenantId],
-    );
-    const wording = tenantWordingSchema.safeParse(r.terms);
-    return {
-      status: String(r.status),
-      jobId: String(r.job_id),
-      customerId: String(r.customer_id),
-      reference: String(r.reference),
-      number: String(r.number),
-      issued: v.rows.length > 0,
-      address: parseSurveyInput(v.rows[0]?.input)?.propertyAddress ?? r.property_address ?? '',
-      quote: q.rows[0] ? { id: String(q.rows[0].id), status: String(q.rows[0].status) } : null,
-      link: quoteLinkLine(wording.success ? wording.data.survey : null, String(r.number)),
-    };
-  });
-  if (!facts) throw new SurveyError('not_found', 'That survey could not be found.');
-  if (facts.quote) return { href: facts.quote.status === 'draft' ? `/documents/new?type=quotation&draft=${facts.jobId}` : `/documents/${facts.quote.id}` };
-  if (!facts.issued) throw new SurveyError('invalid', 'Finalise the survey report first, then make the quote from it.');
-  const client = await ownerClient();
-  const defaults = await getQuoteDefaultsWith(client);
-  const form = emptyQuoteForm({ date: todayLondon(), vatApplies: defaults.vatDefault, depositPctBp: defaults.depositPctBp, quoteNumber: facts.reference });
-  form.customerId = facts.customerId;
-  form.propertyAddress = tidyPara(facts.address).replace(/\n+/g, ', ');
-  if (facts.link) form.scope = { ...form.scope, note: facts.link };
-  await saveQuoteDraft(form, facts.jobId);
-  return { href: `/documents/new?type=quotation&draft=${facts.jobId}&from=survey` };
+  return withServiceConnection((db) =>
+    startQuoteFromSurveyWith(db, s.tenantId, documentId, {
+      save: (form, jobId) => saveQuoteDraft(form, jobId),
+      defaults: async () => getQuoteDefaultsWith(await ownerClient()),
+      today: todayLondon(),
+    }),
+  );
 }
 
 async function retryDeadlock<T>(fn: () => Promise<T>): Promise<T> {
@@ -882,7 +905,7 @@ async function demoApprove(documentId: string, incoming: SurveyFormValues, part:
     if (!tidyPara(values.opinion)) throw new SurveyError('invalid', 'Write your professional opinion before you approve it.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(values.signDate)) throw new SurveyError('invalid', 'Add the date you sign the report before you approve the opinion.');
     hash = opinionHash(values);
-    values = { ...values, opinionApprovedAt: at, opinionHash: hash };
+    values = { ...values, opinionApprovedAt: at, opinionHash: hash, opinionSignerId: demoSession.userId };
   }
   s.values = values;
   const set = demo().audited.get(documentId) ?? new Set<string>();
@@ -897,7 +920,10 @@ function demoRoom(documentId: string, findingId: string): DemoSurvey {
   const f = s.values.findings.find((x) => x.id === findingId);
   if (!f) throw new SurveyError('not_found', 'That finding is not saved yet. Wait a moment and try again.');
   if (f.photoIds.length >= SURVEY_LIMITS.photosPerFinding) throw new SurveyError('limit', `Finding photos are limited to ${SURVEY_LIMITS.photosPerFinding}. Remove one to add another.`);
-  if (s.values.findings.reduce((t, x) => t + x.photoIds.length, 0) >= SURVEY_LIMITS.photosPerSurvey) throw new SurveyError('limit', `This report already shows ${SURVEY_LIMITS.photosPerSurvey} photos, the most it can hold.`);
+  const shown = new Set(s.values.findings.flatMap((x) => x.photoIds));
+  if (shown.size >= SURVEY_LIMITS.photosPerSurvey) throw new SurveyError('limit', `This report already shows ${SURVEY_LIMITS.photosPerSurvey} photos, the most it can hold.`);
+  const ids = demoSurveyPhotos(s.jobId).map((p) => p.id);
+  if (ids.length >= PHOTO_ROW_CAP || ids.filter((id) => !shown.has(id)).length >= SURVEY_LIMITS.photosPerFinding) throw new SurveyError('limit', UNUSED_PHOTOS);
   return s;
 }
 

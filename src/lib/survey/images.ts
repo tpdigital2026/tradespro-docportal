@@ -14,8 +14,11 @@ import sharp, { type Metadata } from 'sharp';
 sharp.cache(false);
 
 export const PHOTO_LIMITS = {
-  /** Bytes accepted from the browser. Phones resize before upload, so real uploads are far smaller. */
-  maxUploadBytes: 12 * 1024 * 1024,
+  /**
+   * Bytes accepted from the browser. Phones resize before upload, so real uploads are far smaller (1 to 3 MB). Kept
+   * under the 10 MB that the proxy (src/proxy.ts) buffers of a request body, so a body is never cut short there.
+   */
+  maxUploadBytes: 8 * 1024 * 1024,
   /** Long edge of the stored photo. */
   maxEdge: 2000,
   /** Refuse anything that would decode to more pixels than this: 36 megapixels covers every phone camera. */
@@ -54,10 +57,31 @@ export interface CleanPhoto {
 const TOO_MANY_PIXELS = 'That photo has too many pixels. Choose a smaller one, or take it with the camera button.';
 const NOT_IMAGE = 'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.';
 
+/** At most two photos are decoded at once in one server process, so memory stays bounded however many arrive. */
+const MAX_DECODES = 2;
+let decoding = 0;
+const waiting: (() => void)[] = [];
+async function withDecodeSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (decoding >= MAX_DECODES) await new Promise<void>((resolve) => waiting.push(resolve));
+  decoding += 1;
+  try {
+    return await fn();
+  } finally {
+    decoding -= 1;
+    waiting.shift()?.();
+  }
+}
+/** Test hook: how many decodes are running now. */
+export const decodesRunning = () => decoding;
+
 /** Validates and re-encodes one uploaded photo. Throws PhotoError with a message fit to show the owner. */
-export async function cleanPhoto(input: Uint8Array): Promise<CleanPhoto> {
+export function cleanPhoto(input: Uint8Array): Promise<CleanPhoto> {
+  return withDecodeSlot(() => cleanPhotoNow(input));
+}
+
+async function cleanPhotoNow(input: Uint8Array): Promise<CleanPhoto> {
   if (!input || input.length === 0) throw new PhotoError('empty', 'That file is empty.');
-  if (input.length > PHOTO_LIMITS.maxUploadBytes) throw new PhotoError('too_big', 'That photo is too large. Choose one under 12 MB.');
+  if (input.length > PHOTO_LIMITS.maxUploadBytes) throw new PhotoError('too_big', 'That photo is too large. Choose one under 8 MB.');
   const kind = sniffImage(input);
   if (!kind) throw new PhotoError('not_image', NOT_IMAGE);
   const buf = Buffer.from(input.buffer, input.byteOffset, input.byteLength);

@@ -116,3 +116,9 @@
 
 .sv-label { font-weight: 600; }
 .sv-fixed { margin: 0; font-family: var(--font-head); font-size: var(--fs-title); font-weight: 600; overflow-wrap: anywhere; } /* shown, not typed: it is the profile name */
+
+.sv-unused { display: grid; gap: var(--space-2); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--warn-tint); }
+.sv-unused-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.sv-unused-list li { display: grid; gap: var(--space-2); }
+.sv-unused-list img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius-sm); display: block; }
+@media (min-width: 760px) { .sv-unused-list { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

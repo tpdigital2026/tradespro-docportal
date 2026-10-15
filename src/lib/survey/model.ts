@@ -71,6 +71,8 @@ export const surveyFormSchema = z.object({
   opinionEngine: z.enum(['ai', 'basic']).nullable(),
   opinionApprovedAt: z.string().max(40).nullable(),
   opinionHash: z.string().max(80).nullable(),
+  /** Who approved (and so signs) the opinion: their user id, set by the server with the approval. */
+  opinionSignerId: z.string().max(60).nullable().default(null),
   remedial: line(SURVEY_LIMITS.remedial),
   signName: line(SURVEY_LIMITS.preparedBy),
   signDate: z.string().max(10).refine((v) => v === '' || DATE.test(v), 'Enter the date as a date'),
@@ -90,6 +92,7 @@ export function emptySurvey(d: { surveyDate: string; preparedBy: string; propert
     opinionEngine: null,
     opinionApprovedAt: null,
     opinionHash: null,
+    opinionSignerId: null,
     remedial: '',
     signName: d.preparedBy,
     signDate: d.surveyDate,
@@ -144,7 +147,7 @@ export function opinionHash(v: Pick<SurveyFormValues, 'opinion' | 'remedial' | '
 
 /** Every approval taken off (a correction to an issued report must be approved, read and ticked again). */
 export function withoutApprovals(v: SurveyFormValues): SurveyFormValues {
-  return { ...v, findings: v.findings.map(withoutFindingApproval), opinionApprovedAt: null, opinionHash: null };
+  return { ...v, findings: v.findings.map(withoutFindingApproval), opinionApprovedAt: null, opinionHash: null, opinionSignerId: null };
 }
 
 const realTime = (t: string | null): boolean => typeof t === 'string' && !Number.isNaN(Date.parse(t));
@@ -164,7 +167,7 @@ export function settleApprovals(v: SurveyFormValues): SurveyFormValues {
   return {
     ...v,
     findings: v.findings.map((f) => (f.approvedAt || f.approvalHash ? (isFindingApproved(f) ? f : withoutFindingApproval(f)) : f)),
-    ...(v.opinionApprovedAt || v.opinionHash ? (isOpinionApproved(v) ? {} : { opinionApprovedAt: null, opinionHash: null }) : {}),
+    ...(v.opinionApprovedAt || v.opinionHash ? (isOpinionApproved(v) ? {} : { opinionApprovedAt: null, opinionHash: null, opinionSignerId: null }) : {}),
   };
 }
 
@@ -186,6 +189,7 @@ export function sanitiseIncomingSurvey(incoming: SurveyFormValues, stored: Surve
     findings,
     opinionApprovedAt: keepOpinion ? stored.opinionApprovedAt : null,
     opinionHash: keepOpinion ? stored.opinionHash : null,
+    opinionSignerId: keepOpinion ? (stored.opinionSignerId ?? null) : null,
   };
 }
 

@@ -5,7 +5,7 @@
  */
 import type { Db } from '../../security/login-guard';
 import { compactId } from '../data/customer-admin';
-import { isFindingApproved, isOpinionApproved, type SurveyFormValues } from './model';
+import { isFindingApproved, isOpinionApproved, tidyLine, type SurveyFormValues } from './model';
 
 export const SURVEY_APPROVE_ACTION = 'survey.approve';
 
@@ -34,16 +34,19 @@ export async function surveyApprovalProblemsWith(db: Db, tenantId: string, docum
     if (f.approvalHash && isFindingApproved(f) && !audited.has(f.approvalHash)) out.push(`Finding ${i + 1}: the approval is not on record. Approve it again.`);
   });
   if (v.opinionHash && isOpinionApproved(v) && !audited.has(v.opinionHash)) out.push('Your professional opinion: the approval is not on record. Approve it again.');
-  // The opinion is signed by the person who approved it, in their own profile name, and by nobody else.
+  // The opinion is signed by the person who approved it, by user id: the audit row for this fingerprint must be
+  // theirs, their profile must still be active in this business, and its name (tidied the same way as on save) must
+  // be the name that signs and prepares the report.
   if (v.opinionHash && isOpinionApproved(v) && audited.has(v.opinionHash)) {
     const r = await db.query(
-      `select p.full_name from public.audit_log a join public.profiles p on p.id = a.user_id and p.tenant_id = a.tenant_id
+      `select a.user_id, p.full_name from public.audit_log a
+         join public.profiles p on p.id = a.user_id and p.tenant_id = a.tenant_id and p.disabled_at is null
         where a.tenant_id = $1 and a.action = $2 and a.entity = 'document' and a.entity_id = $3 and a.meta->>'hash' = $4 and a.meta->>'part' = 'opinion'`,
       [tenantId, SURVEY_APPROVE_ACTION, compactId(documentId), v.opinionHash],
     );
-    const names = new Set(r.rows.map((x) => String(x.full_name ?? '').replace(/\s+/g, ' ').trim()));
-    const signer = v.signName.replace(/\s+/g, ' ').trim();
-    if (!names.has(signer) || v.preparedBy.replace(/\s+/g, ' ').trim() !== signer) out.push('Your professional opinion must be approved by the person who signs it. Open the report and approve it as yourself.');
+    const signer = tidyLine(v.signName);
+    const ok = !!v.opinionSignerId && tidyLine(v.preparedBy) === signer && r.rows.some((x) => String(x.user_id) === v.opinionSignerId && tidyLine(String(x.full_name ?? '')) === signer);
+    if (!ok) out.push('Your professional opinion must be approved by the person who signs it. Open the report and approve it as yourself.');
   }
   return out;
 }

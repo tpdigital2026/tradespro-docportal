@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkSurveyPhotoRoom, PhotoError, SurveyError, uploadSurveyPhoto } from '../../../../../lib/data/surveys';
+import { checkSurveyPhotoRoom, PhotoError, SurveyError, takeUploadPermit, UPLOAD_LIMITED, uploadSurveyPhoto } from '../../../../../lib/data/surveys';
 import { PHOTO_LIMITS } from '../../../../../lib/survey/images';
 import { FINDING_ID } from '../../../../../lib/survey/model';
 import { readCapped } from '../../../../../lib/survey/read-capped';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 /** Room for the multipart wrapping around the photo. */
 const OVERHEAD = 64 * 1024;
 const CAP = PHOTO_LIMITS.maxUploadBytes + OVERHEAD;
-const TOO_BIG = 'That photo is too large. Choose one under 12 MB.';
+const TOO_BIG = 'That photo is too large. Choose one under 8 MB.';
 
 const fail = (message: string, status: number) => NextResponse.json({ ok: false, message }, { status, headers: { 'Cache-Control': 'no-store' } });
 const statusOf = (e: SurveyError) => (e.code === 'not_found' ? 404 : e.code === 'locked' ? 409 : e.code === 'limit' ? 429 : 400);
@@ -18,7 +18,8 @@ const statusOf = (e: SurveyError) => (e.code === 'not_found' ? 404 : e.code === 
 /**
  * One photo for one finding of a draft survey report: multipart form data, field "photo", `?finding=f-...`. Same-origin
  * is checked for every non-GET request in front of this route (src/lib/route-guard.ts). In order, before any image
- * work: signed in; a declared length within the cap (411 without one, 413 over it); the survey, its job and the
+ * work: signed in; a declared length within the cap (411 without one, 413 over it); the person's upload limit (429);
+ * the survey, its job and the
  * finding in this business with room for a photo; then the body is read with a hard byte cap (never an unbounded
  * formData()); then the server cleans the image and stores it.
  */
@@ -33,6 +34,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (Number(declared) > CAP) return fail(TOO_BIG, 413);
   const type = req.headers.get('content-type') ?? '';
   if (!/^multipart\/form-data;\s*boundary=/i.test(type)) return fail('Choose a photo to add.', 400);
+  // Counted before any work or reading: a flood of uploads stops here.
+  if (!takeUploadPermit(session.userId)) return fail(UPLOAD_LIMITED, 429);
   try {
     await checkSurveyPhotoRoom(id, finding);
   } catch (e) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { cleanPhoto, hasMetadataMarkers, PhotoError, PHOTO_LIMITS, printCopy, sniffImage } from '../../src/lib/survey/images';
+import { cleanPhoto, decodesRunning, hasMetadataMarkers, PhotoError, PHOTO_LIMITS, printCopy, sniffImage } from '../../src/lib/survey/images';
 import { targetSize } from '../../src/lib/survey/shrink';
 import { greyPng } from '../fixtures/png';
 
@@ -123,6 +123,20 @@ describe('photo pipeline: metadata', () => {
     const copy = await printCopy(out.bytes, 1000);
     expect([copy.width, copy.height]).toEqual([1000, 500]);
     expect(hasMetadataMarkers(Buffer.from(copy.src.split(',')[1], 'base64'))).toBe(false);
+  });
+});
+
+describe('photo pipeline: bounded memory', () => {
+  it('never decodes more than two photos at once in a process, however many arrive together', async () => {
+    let peak = 0;
+    const timer = setInterval(() => (peak = Math.max(peak, decodesRunning())), 1);
+    const inputs = await Promise.all(Array.from({ length: 8 }, (_, i) => solid(1800 + i, 1400, 'png')));
+    const outs = await Promise.all(inputs.map((b) => cleanPhoto(b)));
+    clearInterval(timer);
+    expect(outs).toHaveLength(8);
+    expect(peak).toBeGreaterThan(0);
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(decodesRunning()).toBe(0);
   });
 });
 

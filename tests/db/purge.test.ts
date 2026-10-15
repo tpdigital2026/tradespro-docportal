@@ -456,6 +456,9 @@ describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
       const claimer = await fx.client();
       const rival = await fx.client();
       const pid = (await rival.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+      const before = (await fx.setup.query(`select storage_path from public.job_photos where tenant_id = $1`, [fx.tenantId])).rows.map((r) => String(r.storage_path));
+      expect(before).toHaveLength(1);
+      expect(before[0]).toBe(`${fx.tenantId}/${fx.customerId}/${fx.jobId}/${before[0].split('/')[3]}`);
       await claimer.query('begin');
       const wrong = await claimer.query(`select private.claim_customer($1, $2) as ok`, [fx.tenantId, '00000000-0000-0000-0000-000000000000']);
       expect(wrong.rows[0].ok).toBe(false);
@@ -472,7 +475,8 @@ describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
         .then(() => null, (e) => e as { code?: string });
       await waitUntilBlocked(fx.setup, pid);
       const paths = await claimer.query(`select private.customer_storage_paths($1, $2) as p`, [fx.tenantId, fx.customerId]);
-      expect(paths.rows.map((r) => r.p)).not.toContain(`${fx.tenantId}/photos/late.jpg`);
+      // The waiting insert added no photo: the only photo listed is the fixture's own, in the real path scheme.
+      expect(paths.rows.map((r) => String(r.p)).filter((p) => p.endsWith('.jpg'))).toEqual(before);
       const erased = await claimer.query(`select private.erase_customer($1, $2) as n`, [fx.tenantId, fx.customerId]);
       expect(erased.rows[0].n).toBe(1);
       await claimer.query('commit');
