@@ -16,7 +16,7 @@ const body = z.object({
   confirmationVersion: z.string().min(1).max(40),
 });
 
-const STATUS: Record<DocumentError['code'], number> = { not_found: 404, locked: 409, changed: 409, missing: 422, unread: 422, unconfirmed: 422, not_allowed: 403, failed: 500 };
+const STATUS: Record<DocumentError['code'], number> = { not_found: 404, locked: 409, changed: 409, missing: 422, unread: 422, unconfirmed: 422, not_allowed: 403, busy: 409, failed: 500 };
 
 /**
  * Finalise: session first, tenant from the session, everything else re-checked on the server (README server rules).

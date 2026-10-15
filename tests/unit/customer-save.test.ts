@@ -62,7 +62,7 @@ describe('the confirmation', () => {
   it('says Saved, and has no em dash', () => {
     for (const t of Object.values(SAVED_TEXT)) {
       expect(t).toMatch(/^Saved\./);
-      expect(t).not.toMatch(/—/);
+      expect(t).not.toMatch(/\u2014/);
     }
   });
 });

@@ -72,12 +72,18 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
 
   const quoteDocs = docRows.filter((d) => d.type === DB_DOC_TYPES.quotation);
   const verRes = quoteDocs.length
-    ? await client.from('document_versions').select('document_id, version, input').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
+    ? await client.from('document_versions').select('document_id, version, input, final_content').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
     : { data: [], error: null };
   if (verRes.error) throw new BillingError('failed', 'Could not load the quotes');
   const latest = new Map<string, unknown>();
-  for (const v of (verRes.data ?? []) as { document_id: string; input: { form?: unknown } | null }[]) {
-    if (!latest.has(v.document_id)) latest.set(v.document_id, v.input?.form);
+  // The VAT rate the issued quote was finalised at: the job's money stays at that rate whatever the setting is today.
+  const issuedRate = new Map<string, number>();
+  for (const v of (verRes.data ?? []) as { document_id: string; input: { form?: unknown } | null; final_content?: { content?: { input?: { vatRateBp?: unknown } } } | null }[]) {
+    if (!latest.has(v.document_id)) {
+      latest.set(v.document_id, v.input?.form);
+      const r = v.final_content?.content?.input?.vatRateBp;
+      if (typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(v.document_id, r);
+    }
   }
 
   const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000);
@@ -108,7 +114,7 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
       out.push({ ...base, billing: null, problem: 'We cannot work out how this job is billed. Open the quote and check its price and payment plan.' });
       continue;
     }
-    const r = buildJobBilling({ quoteNumber: j.reference, plan: stored.plan, form: form.data as QuoteFormValues, vatRateBp: defaults.vatRateBp, documents, payments });
+    const r = buildJobBilling({ quoteNumber: j.reference, plan: stored.plan, form: form.data as QuoteFormValues, vatRateBp: (quote && issuedRate.get(quote.id)) ?? defaults.vatRateBp, documents, payments });
     out.push(r.ok ? { ...base, billing: r.billing, problem: null } : { ...base, billing: null, problem: r.message });
   }
   return out;

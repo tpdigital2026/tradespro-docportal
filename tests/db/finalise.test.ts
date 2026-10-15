@@ -14,6 +14,7 @@ import { readToken } from '../../src/lib/documents/read-proof';
 import { InMemoryStorage } from '../../src/lib/storage';
 import { encryptBankDetails } from '../../src/security/bank-crypto';
 import type { QuoteFormValues } from '../../src/lib/validation/quote';
+import { connect } from '../../src/db/connect';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
 const SECRET = 's'.repeat(48);
@@ -64,7 +65,7 @@ async function fixture(c: Client, o: { audited?: boolean } = {}): Promise<Fx> {
   return { ...t, customerId: cust.rows[0].id, jobId: job.rows[0].id, quoteId: doc.rows[0].id, versionId: ver.rows[0].id, reference };
 }
 
-const actor = (f: Fx) => ({ tenantId: f.tenantId, userId: f.userId });
+const actor = (f: Fx) => ({ tenantId: f.tenantId, userId: f.userId, role: 'owner' });
 const tokens = (f: Fx, documentId: string, versionId: string, key: string, pages = 2) =>
   Array.from({ length: pages }, (_, i) => readToken(SECRET, { tenantId: f.tenantId, userId: f.userId, documentId, versionId, key }, i + 1));
 
@@ -158,6 +159,115 @@ describe.skipIf(!dbAvailable)('finalise', () => {
     });
   });
 
+  it('junk tokens are refused before anything is drawn: the renderer is never called', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      let calls = 0;
+      const spy: RenderFn = async (...args) => {
+        calls += 1;
+        return render(...args);
+      };
+      const base = { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version };
+      await expectCode(finaliseWith(c, storage, actor(f), { ...base, tokens: ['r1.1.' + 'a'.repeat(43), 'junk', 7] }, { render: spy, secret: SECRET }, nested), 'unread');
+      // A key that was never previewed has no stored page count: read again, still nothing drawn.
+      await expectCode(finaliseWith(c, storage, actor(f), { ...base, key: 'f'.repeat(32), tokens: [] }, { render: spy, secret: SECRET }, nested), 'changed');
+      expect(calls).toBe(0);
+    });
+  });
+
+  it('a version that changes while it is being drawn is refused, and the uploaded files are deleted again', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const sneaky: RenderFn = async (...args) => {
+        await c.query(`update public.document_versions set input = jsonb_set(input, '{form,price}', '"9000"') where id = $1`, [f.versionId]);
+        return render(...args);
+      };
+      await expectCode(finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render: sneaky, secret: SECRET }, nested), 'changed');
+      const folder = `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}`;
+      expect(await storage.get(`${folder}/document.pdf`)).toBeNull();
+      expect(await storage.get(`${folder}/page-01.png`)).toBeNull();
+      expect((await c.query(`select status::text from public.documents where id = $1`, [f.quoteId])).rows[0].status).toBe('draft');
+    });
+  });
+
+  it('a lock timeout says someone else is finalising it, and cleans up its files', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      // Stand-in for another request holding the row: the locking select times out.
+      const db = {
+        query: (sql: string, params?: unknown[]) => {
+          if (/for update of d/.test(sql)) return Promise.reject(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+          return c.query(sql, params);
+        },
+      };
+      const err = await finaliseWith(db, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render, secret: SECRET }, nested).catch((e) => e);
+      expect(err).toBeInstanceOf(DocumentError);
+      expect(err.code).toBe('busy');
+      expect(err.message).toMatch(/Someone else is finalising this document/);
+      expect(await storage.get(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/document.pdf`)).toBeNull();
+    });
+  });
+
+  it('the confirmation audit records the person and their role', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      await previewAndFinalise(c, f, new InMemoryStorage(), f.quoteId);
+      const a = (await c.query(`select user_id, meta from public.audit_log where tenant_id = $1 and action = 'document.confirm'`, [f.tenantId])).rows[0];
+      expect(a.user_id).toBe(f.userId);
+      expect(a.meta.role).toBe('owner');
+    });
+  });
+
+  it('two finalises at the same moment: one does the work, the other finds it done (committed data, cleaned up after)', async () => {
+    const setup = await connect();
+    let f: Fx | null = null;
+    try {
+      f = await fixture(setup);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(setup, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const fx = f;
+      const args = { documentId: fx.quoteId, versionId: fx.versionId, key: p.preview.key, tokens: tokens(fx, fx.quoteId, fx.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version };
+      const one = await connect();
+      const two = await connect();
+      try {
+        const results = await Promise.allSettled([
+          finaliseWith(one, storage, actor(fx), args, { render, secret: SECRET }),
+          finaliseWith(two, storage, actor(fx), args, { render, secret: SECRET }),
+        ]);
+        const ok = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof finaliseWith>>> => r.status === 'fulfilled').map((r) => r.value);
+        const bad = results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason);
+        // Exactly one did the work; the other returned it as already done or was refused cleanly.
+        expect(ok.filter((r) => !r.already)).toHaveLength(1);
+        for (const e of bad) expect(e).toBeInstanceOf(DocumentError);
+        expect((await setup.query(`select count(*)::int n from public.audit_log where tenant_id = $1 and action = 'document.finalise'`, [fx.tenantId])).rows[0].n).toBe(1);
+        expect(await storage.get(`${fx.tenantId}/${fx.customerId}/${fx.jobId}/${fx.versionId}/document.pdf`)).not.toBeNull();
+      } finally {
+        await one.end();
+        await two.end();
+      }
+    } finally {
+      if (f) {
+        // Clean up the committed business (audit rows are append only and hold ids only; they stay).
+        await setup.query('begin');
+        await setup.query(`select set_config('app.allow_final_delete', 'on', true)`);
+        await setup.query(`delete from public.tenants where id = $1`, [f.tenantId]);
+        await setup.query(`delete from auth.users where id = $1`, [f.userId]);
+        await setup.query('commit');
+      }
+      await setup.end();
+    }
+  });
+
   it('a quote whose approval has no audit row cannot be finalised', async () => {
     await withRollback(async (c) => {
       const f = await fixture(c, { audited: false });
@@ -206,6 +316,8 @@ describe.skipIf(!dbAvailable)('finalise', () => {
       const f = await fixture(c);
       const storage = new InMemoryStorage();
       await previewAndFinalise(c, f, storage, f.quoteId);
+      // The business changes its VAT setting after the quote was issued: the invoice stays at the issued rate.
+      await c.query(`update public.tenant_defaults set vat_rate_bp = 0 where tenant_id = $1`, [f.tenantId]);
       const inv = await saveFollowOnWith(c, actor(f), { jobId: f.jobId, type: 'deposit-invoice', number: `INV-${f.reference}-D`, instalment: 1, heading: 'Deposit (30%)', netPence: 1, vatPence: 1, grossPence: 2, date: '2026-10-09', paymentId: null }, nested);
       const { res } = await previewAndFinalise(c, f, storage, inv.documentId);
       const v = (await c.query(`select money, final_content from public.document_versions where id = $1`, [res.versionId])).rows[0];
@@ -217,7 +329,7 @@ describe.skipIf(!dbAvailable)('finalise', () => {
     });
   });
 
-  it('erasing the customer deletes the folder with every page image (purge protocol, fake storage)', async () => {
+  it('the retention purge deletes the customer folder with every page image (purge protocol, fake storage)', async () => {
     await withRollback(async (c) => {
       const f = await fixture(c);
       const storage = new InMemoryStorage();

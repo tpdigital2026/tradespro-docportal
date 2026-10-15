@@ -1,18 +1,11 @@
 /**
  * Preview, finalise and revise, on a service connection (no app JWT; README "Server code rules").
  *
- * Finalise, in ONE transaction:
- *   1. select the document row FOR UPDATE, then its versions;
- *   2. validate: still a draft, the version the owner read is still the newest, nothing changed since;
- *   3. recompute everything from stored facts: money through money.ts (buildSchedule over the version totals and the
- *      plan inputs, never stored instalments), the quote's approved wording and its audit row;
- *   4. render, check a read token for every page of exactly this content;
- *   5. write the immutable version (money, content without bank numbers, pdf path, finalised time) and the document
- *      row (status, current version, total, pdf path); numbers were claimed when the document was created and are
- *      never claimed again;
- *   6. audit the confirmation and the finalise (ids, counts and the wording version only);
- *   7. store the PDF and page images, then commit. A storage failure rolls everything back.
- * A second submit waits on the row lock and then finds the work done: it returns the same result (idempotent).
+ * Finalise, in two phases (details on finaliseWith): checks, read tokens, render and upload with no lock held; then one
+ * short transaction that selects the document row FOR UPDATE, re-checks it, writes the immutable version and the
+ * document row, the audit (ids, counts, wording version and role only) and commits. Money is recomputed through
+ * money.ts (buildSchedule over the version totals and the plan inputs, never stored instalments); numbers were claimed
+ * when the document was created and are never claimed again. A second submit finds the work done and returns it.
  * The caller retries once on deadlock (40P01).
  */
 import { auditedApprovalWith } from '../data/scope';
@@ -38,7 +31,7 @@ export type RenderFn = (mapped: Mapped, tenant: Tenant, brand: Brand) => Promise
 
 export class DocumentError extends Error {
   constructor(
-    readonly code: 'not_found' | 'locked' | 'changed' | 'missing' | 'unread' | 'unconfirmed' | 'not_allowed' | 'failed',
+    readonly code: 'not_found' | 'locked' | 'changed' | 'missing' | 'unread' | 'unconfirmed' | 'not_allowed' | 'busy' | 'failed',
     message: string,
     readonly missing: string[] = [],
   ) {
@@ -50,6 +43,8 @@ export class DocumentError extends Error {
 export interface Actor {
   tenantId: string;
   userId: string;
+  /** Recorded with the confirmation: owners and staff may both finalise (ruled intended). */
+  role?: string;
 }
 
 export type Prepared = { ok: true; mapped: Mapped; money: DocumentMoney; tenant: Tenant; brand: Brand; key: string; mappedJson: string } | { ok: false; missing: string[] };
@@ -128,6 +123,48 @@ export interface Finalised {
   already: boolean;
 }
 
+const CHANGED = 'This document changed after you read it. Read it again before you confirm.';
+const BUSY = 'Someone else is finalising this document right now. Wait a moment, then try again.';
+
+/** The page count of the preview the owner read (pages.json beside the preview images), or 0 when there is none. */
+async function previewPageCount(storage: DocumentStorage, folder: string, key: string): Promise<number> {
+  const manifest = await storage.get(`${previewFolder(folder, key)}/pages.json`).catch(() => null);
+  if (!manifest) return 0;
+  try {
+    const n = Number((JSON.parse(manifest.toString('utf8')) as { pages?: unknown }).pages);
+    return Number.isInteger(n) && n > 0 && n <= 200 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** The checks that need the facts, the same in both phases: wording version, missing facts, content key, approval. */
+async function checkLoaded(db: Db, actor: Actor, a: FinaliseArgs, loaded: Loaded, secret: string): Promise<Extract<Prepared, { ok: true }>> {
+  if (confirmationFor(loaded.business?.wording).version !== a.confirmationVersion) throw new DocumentError('changed', 'The confirmation wording has changed. Read it again and tick the box.');
+  const p = prepareLoaded(loaded, secret);
+  if (!p.ok) throw new DocumentError('missing', 'Some details this document needs are missing.', p.missing);
+  if (p.key !== a.key) throw new DocumentError('changed', CHANGED);
+  // A quotation is issued only with wording that was approved on the server, with its audit row (Task 4c).
+  if (loaded.head.type === 'quotation') {
+    const scope = loaded.facts?.quoteForm.scope;
+    const hash = scope?.copy?.approvalHash;
+    if (!scope || !isApproved(scope) || !hash || !(await auditedApprovalWith(db, actor.tenantId, loaded.head.jobId, hash))) {
+      throw new DocumentError('missing', 'The wording has not been approved.', ['The scope wording has not been approved. Open the quote, check the wording and approve it.']);
+    }
+  }
+  return p;
+}
+
+/**
+ * Finalise in two phases, so the document row is locked for milliseconds, not for a render:
+ *  A. no lock: load and check everything, verify a read token for every page of the preview the owner read (its page
+ *     count comes from the stored preview, so junk tokens never start a render), render, and upload the files to their
+ *     place for this version (deterministic paths: a retry reuses them; nothing points at them until commit);
+ *  B. one short transaction with lock_timeout 5s and idle_in_transaction_session_timeout 30s: lock the document row,
+ *     re-check it is still a draft and the version and content are unchanged, write the rows and the audit, commit.
+ * On a refusal after the upload the files are deleted again, unless the version has been finalised (by a concurrent
+ * request, whose files they then are).
+ */
 export async function finaliseWith(
   db: Db,
   storage: DocumentStorage,
@@ -138,51 +175,87 @@ export async function finaliseWith(
 ): Promise<Finalised> {
   if (a.confirmed !== true) throw new DocumentError('unconfirmed', 'Tick the box to confirm you have checked the document.');
   const nested = o.nested === true;
-  await db.query(nested ? 'savepoint finalise_tx' : 'begin');
-  try {
-    if (!nested) {
-      await db.query('reset role');
-      await db.query(`select set_config('request.jwt.claims', '', true)`);
+  if (!nested) {
+    // A leaked claim on this service connection would make the final-version guard refuse; clear it for the session.
+    await db.query('reset role');
+    await db.query(`select set_config('request.jwt.claims', '', false)`);
+  }
+
+  // ---- phase A: no lock
+  const head0 = await loadHeadWith(db, actor.tenantId, a.documentId, false);
+  if (!head0) throw new DocumentError('not_found', 'That document could not be found.');
+  const newest0 = head0.versions[0];
+  if (head0.status !== 'draft') {
+    if (head0.currentVersionId === a.versionId && newest0?.id === a.versionId && newest0.finalisedAt && newest0.pdfPath) {
+      return { documentId: head0.id, versionId: newest0.id, pdfPath: newest0.pdfPath, pages: Number((newest0.finalContent as { pages?: unknown } | null)?.pages) || 0, already: true };
     }
-    await db.query(`set local statement_timeout = '120s'`);
-    const head = await loadHeadWith(db, actor.tenantId, a.documentId, true);
+    throw new DocumentError('locked', 'This document has already been finalised.');
+  }
+  if (!newest0 || newest0.id !== a.versionId || newest0.finalisedAt) throw new DocumentError('changed', CHANGED);
+  const folder = versionFolder(actor.tenantId, head0, newest0.id);
+  const pages = await previewPageCount(storage, folder, a.key);
+  if (pages === 0) throw new DocumentError('changed', CHANGED);
+  const scope = { tenantId: actor.tenantId, userId: actor.userId, documentId: head0.id, versionId: newest0.id, key: a.key };
+  if (!allPagesRead(deps.secret, scope, pages, a.tokens)) throw new DocumentError('unread', `Open all ${pages} pages before you confirm.`);
+
+  const loaded0 = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head: head0 });
+  if (!loaded0) throw new DocumentError('not_found', 'That document could not be found.');
+  const p0 = await checkLoaded(db, actor, a, loaded0, deps.secret);
+
+  const out = await deps.render(p0.mapped, p0.tenant, p0.brand);
+  if (out.pngPages.length !== pages) throw new DocumentError('changed', CHANGED);
+  const pdfPath = `${folder}/document.pdf`;
+  const staged = [pdfPath, ...out.pngPages.map((_, i) => `${folder}/${pageFile(i + 1)}`)];
+  const cleanUp = async () => {
+    const v = await db.query(`select finalised_at from public.document_versions where id = $1 and tenant_id = $2`, [newest0.id, actor.tenantId]).catch(() => ({ rows: [] as { finalised_at: unknown }[] }));
+    if (v.rows[0] && v.rows[0].finalised_at) return; // finalised by someone else: these are their files now
+    await storage.deleteStorageObjects(staged).catch(() => undefined);
+  };
+  try {
+    await storage.put(pdfPath, out.pdf, 'application/pdf', { overwrite: true });
+    for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(staged[i + 1], out.pngPages[i], 'image/png', { overwrite: true });
+  } catch (e) {
+    await cleanUp();
+    throw e;
+  }
+
+  // ---- phase B: one short locked transaction
+  await db.query(nested ? 'savepoint finalise_tx' : 'begin');
+  let committed = false;
+  try {
+    await db.query(`set local lock_timeout = '5s'`);
+    await db.query(`set local idle_in_transaction_session_timeout = '30s'`);
+    await db.query(`set local statement_timeout = '30s'`);
+    let head: DocumentHead | null;
+    try {
+      head = await loadHeadWith(db, actor.tenantId, a.documentId, true);
+    } catch (e) {
+      if ((e as { code?: string }).code === '55P03') throw new DocumentError('busy', BUSY);
+      throw e;
+    }
     if (!head) throw new DocumentError('not_found', 'That document could not be found.');
     const newest = head.versions[0];
-    if (head.status === 'final' || head.status === 'sent') {
+    if (head.status !== 'draft') {
       if (head.currentVersionId === a.versionId && newest?.id === a.versionId && newest.finalisedAt && newest.pdfPath) {
         await db.query(nested ? 'release savepoint finalise_tx' : 'commit');
-        const pages = Number((newest.finalContent as { pages?: unknown } | null)?.pages) || 0;
-        return { documentId: head.id, versionId: newest.id, pdfPath: newest.pdfPath, pages, already: true };
+        committed = true;
+        return { documentId: head.id, versionId: newest.id, pdfPath: newest.pdfPath, pages: Number((newest.finalContent as { pages?: unknown } | null)?.pages) || 0, already: true };
       }
       throw new DocumentError('locked', 'This document has already been finalised.');
     }
-    if (head.status !== 'draft') throw new DocumentError('locked', 'This document cannot be finalised.');
-    if (!newest || newest.id !== a.versionId || newest.finalisedAt) throw new DocumentError('changed', 'This document changed after you opened it. Read it again before you confirm.');
-
+    if (!newest || newest.id !== a.versionId || newest.finalisedAt) throw new DocumentError('changed', CHANGED);
     const loaded = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head });
     if (!loaded) throw new DocumentError('not_found', 'That document could not be found.');
-    if (confirmationFor(loaded.business?.wording).version !== a.confirmationVersion) throw new DocumentError('changed', 'The confirmation wording has changed. Read it again and tick the box.');
-    const p = prepareLoaded(loaded, deps.secret);
-    if (!p.ok) throw new DocumentError('missing', 'Some details this document needs are missing.', p.missing);
-    if (p.key !== a.key) throw new DocumentError('changed', 'This document changed after you read it. Read it again before you confirm.');
+    const p = await checkLoaded(db, actor, a, loaded, deps.secret);
 
-    // A quotation is issued only with wording that was approved on the server, with its audit row (Task 4c).
-    if (head.type === 'quotation') {
-      const scope = loaded.facts?.quoteForm.scope;
-      const hash = scope?.copy?.approvalHash;
-      if (!scope || !isApproved(scope) || !hash || !(await auditedApprovalWith(db, actor.tenantId, head.jobId, hash))) {
-        throw new DocumentError('missing', 'The wording has not been approved.', ['The scope wording has not been approved. Open the quote, check the wording and approve it.']);
-      }
-    }
-
-    const out = await deps.render(p.mapped, p.tenant, p.brand);
-    if (!allPagesRead(deps.secret, { tenantId: actor.tenantId, userId: actor.userId, documentId: head.id, versionId: newest.id, key: p.key }, out.pngPages.length, a.tokens)) {
-      throw new DocumentError('unread', `Open all ${out.pngPages.length} pages before you confirm.`);
-    }
-
-    const folder = versionFolder(actor.tenantId, head, newest.id);
-    const pdfPath = `${folder}/document.pdf`;
-    const finalContent = { schema: 1, template: TEMPLATE_VERSION, key: p.key, pages: out.pngPages.length, content: redactMapped(p.mapped) };
+    const finalContent = {
+      schema: 1,
+      template: TEMPLATE_VERSION,
+      key: p.key,
+      pages: out.pngPages.length,
+      business: { name: p.tenant.name, ownerName: p.tenant.ownerName },
+      content: redactMapped(p.mapped),
+    };
     await db.query(
       `update public.document_versions set money = $1::jsonb, final_content = $2::jsonb, pdf_path = $3, bank_account_id = coalesce($4, bank_account_id), finalised_at = now()
         where id = $5 and tenant_id = $6`,
@@ -195,17 +268,18 @@ export async function finaliseWith(
     if (head.type === 'quotation') await db.query(`update public.jobs set status = 'quoted' where id = $1 and tenant_id = $2 and status = 'open'`, [head.jobId, actor.tenantId]);
 
     const ids = { document: compactId(head.id), version: compactId(newest.id) };
-    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.confirm', entity: 'document', entityId: ids.document, meta: { version: ids.version, pages: out.pngPages.length, wording: a.confirmationVersion } });
+    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.confirm', entity: 'document', entityId: ids.document, meta: { version: ids.version, pages: out.pngPages.length, wording: a.confirmationVersion, role: actor.role ?? 'unknown' } });
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.finalise', entity: 'document', entityId: ids.document, meta: { version: ids.version, type: head.type, n: newest.version } });
 
-    // Rows first, then files; a failed upload rolls the rows back. Paths are per version, so a retry overwrites its own leftovers only.
-    await storage.put(pdfPath, out.pdf, 'application/pdf', { overwrite: true });
-    for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(`${folder}/${pageFile(i + 1)}`, out.pngPages[i], 'image/png', { overwrite: true });
-
     await db.query(nested ? 'release savepoint finalise_tx' : 'commit');
+    committed = true;
     return { documentId: head.id, versionId: newest.id, pdfPath, pages: out.pngPages.length, already: false };
   } catch (e) {
-    await db.query(nested ? 'rollback to savepoint finalise_tx' : 'rollback').catch(() => undefined);
+    if (!committed) {
+      await db.query(nested ? 'rollback to savepoint finalise_tx' : 'rollback').catch(() => undefined);
+      await cleanUp();
+    }
+    if ((e as { code?: string }).code === '55P03') throw new DocumentError('busy', BUSY);
     throw e;
   }
 }
@@ -233,6 +307,12 @@ export async function reviseWith(db: Db, actor: Actor, documentId: string, o: { 
       await db.query('reset role');
       await db.query(`select set_config('request.jwt.claims', '', true)`);
     }
+    // The job row first, then the document: the same order as saveFollowOnWith, so a revise and a new invoice for
+    // the same job queue up instead of racing past the "no other documents" check.
+    await db.query(
+      `select j.id from public.jobs j where j.tenant_id = $2 and j.id = (select d.job_id from public.documents d where d.id = $1 and d.tenant_id = $2) for update of j`,
+      [documentId, actor.tenantId],
+    );
     const head = await loadHeadWith(db, actor.tenantId, documentId, true);
     if (!head) throw new DocumentError('not_found', 'That document could not be found.');
     if (head.type !== 'quotation') throw new DocumentError('not_allowed', 'Only a quotation can be changed after it is finalised. Invoices and receipts follow the quote and the payments.');

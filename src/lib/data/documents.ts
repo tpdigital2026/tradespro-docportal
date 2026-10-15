@@ -12,10 +12,11 @@ import type { CoveringEmailFacts, EmailDocKind } from '../covering-email';
 import { confirmationFor, type Confirmation } from '../documents/confirmation';
 import { loadHeadWith, loadWith, type DocumentHead, type Loaded } from '../documents/facts-sql';
 import { DocumentError, finaliseWith, pageFile, prepareLoaded, previewWith, retryOnDeadlock, reviseWith, versionFolder, previewFolder, type FinaliseArgs, type Finalised, type RenderFn } from '../documents/finalise';
-import { mapDocument, type BusinessFacts, type DocumentFacts, type Mapped } from '../documents/map';
+import { mapDocument, redactMapped, type BusinessFacts, type DocumentFacts, type Mapped } from '../documents/map';
 import { allPagesRead, proofSecret, readToken } from '../documents/read-proof';
 import { demoRenderBrand } from '../documents/render-brand';
 import { summarise, type SummarySection } from '../documents/summary';
+import { readIssued } from '../documents/issued';
 import { buildJobBilling, followOnFor, instalmentHeading, type RawDocument } from '../job-billing';
 import { docTypeFromDb, isInvoiceType, type DocStatus, type DocType } from '../job-stage';
 import { normaliseQuote, type QuoteFormValues } from '../validation/quote';
@@ -24,7 +25,8 @@ import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
 import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
 import { withServiceConnection } from './customer-admin';
-import { ownerClient, type DataClient } from './customers';
+import { ownerClient } from './customers';
+import type { Db } from '../../security/login-guard';
 import { demoDraftRows, demoRemoveDraft, demoRestoreDraft, isKnownId, isRealId } from './quotes';
 
 export { DocumentError } from '../documents/finalise';
@@ -91,30 +93,64 @@ export function groupLibrary(items: LibraryItem[], f: LibraryFilter = {}): Libra
   return [...groups.values()];
 }
 
-export async function listLibraryWith(client: DataClient): Promise<LibraryItem[]> {
-  const d = await client.from('documents').select('id, job_id, type, number, status, doc_date, total_pence, created_at').order('created_at', { ascending: false }).limit(500);
-  if (d.error) throw new DocumentError('failed', 'Could not load your documents');
-  const rows = (d.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string; doc_date: string; total_pence: number | null; created_at: string }[];
-  if (rows.length === 0) return [];
-  const jobIds = [...new Set(rows.map((r) => r.job_id))];
-  const j = await client.from('jobs').select('id, reference, customer_id').in('id', jobIds);
-  if (j.error) throw new DocumentError('failed', 'Could not load your documents');
-  const jobs = new Map(((j.data ?? []) as { id: string; reference: string; customer_id: string }[]).map((x) => [x.id, x]));
-  const c = await client.from('customers').select('id, name').in('id', [...new Set([...jobs.values()].map((x) => x.customer_id))]);
-  if (c.error) throw new DocumentError('failed', 'Could not load your documents');
-  const names = new Map(((c.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name]));
-  return rows.flatMap((r) => {
-    const type = docTypeFromDb(r.type);
-    const job = jobs.get(r.job_id);
-    if (!type || !job) return [];
-    return [{ id: r.id, type, number: r.number, status: statusOf(r.status), date: String(r.doc_date).slice(0, 10), customerName: names.get(job.customer_id) ?? 'Customer', jobId: r.job_id, quoteNumber: job.reference, totalPence: r.total_pence === null ? null : Number(r.total_pence), createdAt: String(r.created_at) }];
-  });
+export const LIBRARY_LIMIT = 500;
+
+/** Database document types for each library filter (a whitelist: nothing from the browser reaches the SQL as text). */
+const KIND_DB: Record<LibraryKind, string[]> = {
+  quotation: ['quotation'],
+  invoice: ['deposit_invoice', 'balance_invoice', 'invoice_full', 'invoice_stage'],
+  receipt: ['receipt'],
+  guarantee: ['guarantee'],
+  survey: ['survey_report'],
+};
+
+export interface LibraryPage {
+  items: LibraryItem[];
+  /** More documents match than were returned (the newest LIBRARY_LIMIT are shown). */
+  truncated: boolean;
 }
 
-export async function listLibrary(): Promise<LibraryItem[]> {
-  await requireSession();
-  if (isDemo()) return demoLibrary();
-  return listLibraryWith(await ownerClient());
+/**
+ * The library, filtered and searched in the database so older documents are findable however many there are. On a
+ * service connection, so the tenant filter is explicit. Search is a plain substring test with position() on lower-cased
+ * text (no LIKE patterns, so nothing the owner types is ever a wildcard).
+ */
+export async function listLibrarySql(db: Db, tenantId: string, f: LibraryFilter & { limit?: number } = {}): Promise<LibraryPage> {
+  const limit = Math.min(Math.max(f.limit ?? LIBRARY_LIMIT, 1), LIBRARY_LIMIT);
+  const types = f.kind ? KIND_DB[f.kind] : null;
+  const status = f.status === 'draft' || f.status === 'final' ? f.status : null;
+  const q = (f.q ?? '').trim().toLowerCase().slice(0, 60);
+  const r = await db.query(
+    `select d.id, d.job_id, d.type::text as type, d.number, d.status::text as status, d.doc_date, d.total_pence, d.created_at, j.reference, c.name as customer
+       from public.documents d
+       join public.jobs j on j.id = d.job_id and j.tenant_id = d.tenant_id
+       join public.customers c on c.id = j.customer_id and c.tenant_id = j.tenant_id
+      where d.tenant_id = $1
+        and ($2::text[] is null or d.type::text = any ($2::text[]))
+        and ($3::text is null or ($3 = 'draft' and d.status = 'draft') or ($3 = 'final' and d.status <> 'draft'))
+        and ($4 = '' or position($4 in lower(j.reference)) > 0 or position($4 in lower(d.number)) > 0 or position($4 in lower(c.name)) > 0)
+      order by d.created_at desc, d.id
+      limit $5`,
+    [tenantId, types, status, q, limit + 1],
+  );
+  const rows = r.rows.slice(0, limit);
+  const items = rows.flatMap((x) => {
+    const type = docTypeFromDb(x.type);
+    if (!type) return [];
+    const date = x.doc_date instanceof Date ? x.doc_date.toISOString().slice(0, 10) : String(x.doc_date).slice(0, 10);
+    return [{ id: String(x.id), type, number: String(x.number), status: statusOf(x.status), date, customerName: String(x.customer), jobId: String(x.job_id), quoteNumber: String(x.reference), totalPence: x.total_pence === null ? null : Number(x.total_pence), createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at) }];
+  });
+  return { items, truncated: r.rows.length > limit };
+}
+
+export async function listLibrary(f: LibraryFilter & { limit?: number } = {}): Promise<LibraryPage> {
+  const s = await requireSession();
+  if (isDemo()) {
+    const all = groupLibrary(demoLibrary(), f).flatMap((g) => g.items).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const limit = Math.min(f.limit ?? LIBRARY_LIMIT, LIBRARY_LIMIT);
+    return { items: all.slice(0, limit), truncated: all.length > limit };
+  }
+  return withServiceConnection((db) => listLibrarySql(db, s.tenantId, f));
 }
 
 // ---------------------------------------------------------------- one document
@@ -183,11 +219,12 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
   const summary = f && b ? summarise(f, b, l.bankLabel) : [];
   const vat = b?.vatRateBp ?? 2000;
   const copy = h.type === 'quotation' ? f?.quoteForm.scope.copy : null;
-  const money = shown?.finalisedAt ? (l.head.versions.find((v) => v.id === shown.id) as { finalContent?: unknown } | undefined) : undefined;
-  const pages = Number((money?.finalContent as { pages?: unknown } | null)?.pages) || 0;
-  let email: CoveringEmailFacts | null = null;
+  const pages = shown?.finalisedAt ? Number((shown.finalContent as { pages?: unknown } | null)?.pages) || 0 : 0;
+  // A final document is described from what was stored when it was finalised, never recomputed from today's data.
+  const issued = status === 'final' && shown?.finalisedAt ? readIssued(shown.finalContent, shown.money, h.number) : null;
+  let email: CoveringEmailFacts | null = issued?.email ?? null;
   const kind = emailKind(h.type);
-  if (status === 'final' && kind && f && b) {
+  if (!issued && status === 'final' && kind && f && b) {
     const mapped = mapDocument(f, b);
     let amount: number | null = null;
     let partLabel: string | undefined;
@@ -223,12 +260,12 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
     quoteNumber: h.quoteNumber,
     jobId: h.jobId,
     customerId: h.customerId,
-    customerName: f?.customer.name ?? 'Customer',
+    customerName: issued?.customerName || f?.customer.name || 'Customer',
     versionId: shown?.id ?? null,
     version: shown?.version ?? 1,
     finalisedAt: shown?.finalisedAt ?? null,
     pages,
-    summary,
+    summary: issued ? issued.summary : summary,
     earlier,
     editHref: h.type === 'quotation' && status === 'draft' ? `/documents/new?type=quotation&draft=${encodeURIComponent(h.jobId)}${f ? `&step=${editStepFor(f.quoteForm, vat)}` : ''}` : null,
     revise: h.type === 'quotation' && status === 'final' ? (opts.otherDocuments > 0 ? { allowed: false, reason: 'This quote already has invoices or receipts made from it, so it cannot be changed now.' } : { allowed: true, reason: null }) : null,
@@ -243,6 +280,8 @@ export async function getDocumentPage(id: string): Promise<DocumentPage | null> 
   const s = await requireSession();
   if (!isKnownId(id)) return null;
   if (isDemo()) {
+    const first = demoLoad(id);
+    if (first && first.head.status !== 'draft') await demoEnsureFinalFiles(first.head);
     const l = demoLoad(id);
     return l ? pageFrom(l, { otherDocuments: demoOtherDocs(l.head) }) : null;
   }
@@ -335,7 +374,7 @@ export async function finaliseDocument(id: string, body: FinaliseBody): Promise<
   if (isDemo()) return demoFinalise(s, args, secret);
   if (!isRealId(id)) throw new DocumentError('not_found', 'That document could not be found.');
   const r = await render();
-  return retryOnDeadlock(() => withServiceConnection((db) => finaliseWith(db, getStorage(), { tenantId: s.tenantId, userId: s.userId }, args, { render: r, secret })));
+  return retryOnDeadlock(() => withServiceConnection((db) => finaliseWith(db, getStorage(), { tenantId: s.tenantId, userId: s.userId, role: s.role }, args, { render: r, secret })));
 }
 
 // ---------------------------------------------------------------- download
@@ -430,6 +469,9 @@ interface DemoFinal {
   finalisedAt: string;
   pdfPath: string;
   pages: number;
+  /** What was stored at finalise, as in real mode. */
+  finalContent?: unknown;
+  money?: unknown;
 }
 interface DemoDocState {
   /** Issued versions, oldest first. */
@@ -516,8 +558,8 @@ function demoLoad(id: string): Loaded | null {
   const finals = st.finals.length === 0 && status !== 'draft' ? [{ versionId: `demo-ver-${id}-v1`, version: 1, finalisedAt: `${r.date}T09:00:00.000Z`, pdfPath: `demo-tenant/${r.customerId}/${r.jobId}/demo-ver-${id}-v1/document.pdf`, pages: 0 }] : st.finals;
   if (st.finals.length === 0 && status !== 'draft') st.finals = finals;
   const versions = [
-    ...(status === 'draft' ? [{ id: `demo-ver-${id}-v${st.draftVersion}`, version: st.draftVersion, finalisedAt: null, pdfPath: null, input: {}, finalContent: null, bankAccountId: null }] : []),
-    ...[...finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: {}, finalContent: { pages: f.pages }, bankAccountId: null })),
+    ...(status === 'draft' ? [{ id: `demo-ver-${id}-v${st.draftVersion}`, version: st.draftVersion, finalisedAt: null, pdfPath: null, input: {}, finalContent: null, money: null, bankAccountId: null }] : []),
+    ...[...finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: {}, finalContent: f.finalContent ?? { pages: f.pages }, money: f.money ?? null, bankAccountId: null })),
   ];
   const head: DocumentHead = {
     id,
@@ -598,6 +640,8 @@ async function demoEnsureFinalFiles(head: DocumentHead): Promise<void> {
   await storage.put(last.pdfPath, out.pdf, 'application/pdf', { overwrite: true });
   for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(`${folder}/${pageFile(i + 1)}`, out.pngPages[i], 'image/png', { overwrite: true });
   last.pages = out.pngPages.length;
+  last.finalContent = { pages: out.pngPages.length, business: { name: demoBusiness.tenant.name, ownerName: demoBusiness.tenant.ownerName }, content: redactMapped(m.mapped) };
+  last.money = m.money;
 }
 
 async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promise<Finalised> {
@@ -616,16 +660,20 @@ async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promis
   const p = prepareLoaded(l, secret);
   if (!p.ok) throw new DocumentError('missing', 'Some details this document needs are missing.', p.missing);
   if (p.key !== a.key) throw new DocumentError('changed', 'This document changed after you read it. Read it again before you confirm.');
-  const out = await (await render())(p.mapped, p.tenant, p.brand);
-  if (!allPagesRead(secret, { tenantId: 'demo-tenant', userId: s.userId, documentId: a.documentId, versionId: newest.id, key: p.key }, out.pngPages.length, a.tokens)) {
-    throw new DocumentError('unread', `Open all ${out.pngPages.length} pages before you confirm.`);
-  }
   const folder = versionFolder('demo-tenant', l.head, newest.id);
+  // As in real mode: the read tokens are checked against the preview that was read, before anything is drawn.
+  const manifest = await getStorage().get(`${previewFolder(folder, p.key)}/pages.json`);
+  const pages = manifest ? Number(JSON.parse(manifest.toString('utf8')).pages) || 0 : 0;
+  if (!pages) throw new DocumentError('changed', 'This document changed after you read it. Read it again before you confirm.');
+  if (!allPagesRead(secret, { tenantId: 'demo-tenant', userId: s.userId, documentId: a.documentId, versionId: newest.id, key: p.key }, pages, a.tokens)) {
+    throw new DocumentError('unread', `Open all ${pages} pages before you confirm.`);
+  }
+  const out = await (await render())(p.mapped, p.tenant, p.brand);
   const pdfPath = `${folder}/document.pdf`;
   const storage: DocumentStorage = getStorage();
   await storage.put(pdfPath, out.pdf, 'application/pdf', { overwrite: true });
   for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(`${folder}/${pageFile(i + 1)}`, out.pngPages[i], 'image/png', { overwrite: true });
-  st.finals.push({ versionId: newest.id, version: newest.version, finalisedAt: new Date().toISOString(), pdfPath, pages: out.pngPages.length });
+  st.finals.push({ versionId: newest.id, version: newest.version, finalisedAt: new Date().toISOString(), pdfPath, pages: out.pngPages.length, finalContent: { pages: out.pngPages.length, business: { name: p.tenant.name, ownerName: p.tenant.ownerName }, content: redactMapped(p.mapped) }, money: p.money });
   if (l.head.type === 'quotation') {
     demoIssueQuote({ jobId: l.head.jobId, form: l.facts!.quoteForm, documentId: a.documentId });
     demoRemoveDraft(l.head.jobId);

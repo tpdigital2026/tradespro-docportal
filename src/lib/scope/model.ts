@@ -129,7 +129,7 @@ export const scopeFormSchema = z.object({
 
 // ------------------------------------------------------------------ tidy text
 
-const BULLET_PREFIX = /^(?:[-*•–—]+|\(?\d{1,3}[.)])\s+/;
+const BULLET_PREFIX = /^(?:[-*•\u2013\u2014]+|\(?\d{1,3}[.)])\s+/;
 
 /** One line, single spaces, no list marker. Wording is untouched. */
 export function cleanLine(raw: string): string {

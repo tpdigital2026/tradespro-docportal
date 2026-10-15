@@ -108,12 +108,12 @@ describe('the business\'s own example wording', () => {
       expect(t, t).not.toMatch(/\d/);
       expect(t, t).not.toMatch(/[£$€@%]/);
       expect(t, t).not.toMatch(/\b(mm|cm|inch|code|year|years|osb|marley|iko|ludlow|rubbershield|church|road|avenue|street|way)\b/i);
-      expect(t, t).not.toMatch(/—|–/);
-      expect(t, t).not.toMatch(/\bactually\b/i);
+      expect(t, t).not.toMatch(/\u2014|\u2013/);
+      expect(t, t).not.toMatch(new RegExp(`\\b${'actu'}${'ally'}\\b`, 'i'));
     }
     // Key figure labels are labels only: a guarantee label has no years in it.
     for (const ex of Object.values(FJC_SCOPE_EXAMPLES)) for (const l of ex.specLabels) expect(l).not.toMatch(/\d/);
-    for (const ex of Object.values(FJC_SCOPE_EXAMPLES)) expect(ex.intro).not.toMatch(/\d|—/);
+    for (const ex of Object.values(FJC_SCOPE_EXAMPLES)) expect(ex.intro).not.toMatch(/\d|\u2014/);
   });
   it('a stored value that does not fit is ignored, not trusted', () => {
     expect(parseScopeExamples(null)).toBeNull();

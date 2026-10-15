@@ -75,7 +75,7 @@ export function Preview({
     [documentId, contentKey],
   );
 
-  // A page counts once it has actually come into view (at least a third of it on screen).
+  // A page counts once it has come into view (at least a third of it on screen).
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') {
       pages.forEach((_, i) => void load(i));

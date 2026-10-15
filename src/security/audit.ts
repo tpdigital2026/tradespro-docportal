@@ -77,7 +77,7 @@ export function assertNoPersonalData(meta: unknown): string {
   }
   if (json === undefined) throw new Error('Audit data could not be serialised');
   if (json.length > MAX_JSON_LENGTH) throw new Error(`Audit data is too large (over ${MAX_JSON_LENGTH} characters)`);
-  // Check what will actually be stored: the parsed JSON, so toJSON tricks cannot hide anything.
+  // Check exactly what will be stored: the parsed JSON, so toJSON tricks cannot hide anything.
   walk(JSON.parse(json), 0);
   return json;
 }

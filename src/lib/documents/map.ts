@@ -58,6 +58,11 @@ export interface DocumentFacts {
   followOn: { instalment: number; paymentId: string | null } | null;
   /** Decrypted only at render time, never stored. null when the business has no bank account on record. */
   bank: BankDetails | null;
+  /**
+   * For invoices and receipts: what the issued quote version stored when it was finalised (its VAT rate and total).
+   * Follow-ons are worked out at that rate, never today's, and must agree with that total.
+   */
+  quoteIssued?: { vatRateBp: number; grossPence: number } | null;
 }
 
 export type Mapped =
@@ -196,14 +201,18 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
   const missing: string[] = [];
   const name = DOC_TYPE_NAMES[f.type].toLowerCase();
   if (!f.followOn) return { ok: false, missing: [`This ${name} does not say which part of the job it is for.`] };
-  const m = quoteMoney(f, b.vatRateBp);
+  const rate = f.quoteIssued?.vatRateBp ?? b.vatRateBp;
+  const m = quoteMoney(f, rate);
+  if (m && f.quoteIssued && m.totals.grossPence !== f.quoteIssued.grossPence) {
+    return { ok: false, missing: ['The quote this comes from no longer adds up to the total it was issued with. Contact TradesPro Digital.'] };
+  }
   const scope = toQuotationScope(f.quoteForm.scope);
   if (!m) missing.push('The quote this comes from has no price.');
   if (!scope.ok) missing.push('The quote this comes from has no approved scope wording.');
   if (!f.plan) missing.push('The quote this comes from has no payment plan.');
   if (!m || !scope.ok || !f.plan) return { ok: false, missing };
 
-  const billing = buildJobBilling({ quoteNumber: f.quoteNumber, plan: f.plan, form: f.quoteForm, vatRateBp: b.vatRateBp, documents: f.documents, payments: f.payments });
+  const billing = buildJobBilling({ quoteNumber: f.quoteNumber, plan: f.plan, form: f.quoteForm, vatRateBp: rate, documents: f.documents, payments: f.payments });
   if (!billing.ok) return { ok: false, missing: [billing.message] };
   const bl = billing.billing;
   const r = followOnFor(bl, f.type, f.followOn.instalment, f.followOn.paymentId);
@@ -260,7 +269,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
     jobTitle: scope.value.coverTitle,
     scope: scope.value.scope,
     jobDescription: 'the works as set out above',
-    vatRateBp: b.vatRateBp,
+    vatRateBp: rate,
     quoteLines: m.lines,
     guarantee: guaranteeOf(f, b),
     bank: f.bank as BankDetails,

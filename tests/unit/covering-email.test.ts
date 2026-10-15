@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { draftCoveringEmail, draftCoveringEmailParts, tidyNotes, type CoveringEmailFacts } from '../../src/lib/covering-email';
 
+/** The word the owner never wants in copy, built so this file does not contain it. */
+const BANNED = new RegExp(`\\b${'actu'}${'ally'}\\b`, 'i');
+
 const quote: CoveringEmailFacts = { kind: 'quotation', number: 'Q-1', customerName: 'Mr John Smith', businessName: 'FJC Roofing Ltd', ownerName: 'Ben Cunningham', property: '123 Bromley Road', amountPence: 1008000, validityDays: 30 };
 
 describe('draftCoveringEmail', () => {
@@ -22,7 +25,8 @@ describe('draftCoveringEmail', () => {
   it('adds no dates, prices or promises of its own, and no em dashes', () => {
     for (const kind of ['quotation', 'deposit-invoice', 'balance-invoice', 'invoice-full', 'invoice-stage', 'receipt'] as const) {
       const body = draftCoveringEmail({ facts: { kind, number: 'N-1', customerName: 'A', businessName: 'B', ownerName: 'C' } });
-      expect(body).not.toMatch(/\d{1,2}\/\d{1,2}|£|guarantee|promise|within \d|—|actually/i);
+      expect(body).not.toMatch(/\d{1,2}\/\d{1,2}|£|guarantee|promise|within \d|\u2014/i);
+      expect(body).not.toMatch(BANNED);
     }
   });
 

@@ -154,3 +154,33 @@ describe('summary', () => {
     expect(flat.find((r) => r.label === 'Payment plan')?.value).toMatch(/30% deposit of £3,024.00/);
   });
 });
+
+describe('issued facts and stored money', () => {
+  it('follow-ons use the VAT rate the quote was issued at, and must agree with its stored total', () => {
+    const base = factsFor(0, { type: 'deposit-invoice', number: 'INV-DEMO-3001-D', followOn: { instalment: 1, paymentId: null } });
+    // The business VAT setting changed to 0% after the quote was issued at 20%.
+    const r = mapDocument({ ...base, quoteIssued: { vatRateBp: 2000, grossPence: 1008000 } }, { ...biz, vatRateBp: 0 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.money.grossPence).toBe(302400);
+    const off = mapDocument({ ...base, quoteIssued: { vatRateBp: 2000, grossPence: 999 } }, biz);
+    expect(off.ok).toBe(false);
+  });
+
+  it('a final document is described from what was stored, never recomputed', async () => {
+    const { readIssued } = await import('../../src/lib/documents/issued');
+    const r = mapDocument(factsFor(0), biz);
+    if (!r.ok) throw new Error('expected ok');
+    const fc = { pages: 3, business: { name: 'FJC Roofing Ltd', ownerName: 'Ben Cunningham' }, content: redactMapped(r.mapped) };
+    const issued = readIssued(fc, r.money, 'DEMO-3001');
+    expect(issued?.email).toMatchObject({ kind: 'quotation', amountPence: 1008000, customerName: 'Mr John Smith', businessName: 'FJC Roofing Ltd', validityDays: 30 });
+    const rows = issued!.summary.flatMap((s) => s.rows);
+    expect(rows.find((x) => x.label === 'Total')?.value).toBe('£10,080.00');
+    expect(rows.find((x) => x.label === 'Deposit (30%)')?.value).toBe('£3,024.00');
+    expect(readIssued({ pages: 1 }, null, 'X')).toBeNull();
+    const inv = mapDocument(factsFor(2, { type: 'invoice-stage', number: 'INV-DEMO-3003-S3', followOn: { instalment: 3, paymentId: null } }), biz);
+    if (!inv.ok) throw new Error('expected ok');
+    const i2 = readIssued({ business: { name: 'B', ownerName: 'C' }, content: redactMapped(inv.mapped) }, inv.money, 'INV-DEMO-3003-S3');
+    expect(i2?.email).toMatchObject({ partLabel: 'Stage 3 of 5: Roof structure complete', amountPence: 750000, quoteRef: 'DEMO-3003' });
+    expect(JSON.stringify(i2)).not.toMatch(/00000000|00-00-00/);
+  });
+});

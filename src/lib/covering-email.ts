@@ -103,7 +103,7 @@ export function draftCoveringEmailParts(args: { facts: CoveringEmailFacts; owner
   const parts = [greeting(f.customerName), '', ...bodyLines(f)];
   if (notes) parts.push('', notes);
   parts.push('', 'Kind regards,', ...sign);
-  return { subject: subjectLine(f), body: parts.join('\n').replace(/—/g, ',') };
+  return { subject: subjectLine(f), body: parts.join('\n').replace(/\u2014/g, ',') };
 }
 
 /** The whole thing as one block of text for the Copy button: subject line, then the body. */

@@ -43,7 +43,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   }
   let recent: LibraryItem[] = [];
   try {
-    recent = (await listLibrary()).slice(0, 6);
+    recent = (await listLibrary({ limit: 6 })).items;
   } catch {
     recent = [];
   }

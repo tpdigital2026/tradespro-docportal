@@ -4,7 +4,7 @@ import { ButtonLink } from '../../../components/Button';
 import { DocTypeIcon } from '../../../components/DocTypeIcon';
 import { EmptyState } from '../../../components/EmptyState';
 import { PageHeader } from '../../../components/PageHeader';
-import { groupLibrary, LIBRARY_KINDS, listLibrary, type LibraryItem, type LibraryKind } from '../../../lib/data/documents';
+import { groupLibrary, LIBRARY_KINDS, LIBRARY_LIMIT, listLibrary, type LibraryItem, type LibraryKind } from '../../../lib/data/documents';
 import { DOC_TYPE_NAMES, jobHref } from '../../../lib/job-stage';
 import { formatGBP } from '../../../lib/money';
 import { requireSession } from '../../../lib/session';
@@ -57,17 +57,25 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const status = statusRaw === 'draft' || statusRaw === 'final' ? statusRaw : null;
   const q = (first(sp.q) ?? '').trim().slice(0, 60);
 
+  const filtering = kind !== null || status !== null || q !== '';
   let items: LibraryItem[] = [];
+  let truncated = false;
+  let anyAtAll = true;
+  let drafts: LibraryItem[] = [];
   let failed = false;
   try {
-    items = await listLibrary();
+    // Filters and search run in the database, so older documents are found however many there are.
+    const page = await listLibrary({ kind, status, q });
+    items = page.items;
+    truncated = page.truncated;
+    if (items.length === 0 && filtering) anyAtAll = (await listLibrary({ limit: 1 })).items.length > 0;
+    else anyAtAll = items.length > 0;
+    drafts = status === 'draft' && !kind && !q ? items : (await listLibrary({ status: 'draft', limit: 8 })).items;
   } catch {
     failed = true;
   }
-  const groups = groupLibrary(items, { kind, status, q });
-  const shownCount = groups.reduce((n, g) => n + g.items.length, 0);
-  const filtering = kind !== null || status !== null || q !== '';
-  const drafts = items.filter((i) => i.status === 'draft');
+  const groups = groupLibrary(items);
+  const shownCount = items.length;
 
   return (
     <div className="page page-wide">
@@ -75,12 +83,12 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
         muted="Your"
         title="documents"
         lede="Every quote, invoice and receipt, grouped by job. Drafts open for editing. Final documents download as a PDF."
-        action={items.length ? <ButtonLink href="/documents/new">New document</ButtonLink> : undefined}
+        action={anyAtAll ? <ButtonLink href="/documents/new">New document</ButtonLink> : undefined}
       />
 
       {failed ? (
         <p className="form-error" role="alert">We could not load your documents just now. Please try again.</p>
-      ) : items.length === 0 ? (
+      ) : !anyAtAll ? (
         <EmptyState icon="docs" title="No documents yet" action={<ButtonLink href="/documents/new?type=quotation">Start a quotation</ButtonLink>}>
           Everything you make lands here: quotes first, then the invoices and receipts that follow them.
         </EmptyState>
@@ -112,8 +120,9 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                 <li><Link href={href({ kind, status: 'final', q })} className="filter-chip" aria-current={status === 'final' ? 'true' : undefined}>Final</Link></li>
               </ul>
             </nav>
+            {truncated ? <p className="lib-cap" role="note">Showing your newest {LIBRARY_LIMIT} documents. Use search or filters.</p> : null}
             <p className="cust-count" role="status">
-              {filtering ? `${shownCount} of ${items.length} ${items.length === 1 ? 'document' : 'documents'}` : `${items.length} ${items.length === 1 ? 'document' : 'documents'} in ${groups.length} ${groups.length === 1 ? 'job' : 'jobs'}`}
+              {filtering ? `${shownCount} matching ${shownCount === 1 ? 'document' : 'documents'}` : `${shownCount} ${shownCount === 1 ? 'document' : 'documents'} in ${groups.length} ${groups.length === 1 ? 'job' : 'jobs'}`}
               {filtering ? (
                 <>
                   {' '}

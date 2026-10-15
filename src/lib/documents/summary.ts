@@ -76,7 +76,7 @@ export function summarise(f: DocumentFacts, b: BusinessFacts, bankLabel: string 
   const rows: SummaryRow[] = [{ label: 'For quote', value: f.quoteNumber }];
   const money: SummaryRow[] = [];
   if (f.plan && f.followOn) {
-    const billing = buildJobBilling({ quoteNumber: f.quoteNumber, plan: f.plan, form: f.quoteForm, vatRateBp: b.vatRateBp, documents: f.documents, payments: f.payments });
+    const billing = buildJobBilling({ quoteNumber: f.quoteNumber, plan: f.plan, form: f.quoteForm, vatRateBp: f.quoteIssued?.vatRateBp ?? b.vatRateBp, documents: f.documents, payments: f.payments });
     if (billing.ok) {
       const r = followOnFor(billing.billing, f.type, f.followOn.instalment, f.followOn.paymentId);
       if (r.ok) {

@@ -43,7 +43,7 @@ export interface BalanceInvoiceInput extends InvoiceCommon {
   /** Extra works or credits on top of the quote. Credits have a negative unit price. */
   adjustmentLines: MoneyLine[];
   depositReceiptRef: string | null;
-  /** Deposit actually received. Must equal the deposit invoiced. */
+  /** Deposit received, as recorded. Must equal the deposit invoiced. */
   depositReceivedPence: Pence;
   /** Note under the amount due, for example "Payment is due upon receipt of this invoice". */
   dueNote: string;

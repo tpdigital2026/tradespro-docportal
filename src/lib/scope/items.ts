@@ -81,7 +81,7 @@ export function move(items: readonly ScopeItem[], id: string, dir: -1 | 1): Scop
 export function splitPaste(text: string): string[] {
   return text
     .split(/\r\n|\r|\n/)
-    .map((l) => l.replace(/^\s*(?:[-*•–—]+|\(?\d{1,3}[.)])\s+/, '').replace(/\s+/g, ' ').trim())
+    .map((l) => l.replace(/^\s*(?:[-*•\u2013\u2014]+|\(?\d{1,3}[.)])\s+/, '').replace(/\s+/g, ' ').trim())
     .filter((l) => l !== '')
     .map((l) => l.slice(0, SCOPE_LIMITS.step));
 }

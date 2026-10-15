@@ -25,6 +25,8 @@ export interface VersionRow {
   pdfPath: string | null;
   input: unknown;
   finalContent: unknown;
+  /** The money written when the version was finalised (null for a draft). */
+  money: unknown;
   bankAccountId: string | null;
 }
 
@@ -72,7 +74,7 @@ export async function loadHeadWith(db: Db, tenantId: string, documentId: string,
   const type = docTypeFromDb(r.type);
   if (!type) return null;
   const v = await db.query(
-    `select id, version, finalised_at, pdf_path, input, final_content, bank_account_id from public.document_versions
+    `select id, version, finalised_at, pdf_path, input, final_content, money, bank_account_id from public.document_versions
       where document_id = $1 and tenant_id = $2 order by version desc limit 50${lock ? ' for update' : ''}`,
     [documentId, tenantId],
   );
@@ -95,6 +97,7 @@ export async function loadHeadWith(db: Db, tenantId: string, documentId: string,
       pdfPath: x.pdf_path ?? null,
       input: x.input,
       finalContent: x.final_content,
+      money: x.money ?? null,
       bankAccountId: x.bank_account_id ? String(x.bank_account_id) : null,
     })),
   };
@@ -181,6 +184,13 @@ export async function bankWith(db: Db, tenantId: string, preferredId: string | n
   }
 }
 
+/** The VAT rate and total an issued quote version stored when it was finalised, or null for an older version without them. */
+export function issuedQuoteMoney(finalContent: unknown, money: unknown): { vatRateBp: number; grossPence: number } | null {
+  const rate = (finalContent as { content?: { input?: { vatRateBp?: unknown } } } | null)?.content?.input?.vatRateBp;
+  const gross = (money as { grossPence?: unknown } | null)?.grossPence;
+  return typeof rate === 'number' && Number.isSafeInteger(rate) && typeof gross === 'number' && Number.isSafeInteger(gross) ? { vatRateBp: rate, grossPence: gross } : null;
+}
+
 function parseForm(input: unknown): QuoteFormValues | null {
   const r = quoteFormSchema.safeParse((input as { form?: unknown } | null)?.form);
   return r.success ? (r.data as QuoteFormValues) : null;
@@ -214,18 +224,20 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
 
   let quoteForm: QuoteFormValues | null = null;
   let quoteBankId: string | null = null;
+  let quoteIssued: DocumentFacts['quoteIssued'] = null;
   if (head.type === 'quotation') {
     quoteForm = newest ? parseForm(newest.input) : null;
     quoteBankId = newest?.bankAccountId ?? null;
     if (!quoteForm) problems.push('This quote has nothing saved in it yet. Open it and fill it in.');
   } else {
     const q = await db.query(
-      `select v.input, v.bank_account_id from public.documents d join public.document_versions v on v.id = d.current_version_id and v.tenant_id = d.tenant_id
+      `select v.input, v.bank_account_id, v.final_content, v.money from public.documents d join public.document_versions v on v.id = d.current_version_id and v.tenant_id = d.tenant_id
         where d.job_id = $1 and d.tenant_id = $2 and d.type = 'quotation' and d.status in ('final', 'sent')`,
       [head.jobId, tenantId],
     );
     quoteForm = q.rows[0] ? parseForm(q.rows[0].input) : null;
     quoteBankId = q.rows[0]?.bank_account_id ? String(q.rows[0].bank_account_id) : null;
+    quoteIssued = issuedQuoteMoney(q.rows[0]?.final_content, q.rows[0]?.money);
     if (!quoteForm) problems.push('The quote for this job has not been finalised yet, so this document cannot be made from it.');
   }
 
@@ -271,6 +283,7 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
           payments,
           followOn: head.type === 'quotation' ? null : newest ? parseFollowOn(newest.input) : null,
           bank: bank.details,
+          quoteIssued,
         }
       : null;
   if (!job || !cust) problems.push('The job or customer for this document could not be found.');
