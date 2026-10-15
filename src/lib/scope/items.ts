@@ -1,4 +1,4 @@
-import { SCOPE_LIMITS, type CopySection, type ScopeItem, type ScopeItemKind } from './model';
+import { cleanLine, SCOPE_LIMITS, type CopySection, type ScopeItem, type ScopeItemKind } from './model';
 
 /** Pure edits to the ordered list of steps and headings, so the screen stays thin and these can be tested. */
 
@@ -104,14 +104,40 @@ export function joinSpoken(base: string, spoken: string, max: number = SCOPE_LIM
   return `${b}${b === '' ? '' : ' '}${said}`.slice(0, max);
 }
 
+const JOIN = ' / ';
+
+/** Join neighbouring lines (never past one step's length) until there are at most `max`; the rest is left as it is. */
+function packLines(lines: string[], max: number): string[] {
+  let cur = lines;
+  while (cur.length > max) {
+    let need = cur.length - max;
+    const next: string[] = [];
+    for (let i = 0; i < cur.length; i++) {
+      const a = cur[i]!;
+      const b = cur[i + 1];
+      if (need > 0 && b !== undefined && a.length + JOIN.length + b.length <= SCOPE_LIMITS.step) {
+        next.push(`${a}${JOIN}${b}`);
+        i += 1;
+        need -= 1;
+      } else next.push(a);
+    }
+    if (next.length === cur.length) break;
+    cur = next;
+  }
+  return cur;
+}
+
 /**
  * A draft from before the scope builder has its words in one box. Each non-empty line becomes a step (long lines are
- * cut at a word, never dropped). More than 30 steps are grouped under headings so every limit still holds.
+ * cut at a word, never dropped). More than 30 steps are grouped under headings so every limit still holds. When there
+ * are more lines than the limits allow (12 headings of 30 steps), neighbouring lines are joined into one step (with
+ * " / " between) until they fit; any text that still cannot fit is returned as `overflow` to be kept, untouched, until
+ * the owner discards it. Nothing is ever dropped.
  */
-export function itemsFromLegacyNotes(notes: string): ScopeItem[] {
-  const lines: string[] = [];
+export function convertLegacyNotes(notes: string): { items: ScopeItem[]; overflow: string } {
+  let lines: string[] = [];
   for (const raw of notes.split(/\r\n|\r|\n/)) {
-    let rest = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    let rest = cleanLine(raw);
     while (rest !== '') {
       if (rest.length <= SCOPE_LIMITS.step) {
         lines.push(rest);
@@ -124,12 +150,18 @@ export function itemsFromLegacyNotes(notes: string): ScopeItem[] {
     }
   }
   const per = SCOPE_LIMITS.stepsPerSection;
+  const capacity = SCOPE_LIMITS.sections * per;
+  lines = packLines(lines, capacity);
+  const overflow = lines.slice(capacity).join('\n');
+  lines = lines.slice(0, capacity);
   const groups = Math.ceil(lines.length / per);
-  if (groups <= 1) return lines.map((l) => makeItem('step', l));
+  if (groups <= 1) return { items: lines.map((l) => makeItem('step', l)), overflow };
   const out: ScopeItem[] = [];
-  for (let g = 0; g < Math.min(groups, SCOPE_LIMITS.sections); g++) {
+  for (let g = 0; g < groups; g++) {
     out.push(makeItem('heading', g === 0 ? 'Earlier notes' : `Earlier notes, part ${g + 1}`));
     for (const l of lines.slice(g * per, (g + 1) * per)) out.push(makeItem('step', l));
   }
-  return out;
+  return { items: out, overflow };
 }
+
+export const itemsFromLegacyNotes = (notes: string): ScopeItem[] => convertLegacyNotes(notes).items;

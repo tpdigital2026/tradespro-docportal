@@ -1,4 +1,4 @@
-import { approvalHash, emptyScope, scopeKey, type ScopeFormValues, type ScopeItem } from '../../src/lib/scope/model';
+import { approvalHash, emptyScope, scopeKey, sectionsKey, type ScopeFormValues, type ScopeItem } from '../../src/lib/scope/model';
 
 export const STEPS: ScopeItem[] = [
   { id: 'h1', kind: 'heading', text: 'Preparation' },
@@ -34,9 +34,10 @@ export function approvedScope(over: Partial<ScopeFormValues> = {}): ScopeFormVal
 import { signGenerated } from '../../src/lib/scope/proof';
 
 /** Wording as the server hands it out after Generate copy: a real proof, not yet approved. */
-export function generatedScope(tenantId: string, over: Partial<ScopeFormValues> = {}): ScopeFormValues {
+export function generatedScope(tenantId: string, over: Partial<ScopeFormValues> = {}, generatedAt: string = new Date().toISOString()): ScopeFormValues {
   const s = approvedScope(over);
-  return { ...s, copy: { ...s.copy!, proof: signGenerated(tenantId, s.copy!), approvedAt: null, approvalHash: null } };
+  const made = { ...s.copy!, generatedAt, genKey: sectionsKey(s.copy!.sections) };
+  return { ...s, copy: { ...made, proof: signGenerated(tenantId, made), approvedAt: null, approvalHash: null } };
 }
 
 /** The same content with the approval fingerprint worked out for it (as the server writes it). */

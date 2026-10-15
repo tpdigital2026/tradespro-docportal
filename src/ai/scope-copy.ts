@@ -1,4 +1,5 @@
 import { aiConfig, anthropicClient, type ModelClient } from './client';
+import { stripInvisible } from '../lib/scope/invisible';
 import { findInventions } from './invention';
 import { buildScopeCopyUser, SCOPE_COPY_PROMPT_VERSION, SCOPE_COPY_RETRY_NOTE, SCOPE_COPY_SYSTEM } from './prompts/scope-copy.v1';
 import { extractJsonObject, scopeCopyResponseSchema } from './schemas';
@@ -27,6 +28,8 @@ export interface GenerateResult {
   notice: string | null;
   /** Present when a model was called; ids and counts only, never text. */
   usage: AiUsage | null;
+  /** True when the model would have been called but `permit` said no (over the person's limit). */
+  limited?: boolean;
 }
 export interface GenerateDeps {
   /** Left out: chosen from the environment (ANTHROPIC_API_KEY on means the AI, off means the basic tidy). Null forces the basic tidy. */
@@ -35,6 +38,11 @@ export interface GenerateDeps {
   /** One budget for the whole job, retry included. Default 20 seconds. */
   budgetMs?: number;
   clock?: () => number;
+  /**
+   * Asked once, right before the first model call and only if a model call is really about to happen (never for a
+   * skipped step or an unconfigured AI). False means over the limit: the basic tidy is used and the result says so.
+   */
+  permit?: () => boolean;
 }
 
 export class NothingToTidyError extends Error {
@@ -71,10 +79,11 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
 
   const ai = resolveClient(deps);
   if (!ai) return basicResult;
-  if (groups.some((g) => [g.heading ?? '', ...g.steps].some((t) => INJECTION.test(t.normalize('NFKC'))))) return { ...basicResult, notice: NOTICE_INSTRUCTION };
+  if (groups.some((g) => [g.heading ?? '', ...g.steps].some((t) => INJECTION.test(stripInvisible(t).normalize('NFKC'))))) return { ...basicResult, notice: NOTICE_INSTRUCTION };
+  if (deps.permit && !deps.permit()) return { ...basicResult, limited: true };
 
-  const sent = { jobType: input.jobType, groups: groups.map((g) => ({ heading: g.heading, steps: g.steps })) };
-  const inputTexts = [input.jobType, DEFAULT_SECTION_HEADING, ...groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps])];
+  const sent = { jobType: stripInvisible(input.jobType), groups: groups.map((g) => ({ heading: g.heading, steps: g.steps })) };
+  const inputTexts = [stripInvisible(input.jobType), DEFAULT_SECTION_HEADING, ...groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps])];
   let tokensIn = 0;
   let tokensOut = 0;
   let reachable = true;

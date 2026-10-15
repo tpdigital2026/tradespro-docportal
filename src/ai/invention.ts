@@ -1,4 +1,10 @@
+import { stripInvisible, hasInvisible } from '../lib/scope/invisible';
 import { BRANDS } from './brands';
+import { CLAIM_PHRASES, CLAIM_WORDS } from './vocab/claims';
+import { NUMBER_WORDS } from './vocab/numbers';
+import { PRODUCT_WORDS } from './vocab/products';
+import { pluralStem, stemCandidates } from './vocab/stems';
+import { UNIT_PHRASES, UNIT_WORDS } from './vocab/units';
 
 /**
  * The guard against invention. Whatever the engine, the wording that comes back may not contain a figure, a
@@ -12,39 +18,29 @@ import { BRANDS } from './brands';
  * rejected unless the owner typed them.
  */
 
-export type InventionKind = 'number' | 'product' | 'unit' | 'claim' | 'name' | 'script';
+export type InventionKind = 'number' | 'product' | 'unit' | 'claim' | 'name' | 'script' | 'hidden';
 export interface Invention {
   kind: InventionKind;
   word: string;
 }
 
-const NUMBER_WORDS: Record<string, string> = {
-  zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10',
-  eleven: '11', twelve: '12', thirteen: '13', fourteen: '14', fifteen: '15', sixteen: '16', seventeen: '17', eighteen: '18',
-  nineteen: '19', twenty: '20', thirty: '30', forty: '40', fifty: '50', sixty: '60', seventy: '70', eighty: '80', ninety: '90',
-  hundred: '100', thousand: '1000', dozen: '12', half: '0.5', double: '2', triple: '3', twice: '2', single: '1',
-};
+const PRODUCTS = new Set(PRODUCT_WORDS);
+const UNITS = new Set(UNIT_WORDS);
+const CLAIMS = new Set(CLAIM_WORDS);
 
-const PRODUCT_WORDS = new Set([
-  'osb', 'ply', 'plywood', 'felt', 'epdm', 'grp', 'fibreglass', 'fiberglass', 'rubber', 'bitumen', 'lead', 'zinc', 'copper', 'aluminium',
-  'aluminum', 'steel', 'slate', 'tile', 'upvc', 'pvc', 'timber', 'insulation', 'membrane', 'underlay', 'underfelt', 'batten', 'mortar',
-  'cement', 'sealant', 'mastic', 'concrete', 'brick', 'glass', 'plastic', 'polycarbonate', 'fascia', 'soffit', 'gutter', 'downpipe',
-  'flashing', 'ridge', 'hip', 'valley', 'joist', 'rafter', 'scaffold', 'scaffolding', 'skip', 'chimney', 'skylight', 'velux', 'lantern',
-  'decking', 'deck', 'cladding', 'render', 'paint', 'adhesive', 'screw', 'nail', 'bolt', 'vent', 'outlet', 'drain', 'drainage',
-  'stone', 'wood', 'metal', 'iron', 'tar', 'asphalt', 'resin', 'foam', 'vapour', 'vapor', 'breathable', 'warm', 'lath', 'truss',
-]);
-
-const UNIT_WORDS = new Set([
-  'mm', 'cm', 'metre', 'meter', 'inch', 'ft', 'foot', 'feet', 'yard', 'litre', 'liter', 'kg', 'tonne', 'sqm', 'm', 'year', 'month', 'week',
-  'millimetre', 'centimetre', 'kilogram', 'gram', 'hour', 'minute', 'percent', 'pound', 'pence', 'sq', 'sqft', 'yr',
-]);
-
-const CLAIM_WORDS = new Set([
-  'guarantee', 'guaranteed', 'guaranteeing', 'warranty', 'warranted', 'lifetime', 'certified', 'accredited', 'approved', 'compliant',
-  'compliance', 'regulation', 'british', 'standard', 'bs', 'en', 'nhbc', 'insured', 'insurance', 'free', 'premium', 'durable',
-  'lasting', 'quality', 'best', 'superior', 'weathertight', 'watertight', 'leakproof', 'proof', 'maintenance', 'excellent', 'finest',
-  'leading', 'trusted', 'reliable', 'unbeatable', 'cheap', 'affordable', 'discount', 'guarantees',
-]);
+/** Phrases as lists of stems, and which of them a text contains. */
+const PHRASES: ReadonlyArray<{ kind: InventionKind; text: string; stems: string[] }> = [
+  ...CLAIM_PHRASES.map((text) => ({ kind: 'claim' as const, text, stems: text.split(' ').map(pluralStem) })),
+  ...UNIT_PHRASES.map((text) => ({ kind: 'unit' as const, text, stems: text.split(' ').map(pluralStem) })),
+];
+function phrasesIn(text: string): Set<string> {
+  const ws = [...text.matchAll(WORD)].map((m) => pluralStem(m[0]));
+  const found = new Set<string>();
+  for (const p of PHRASES) {
+    for (let i = 0; i + p.stems.length <= ws.length; i++) if (p.stems.every((s, j) => ws[i + j] === s)) found.add(p.text);
+  }
+  return found;
+}
 
 const BRAND_SET = new Set(BRANDS);
 
@@ -52,16 +48,9 @@ const DIGITS = /\p{Nd}+(?:[.,]\p{Nd}+)*|[¼½¾]/gu;
 const WORD = /[\p{L}\p{M}]+/gu;
 const NON_LATIN = /[^\p{Script=Latin}\p{M}]/u;
 
-/** Plural stripped, lowercase. Deliberately simple: one rule set for the input and the output. */
-function stem(w: string): string {
-  const x = w.toLocaleLowerCase('en-GB');
-  if (x.length > 4 && x.endsWith('ies')) return `${x.slice(0, -3)}y`;
-  if (x.length > 4 && /(?:ch|sh|x|ss)es$/.test(x)) return x.slice(0, -2);
-  if (x.length > 3 && x.endsWith('s') && !x.endsWith('ss')) return x.slice(0, -1);
-  return x;
-}
+const stem = pluralStem;
 
-const norm = (t: string) => t.normalize('NFKC');
+const norm = (t: string) => stripInvisible(stripInvisible(t).normalize('NFKC'));
 
 function numbersIn(text: string): string[] {
   const out: string[] = [];
@@ -75,11 +64,31 @@ function numbersIn(text: string): string[] {
 
 const strip = (t: string) => t.replace(/\bsteps?\s+\p{Nd}+\b/giu, ' ');
 
+/**
+ * Is this word on one of the restricted lists? First as written (plural stripped), then by the exact bases that a
+ * suffix rule leaves behind. The owner's own words unlock only the exact word or its plural (never a derived form):
+ * if the owner wrote "slated" in some other sense, "slate" is still flagged. That costs a few false alarms (the owner
+ * wrote "insulation", the AI says "insulate") and the result is the basic tidy, which is the safe direction.
+ */
+function restricted(w: string): InventionKind | null {
+  const s = stem(w);
+  if (PRODUCTS.has(s)) return 'product';
+  if (UNITS.has(s)) return 'unit';
+  if (CLAIMS.has(s)) return 'claim';
+  for (const c of stemCandidates(w)) {
+    if (PRODUCTS.has(c)) return 'product';
+    if (UNITS.has(c)) return 'unit';
+    if (CLAIMS.has(c)) return 'claim';
+  }
+  return null;
+}
+
 export function findInventions(inputTexts: readonly string[], outputTexts: readonly string[]): Invention[] {
   const input = inputTexts.map(norm).join('\n');
   const inputNumbers = new Set(numbersIn(input));
   const inputWords = new Set([...input.matchAll(WORD)].map((m) => m[0].toLocaleLowerCase('en-GB')));
   const inputStems = new Set([...inputWords].map(stem));
+  const inputPhrases = phrasesIn(input);
   const inputSymbols = new Set(input.match(/[£$€%]/g) ?? []);
   const found: Invention[] = [];
   const seen = new Set<string>();
@@ -92,7 +101,10 @@ export function findInventions(inputTexts: readonly string[], outputTexts: reado
   };
 
   for (const raw of outputTexts) {
+    // Invisible characters in the wording are refused outright: they only ever serve to split a word.
+    if (hasInvisible(raw)) add('hidden', 'hidden character');
     const text = strip(norm(raw));
+    for (const ph of phrasesIn(text)) if (!inputPhrases.has(ph)) add(PHRASES.find((x) => x.text === ph)!.kind, ph);
     for (const n of numbersIn(text)) if (!inputNumbers.has(n)) add('number', n);
     for (const sym of text.match(/[£$€%]/g) ?? []) if (!inputSymbols.has(sym)) add('number', sym);
     for (const m of text.matchAll(WORD)) {
@@ -106,9 +118,8 @@ export function findInventions(inputTexts: readonly string[], outputTexts: reado
         continue;
       }
       if (inputStems.has(s)) continue;
-      if (PRODUCT_WORDS.has(s)) add('product', w);
-      else if (UNIT_WORDS.has(s)) add('unit', w);
-      else if (CLAIM_WORDS.has(s)) add('claim', w);
+      const kind = restricted(w);
+      if (kind) add(kind, w);
       else if (BRAND_SET.has(s) || BRAND_SET.has(lower)) add('name', w);
       else if (/^\p{Lu}{2,}$/u.test(w)) add('name', w);
     }

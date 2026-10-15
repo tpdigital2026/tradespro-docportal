@@ -5,7 +5,7 @@ vi.mock('../../src/lib/session', () => ({ requireSession: async () => ({ userId:
 
 import { approveScopeWith, requireApprovedScope } from '../../src/lib/data/scope';
 import { getDraftWith, QuoteError, saveDraftWith, storedScopeWith } from '../../src/lib/data/quotes';
-import { approvalHash, isApproved, type ScopeFormValues } from '../../src/lib/scope/model';
+import { approvalHash, isApproved, scopeFormSchema, type ScopeFormValues } from '../../src/lib/scope/model';
 import { emptyQuoteForm, type QuoteFormValues } from '../../src/lib/validation/quote';
 import { fakeClient } from '../fixtures/fake-quotes-client';
 import { generatedScope } from '../fixtures/scope';
@@ -144,6 +144,48 @@ describe('drafts from before the scope builder', () => {
     const items = many!.values.scope.items;
     expect(items.filter((i) => i.kind === 'heading')).toHaveLength(3);
     expect(items.filter((i) => i.kind === 'step').map((i) => i.text)).toEqual(Array.from({ length: 70 }, (_, i) => `line ${i}`));
+  });
+  it('a 400-line old note loses nothing: every line is recoverable from the steps and the kept overflow', async () => {
+    const lines = Array.from({ length: 400 }, (_, i) => `Old line number ${i} about the job`);
+    const d = await legacy(lines.join('\n'));
+    const scope = d!.values.scope;
+    const items = scope.items;
+    expect(items.filter((i) => i.kind === 'step').length).toBeLessThanOrEqual(360);
+    expect(items.filter((i) => i.kind === 'heading').length).toBeLessThanOrEqual(12);
+    const fitsLimits = scopeFormSchema.safeParse(scope);
+    expect(fitsLimits.success).toBe(true);
+    const everything = `${items.map((i) => i.text).join('\n')}\n${scope.legacyOverflow ?? ''}`;
+    for (const l of lines) expect(everything, l).toContain(l);
+    // the first autosave keeps all of it as well
+    const fx = fakeClient({ customers: [{ id: CUSTOMER, name: 'A' }] });
+    const first = await saveDraftWith(fx.client, TENANT, form(scope), null, 2000, TODAY);
+    const back = (await storedScopeWith(fx.client, first.jobId))!;
+    const kept = `${back.items.map((i) => i.text).join('\n')}\n${back.legacyOverflow ?? ''}`;
+    for (const l of lines) expect(kept, l).toContain(l);
+  });
+  it('text that cannot be packed into the steps is kept untouched in the preserved field, and a save that leaves the field out does not drop it', async () => {
+    const big = Array.from({ length: 365 }, (_, i) => `${i} ${'long '.repeat(55)}`.trim());
+    expect(big.every((l) => l.length > 250)).toBe(true);
+    const d = await legacy(big.join('\n'));
+    const scope = d!.values.scope;
+    expect(scope.items.filter((i) => i.kind === 'step')).toHaveLength(360);
+    expect((scope.legacyOverflow ?? '').split('\n')).toHaveLength(5);
+    const all = `${scope.items.map((i) => i.text).join('\n')}\n${scope.legacyOverflow}`;
+    for (const l of big) expect(all.replace(/\s+/g, ' '), l.slice(0, 20)).toContain(l.slice(0, 20));
+    const fx = fakeClient({ customers: [{ id: CUSTOMER, name: 'A' }] });
+    const first = await saveDraftWith(fx.client, TENANT, form(scope), null, 2000, TODAY);
+    // the browser sends the scope back without the field (an older screen, a rebuilt object)
+    const { legacyOverflow: _gone, ...without } = scope;
+    await saveDraftWith(fx.client, TENANT, form(without), first.jobId, 2000, TODAY);
+    expect((await storedScopeWith(fx.client, first.jobId))!.legacyOverflow).toBe(scope.legacyOverflow);
+    // an explicit empty string is the owner discarding it
+    await saveDraftWith(fx.client, TENANT, form({ ...scope, legacyOverflow: '' }), first.jobId, 2000, TODAY);
+    expect((await storedScopeWith(fx.client, first.jobId))!.legacyOverflow ?? '').toBe('');
+  });
+  it('the preserved field is capped at 8000 characters', () => {
+    const scope = { ...emptyQuoteForm({ date: TODAY, vatApplies: true }).scope };
+    expect(scopeFormSchema.safeParse({ ...scope, legacyOverflow: 'a'.repeat(8000) }).success).toBe(true);
+    expect(scopeFormSchema.safeParse({ ...scope, legacyOverflow: 'a'.repeat(8001) }).success).toBe(false);
   });
   it('an empty old box, or a draft that already has steps, is left alone', async () => {
     expect((await legacy('   \n '))?.values.scope.items).toEqual([]);

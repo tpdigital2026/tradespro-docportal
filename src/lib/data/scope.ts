@@ -1,4 +1,3 @@
-import { aiConfig } from '../../ai/client';
 import { generateScopeCopy, SCOPE_COPY_PROMPT_VERSION, type GenerateDeps, type GenerateResult } from '../../ai/scope-copy';
 import { scopeCopyLimiter } from '../../ai/limits';
 import { writeAudit } from '../../security/audit';
@@ -7,7 +6,7 @@ import { isDemo } from '../demo';
 import { compactId, withServiceConnection, type ServiceDb } from './customer-admin';
 import { getJobTypeLabel, getQuoteDraft, QuoteError, saveQuoteDraft, storedScopeWith, type SaveOptions, type SavedDraft } from './quotes';
 import { ownerClient } from './customers';
-import { approvalHash, copyErrors, countSteps, isApproved, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../scope/model';
+import { approvalHash, copyErrors, countSteps, isApproved, scopeKey, sectionsKey, withoutApproval, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../scope/model';
 import { signGenerated, verifyGenerated } from '../scope/proof';
 import type { QuoteFormValues } from '../validation/quote';
 
@@ -17,6 +16,7 @@ export type GenerateOutcome =
   | { ok: false; code: 'empty' | 'failed'; message: string };
 
 export const LIMIT_MESSAGE = 'You have used the AI assistant a lot in the last few minutes, so the basic tidy was used this time. Try the AI again in a little while.';
+export const COPY_TOO_OLD = 'This copy is more than a day old. Generate it again, then approve.';
 const FAILED = 'We could not tidy that just now. Please try again.';
 
 interface Who {
@@ -35,13 +35,8 @@ export async function generateForOwner(
   deps: GenerateDeps & { now?: () => Date; recordRun?: (r: GenerateResult) => Promise<void>; label?: (id: string) => Promise<string> } = {},
 ): Promise<GenerateOutcome> {
   if (countSteps(steps) === 0) return { ok: false, code: 'empty', message: 'Add at least one step first.' };
-  const wantsAi = deps.client === null ? false : deps.client !== undefined || aiConfig() !== null;
-  let limited = false;
-  let useDeps = deps;
-  if (wantsAi && !scopeCopyLimiter.take(who.userId)) {
-    limited = true;
-    useDeps = { ...deps, client: null };
-  }
+  // The person's limit is taken only when a model call is really about to be made (not for a skipped step, not for the basic tidy).
+  const useDeps: GenerateDeps = { ...deps, permit: () => scopeCopyLimiter.take(who.userId) };
   try {
     const label = await (deps.label ?? getJobTypeLabel)(jobTypeId).catch(() => '');
     const result = await generateScopeCopy({ steps, jobType: label }, useDeps);
@@ -50,10 +45,11 @@ export async function generateForOwner(
       engine: result.engine,
       generatedAt: (deps.now ?? (() => new Date()))().toISOString(),
       sourceKey: scopeKey(steps),
+      genKey: sectionsKey(result.sections),
     };
     return {
       ok: true,
-      notice: limited ? LIMIT_MESSAGE : result.notice,
+      notice: result.limited ? LIMIT_MESSAGE : result.notice,
       promptVersion: SCOPE_COPY_PROMPT_VERSION,
       copy: {
         sections: result.sections,
@@ -87,6 +83,8 @@ export interface ApproveDeps {
   now?: () => Date;
   save?: (form: QuoteFormValues, jobId: string | null, opts?: SaveOptions) => Promise<SavedDraft>;
   audit?: (db: ServiceDb | null, entry: Parameters<typeof writeAudit>[1]) => Promise<void>;
+  /** The draft as it is stored right now. Used to undo an approval only if it is still the current one. */
+  loadCurrent?: (jobId: string) => Promise<QuoteFormValues | null>;
 }
 
 /**
@@ -99,7 +97,11 @@ export async function approveScopeWith(who: Who, form: QuoteFormValues, jobId: s
   const scope = form.scope;
   const copy = scope.copy;
   if (!copy || countSteps(scope.items) === 0) return { ok: false, code: 'invalid', message: 'Generate the copy first.' };
-  if (!verifyGenerated(who.tenantId, copy)) return { ok: false, code: 'invalid', message: 'Generate the copy again, then approve it.' };
+  if (!verifyGenerated(who.tenantId, copy)) {
+    // Genuine but more than a day old: say so, rather than a generic refusal.
+    if (verifyGenerated(who.tenantId, copy, { allowExpired: true })) return { ok: false, code: 'invalid', message: COPY_TOO_OLD };
+    return { ok: false, code: 'invalid', message: 'Generate the copy again, then approve it.' };
+  }
   if (copy.sourceKey !== scopeKey(scope.items)) return { ok: false, code: 'stale', message: 'The steps changed after the wording was made. Generate the copy again.' };
   const bad = Object.values(copyErrors(copy))[0];
   if (bad) return { ok: false, code: 'invalid', message: bad };
@@ -128,8 +130,16 @@ export async function approveScopeWith(who: Who, form: QuoteFormValues, jobId: s
     if (deps.audit) await deps.audit(null, entry);
     else if (!isDemo()) await withServiceConnection((db) => writeAudit(db, entry));
   } catch {
-    // No record, no approval: put the draft back to unapproved.
-    await save({ ...form, scope: { ...scope, copy: { ...copy, approvedAt: null, approvalHash: null } } }, saved.jobId, { trustApproval: true }).catch(() => undefined);
+    // No record, no approval: put the draft back to unapproved, but only if the stored draft still carries THIS
+    // approval. If the owner has saved something newer since, that save has already settled the approval (it keeps
+    // it only when the content still matches) and is left exactly as it is. An approval without an audit row never
+    // lets a quote finish anyway, so this undo is tidiness, not the safeguard.
+    try {
+      const current = await (deps.loadCurrent ?? (async (id) => (await getQuoteDraft(id))?.values ?? null))(saved.jobId);
+      if (current?.scope.copy?.approvalHash === hash) await save({ ...current, scope: withoutApproval(current.scope) }, saved.jobId, { trustApproval: true });
+    } catch {
+      // Leave it: finishing still needs the audit row.
+    }
     return { ok: false, code: 'failed', message: 'We could not record the approval. Please try again.' };
   }
   return { ok: true, approvedAt, approvalHash: hash, saved };
