@@ -88,7 +88,7 @@ export interface PreviewReady {
  * a change to the document gives new images and a new key, and the owner must read again.
  */
 export async function previewWith(db: Db, storage: DocumentStorage, actor: Actor, documentId: string, deps: { render: RenderFn; secret: string }): Promise<{ ok: true; preview: PreviewReady; loaded: Loaded } | { ok: false; missing: string[]; loaded: Loaded | null }> {
-  const loaded = await loadWith(db, actor.tenantId, documentId, { decryptBank: true });
+  const loaded = await loadWith(db, actor.tenantId, documentId, { decryptBank: true, files: (p) => storage.get(p) });
   if (!loaded) throw new DocumentError('not_found', 'That document could not be found.');
   const newest = loaded.head.versions[0];
   if (!newest || newest.finalisedAt) throw new DocumentError('locked', 'This document has already been finalised.');
@@ -204,7 +204,7 @@ export async function finaliseWith(
   const scope = { tenantId: actor.tenantId, userId: actor.userId, documentId: head0.id, versionId: newest0.id, key: a.key };
   if (!allPagesRead(deps.secret, scope, pages, a.tokens)) throw new DocumentError('unread', `Open all ${pages} pages before you confirm.`);
 
-  const loaded0 = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head: head0 });
+  const loaded0 = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head: head0, files: (p) => storage.get(p) });
   if (!loaded0) throw new DocumentError('not_found', 'That document could not be found.');
   const p0 = await checkLoaded(db, actor, a, loaded0, deps.secret);
 
@@ -260,7 +260,7 @@ export async function finaliseWith(
       throw new DocumentError('locked', 'This document has already been finalised.');
     }
     if (!newest || newest.id !== a.versionId || newest.finalisedAt) throw new DocumentError('changed', CHANGED);
-    const loaded = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head });
+    const loaded = await loadWith(db, actor.tenantId, a.documentId, { decryptBank: true, head, files: (p) => storage.get(p) });
     if (!loaded) throw new DocumentError('not_found', 'That document could not be found.');
     const p = await checkLoaded(db, actor, a, loaded, deps.secret);
 

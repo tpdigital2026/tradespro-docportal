@@ -89,7 +89,7 @@ describe('follow-on documents', () => {
   it('an invoice without bank details is blocked', () => {
     const r = mapDocument(factsFor(0, { type: 'deposit-invoice', number: 'INV-DEMO-3001-D', followOn: { instalment: 1, paymentId: null }, bank: null }), biz);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.missing.join(' ')).toMatch(/bank details/);
+    if (!r.ok) expect(r.missing.join(' ')).toMatch(/No bank account is set up yet.*add one in Settings/);
   });
 
   it('deposit wording naming a different percentage than the job blocks the invoice', () => {

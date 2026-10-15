@@ -96,7 +96,7 @@ export function StepUp({
   }
   return (
     <form className="stepup" onSubmit={verify} noValidate>
-      {notice ? <p className="flash" role="status">{notice}</p> : null}
+      {notice ? <p className="stepup-demo" role="status">{notice}</p> : null}
       <Field
         id={`${idPrefix}-code`}
         name="code"

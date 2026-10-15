@@ -12,6 +12,7 @@ import { DEFAULT_CONFIRMATION } from '../../src/lib/documents/confirmation';
 import { DocumentError, finaliseWith, previewWith, reviseWith, type RenderFn } from '../../src/lib/documents/finalise';
 import { readToken } from '../../src/lib/documents/read-proof';
 import { InMemoryStorage } from '../../src/lib/storage';
+import { addBankAccountWith, saveSignatureWith, setSignatureConsentWith } from '../../src/lib/data/settings';
 import { encryptBankDetails } from '../../src/security/bank-crypto';
 import type { QuoteFormValues } from '../../src/lib/validation/quote';
 import { connect } from '../../src/db/connect';
@@ -440,6 +441,62 @@ describe.skipIf(!dbAvailable)('finalise', () => {
       expect(JSON.stringify(v.final_content)).not.toMatch(/00000000|00-00-00/);
       // Revising the quote is now refused.
       await expectCode(reviseWith(c, actor(f), f.quoteId, nested), 'not_allowed');
+    });
+  });
+
+  it('with no bank account an invoice is blocked; once the owner adds one in Settings it finalises with that account', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      await previewAndFinalise(c, f, storage, f.quoteId);
+      // The business has no account at all now (the fixture's is archived, as Settings would).
+      await c.query(`update public.bank_accounts set archived_at = now(), is_default = false where tenant_id = $1`, [f.tenantId]);
+      const inv = await saveFollowOnWith(c, actor(f), { jobId: f.jobId, type: 'deposit-invoice', number: `INV-${f.reference}-D`, instalment: 1, heading: 'Deposit (30%)', netPence: 1, vatPence: 1, grossPence: 2, date: '2026-10-09', paymentId: null }, nested);
+      const blocked = await previewWith(c, storage, actor(f), inv.documentId, { render, secret: SECRET });
+      expect(blocked.ok).toBe(false);
+      if (!blocked.ok) expect(blocked.missing.join(' ')).toMatch(/No bank account is set up yet.*Settings/);
+      const added = await addBankAccountWith(c, actor(f), { accountName: 'FJC Roofing Ltd', bankName: '', sortCode: '11-22-33', accountNumber: '87654321' }, Buffer.from(KEY, 'base64'), nested);
+      expect(added.isDefault).toBe(true);
+      let printed = '';
+      const seeing: RenderFn = async (mapped, tenant, brand) => {
+        printed = JSON.stringify(mapped);
+        return render(mapped, tenant, brand);
+      };
+      const p = await previewWith(c, storage, actor(f), inv.documentId, { render: seeing, secret: SECRET });
+      if (!p.ok) throw new Error(`blocked: ${p.missing.join('; ')}`);
+      expect(printed).toContain('87654321');
+      expect(printed).toContain('11-22-33');
+      const res = await finaliseWith(c, storage, actor(f), { documentId: inv.documentId, versionId: p.preview.versionId, key: p.preview.key, tokens: tokens(f, inv.documentId, p.preview.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render: seeing, secret: SECRET }, nested);
+      const v = (await c.query(`select bank_account_id, final_content from public.document_versions where id = $1`, [res.versionId])).rows[0];
+      expect(v.bank_account_id).toBe(added.id);
+      expect(JSON.stringify(v.final_content)).not.toMatch(/87654321|11-22-33/);
+      expect(JSON.stringify(v.final_content)).toContain('4321');
+    });
+  });
+
+  it('the owner\'s signature is printed only with consent on, and switching it changes what must be read again', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      let sig: string | null = 'unset';
+      const seeing: RenderFn = async (mapped, tenant, brand) => {
+        sig = brand.assets.signature;
+        return render(mapped, tenant, brand);
+      };
+      const before = await previewWith(c, storage, actor(f), f.quoteId, { render: seeing, secret: SECRET });
+      if (!before.ok) throw new Error('blocked');
+      expect(sig).toBeNull();
+      await saveSignatureWith(c, storage, actor(f), { png: Buffer.from('signature-png'), width: 300, height: 100 }, nested);
+      const stillOff = await previewWith(c, storage, actor(f), f.quoteId, { render: seeing, secret: SECRET });
+      if (!stillOff.ok) throw new Error('blocked');
+      expect(stillOff.preview.key).toBe(before.preview.key);
+      await setSignatureConsentWith(c, actor(f), true, nested);
+      const on = await previewWith(c, storage, actor(f), f.quoteId, { render: seeing, secret: SECRET });
+      if (!on.ok) throw new Error('blocked');
+      expect(sig).toBe(`data:image/png;base64,${Buffer.from('signature-png').toString('base64')}`);
+      expect(on.preview.key).not.toBe(before.preview.key);
+      // Pages read with the signature off cannot be used to finalise with it on.
+      await expectCode(finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: before.preview.key, tokens: tokens(f, f.quoteId, f.versionId, before.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render: seeing, secret: SECRET }, nested), 'changed');
     });
   });
 

@@ -20,6 +20,7 @@ import { buildQuotation } from '../templates/quotation';
 import { buildReceipt } from '../templates/receipt';
 import type { Brand, Tenant } from '../themes/types';
 import type { Mapped } from './documents/map';
+import { outputSize, stripPng, type Reencoded, type Sniffed } from './signature-image';
 
 export interface RenderOutput {
   pdf: Buffer;
@@ -101,6 +102,50 @@ export class MissingFactsError extends Error {
   constructor(readonly missing: string[]) {
     super('Some facts this document needs are missing');
     this.name = 'MissingFactsError';
+  }
+}
+
+/**
+ * Decodes an uploaded signature picture in a page with no network access and draws it again on a fresh canvas, as a
+ * PNG at most 1200 by 400 (never enlarged). Only pixels survive: no EXIF, GPS, XMP, ICC profile or comments. Near-white
+ * paper becomes transparent, so the signature sits on the document's sign line instead of in a white box. The result
+ * is then cut down to its essential PNG chunks (stripPng).
+ */
+export async function reencodeSignature(bytes: Buffer, image: Sniffed, open: () => Promise<Browser> = browser): Promise<Reencoded> {
+  const b = await open();
+  const page = await newLockedPage(b);
+  try {
+    const size = outputSize(image.width, image.height);
+    const src = `data:image/${image.kind};base64,${bytes.toString('base64')}`;
+    const out = await page.evaluate(
+      async ({ src, width, height }) => {
+        const img = new Image();
+        img.src = src;
+        await img.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('No canvas');
+        ctx.drawImage(img, 0, 0, width, height);
+        const data = ctx.getImageData(0, 0, width, height);
+        const px = data.data;
+        for (let i = 0; i < px.length; i += 4) {
+          const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+          // Paper white fades out; ink keeps its colour. A soft edge between 200 and 240 avoids jagged strokes.
+          const keep = lum >= 240 ? 0 : lum <= 200 ? 1 : (240 - lum) / 40;
+          px[i + 3] = Math.round(px[i + 3] * keep);
+        }
+        ctx.putImageData(data, 0, 0);
+        return canvas.toDataURL('image/png');
+      },
+      { src, width: size.width, height: size.height },
+    );
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(out);
+    if (!m) throw new Error('The picture could not be read');
+    return { png: stripPng(Buffer.from(m[1], 'base64')), ...size };
+  } finally {
+    await page.context().close().catch(() => undefined);
   }
 }
 

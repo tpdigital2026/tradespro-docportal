@@ -92,7 +92,7 @@ export function ReviewStep({
       <div className="field">
         <label htmlFor="bank">Pay into</label>
         {ctx.bankAccounts.length === 0 ? (
-          <p className="hint">No bank account is set up for your business yet. Payment details are added by TradesPro Digital.</p>
+          <p className="hint">No bank account is set up yet. The owner can add one in <a className="flash-link" href="/settings#bank">Settings</a>; quotes do not need one, invoices do.</p>
         ) : (
           <>
             <select id="bank" className="input" value={values.bankAccountId} onChange={(e) => set({ bankAccountId: e.target.value })} aria-describedby="bank-hint">

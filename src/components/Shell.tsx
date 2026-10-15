@@ -14,6 +14,7 @@ const icons = {
   doc: <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5zM14 3v5h5M12 12v5M9.5 14.5h5" />,
   docs: <path d="M8 7V5a2 2 0 012-2h6l4 4v10a2 2 0 01-2 2h-2M4 9a2 2 0 012-2h6l4 4v8a2 2 0 01-2 2H6a2 2 0 01-2-2V9zM12 7v4h4" />,
   out: <path d="M10 4H6a2 2 0 00-2 2v12a2 2 0 002 2h4M15 8l4 4-4 4M19 12H9" />,
+  settings: <path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />,
 };
 
 function Icon({ name }: { name: keyof typeof icons }) {
@@ -53,6 +54,7 @@ const items = [
   { href: '/customers', label: 'Customers', icon: 'customers' },
   { href: '/documents', label: 'Documents', icon: 'docs' },
   { href: '/documents/new', label: 'New document', icon: 'doc' },
+  { href: '/settings', label: 'Settings', icon: 'settings' },
 ] as const;
 
 export function isCurrent(path: string, href: string) {
@@ -122,6 +124,11 @@ export function Shell({
       <div>
         <div className="topbar">
           <TopBrand brand={brand} />
+          {/* Phones keep five tabs at the bottom; Settings sits up here instead of squeezing a sixth in. */}
+          <Link href="/settings" className="topbar-settings" aria-current={isCurrent(path, '/settings') ? 'page' : undefined}>
+            <Icon name="settings" />
+            <span className="sr-only">Settings</span>
+          </Link>
         </div>
         <main id="main" tabIndex={-1} className="main">
           {children}
@@ -135,7 +142,7 @@ export function Shell({
 
       <nav className="bottomnav" aria-label="Main">
         <ul className="navlist">
-          {items.map((i) => (
+          {items.filter((i) => i.href !== '/settings').map((i) => (
             <li key={i.href}>
               <Link href={i.href} className="navlink" aria-current={isCurrent(path, i.href) ? 'page' : undefined}>
                 <Icon name={i.icon} />

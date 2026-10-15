@@ -31,7 +31,7 @@ export function dueBox(label: string, amount: string, note: string): Raw {
 }
 
 export function payCard(bank: BankDetails, reference: string): Raw {
-  return html`<div class="paycard"><div class="ph"><span class="eyebrow w">How to pay</span><h3>Payment details</h3><div class="bl">${bank.bankName}</div></div><div class="pg"><div><span>Account name</span><b>${bank.accountName}</b></div><div><span>Sort code</span><b>${bank.sortCode}</b></div><div><span>Account number</span><b>${bank.accountNumber}</b></div><div><span>Payment reference</span><b>${reference}</b></div></div></div>`;
+  return html`<div class="paycard"><div class="ph"><span class="eyebrow w">How to pay</span><h3>Payment details</h3>${bank.bankName ? html`<div class="bl">${bank.bankName}</div>` : null}</div><div class="pg"><div><span>Account name</span><b>${bank.accountName}</b></div><div><span>Sort code</span><b>${bank.sortCode}</b></div><div><span>Account number</span><b>${bank.accountNumber}</b></div><div><span>Payment reference</span><b>${reference}</b></div></div></div>`;
 }
 
 export function compactGuaranteeBand(years: number, text: string): Raw {

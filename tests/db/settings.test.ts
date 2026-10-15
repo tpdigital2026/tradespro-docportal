@@ -1,0 +1,190 @@
+import { randomBytes } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import type { Client } from 'pg';
+import {
+  addBankAccountWith,
+  archiveBankAccountWith,
+  removeSignatureWith,
+  renameBankAccountWith,
+  saveSignatureWith,
+  setDefaultBankAccountWith,
+  setRetentionWith,
+  setSessionPolicyWith,
+  setSignatureConsentWith,
+  signaturePath,
+} from '../../src/lib/data/settings';
+import { signatureWith } from '../../src/lib/documents/facts-sql';
+import { InMemoryStorage } from '../../src/lib/storage';
+import { decryptBankDetails } from '../../src/security/bank-crypto';
+import { actAs, actAsServer, createTenantWithUser, dbAvailable, withRollback } from './helpers';
+
+const nested = { nested: true } as const;
+const KEY = randomBytes(32);
+const acct = (n: string) => ({ accountName: `Account ${n}`, bankName: 'Test Bank', sortCode: '20-00-00', accountNumber: `1234567${n}` });
+
+async function business(c: Client) {
+  const t = await createTenantWithUser(c, `Set ${randomBytes(4).toString('hex')}`);
+  await c.query(`insert into public.tenant_defaults (tenant_id) values ($1)`, [t.tenantId]);
+  await c.query(`insert into public.brand_kits (tenant_id) values ($1)`, [t.tenantId]);
+  return { ...t, actor: { tenantId: t.tenantId, userId: t.userId } };
+}
+
+async function expectFail(c: Client, sql: string, params: unknown[], re: RegExp) {
+  await c.query('savepoint f');
+  await expect(c.query(sql, params)).rejects.toThrow(re);
+  await c.query('rollback to savepoint f');
+}
+
+describe.skipIf(!dbAvailable)('owner settings: bank accounts', () => {
+  it('adds encrypted accounts bound to the business; only the last four are readable; the first is the default', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const first = await addBankAccountWith(c, b.actor, acct('1'), KEY, nested);
+      const second = await addBankAccountWith(c, b.actor, acct('2'), KEY, nested);
+      expect(first).toMatchObject({ last4: '5671', isDefault: true });
+      expect(second.isDefault).toBe(false);
+      const row = (await c.query(`select * from public.bank_accounts where id = $1`, [first.id])).rows[0];
+      expect(row.sort_code_enc).not.toContain('20');
+      expect(row.account_number_enc).not.toContain('12345671');
+      expect(decryptBankDetails(row, KEY, b.tenantId)).toEqual({ sortCode: '20-00-00', accountNumber: '12345671' });
+      // Bound to this business: another tenant id cannot decrypt it.
+      expect(() => decryptBankDetails(row, KEY, '00000000-0000-4000-8000-000000000000')).toThrow();
+      const audit = await c.query(`select action, entity_id, meta::text from public.audit_log where tenant_id = $1 order by id`, [b.tenantId]);
+      expect(audit.rows.map((r) => r.action)).toEqual(['bank.add', 'bank.add']);
+      expect(JSON.stringify(audit.rows)).not.toMatch(/1234567|20-00-00|5671/);
+      // The app role sees safe columns only and cannot write.
+      await actAs(c, b.userId);
+      expect((await c.query(`select last4 from public.bank_accounts order by created_at`)).rows.map((r) => r.last4)).toEqual(['5671', '5672']);
+      await expectFail(c, `select account_number_enc from public.bank_accounts`, [], /permission denied/);
+      await expectFail(c, `update public.bank_accounts set account_name = 'x'`, [], /permission denied/);
+    });
+  });
+
+  it('one default at a time; archive never deletes and promotes the oldest other account; renames keep numbers', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const a1 = await addBankAccountWith(c, b.actor, acct('1'), KEY, nested);
+      const a2 = await addBankAccountWith(c, b.actor, acct('2'), KEY, nested);
+      const a3 = await addBankAccountWith(c, b.actor, acct('3'), KEY, nested);
+      // Distinct creation times (inside one test transaction now() is the same for every row).
+      for (const [id, ago] of [[a1.id, 3], [a2.id, 2], [a3.id, 1]] as const) await c.query(`update public.bank_accounts set created_at = now() - make_interval(hours => $2) where id = $1`, [id, ago]);
+      await setDefaultBankAccountWith(c, b.actor, a3.id, nested);
+      const defaults = async () => (await c.query(`select id from public.bank_accounts where tenant_id = $1 and is_default and archived_at is null`, [b.tenantId])).rows.map((r) => r.id);
+      expect(await defaults()).toEqual([a3.id]);
+      expect(await archiveBankAccountWith(c, b.actor, a3.id, nested)).toEqual({ newDefaultId: a1.id });
+      expect(await defaults()).toEqual([a1.id]);
+      expect((await c.query(`select archived_at from public.bank_accounts where id = $1`, [a3.id])).rows[0].archived_at).not.toBeNull();
+      await expect(setDefaultBankAccountWith(c, b.actor, a3.id, nested)).rejects.toMatchObject({ code: 'not_found' });
+      expect(await archiveBankAccountWith(c, b.actor, a2.id, nested)).toEqual({ newDefaultId: null });
+      const before = (await c.query(`select account_number_enc from public.bank_accounts where id = $1`, [a1.id])).rows[0].account_number_enc;
+      await renameBankAccountWith(c, b.actor, a1.id, { accountName: 'Main', bankName: '' }, nested);
+      const after = (await c.query(`select account_name, bank_name, account_number_enc from public.bank_accounts where id = $1`, [a1.id])).rows[0];
+      expect(after).toEqual({ account_name: 'Main', bank_name: '', account_number_enc: before });
+    });
+  });
+
+  it('never touches another business\'s accounts, and caps active accounts at ten', async () => {
+    await withRollback(async (c) => {
+      const a = await business(c);
+      const b = await business(c);
+      const theirs = await addBankAccountWith(c, b.actor, acct('1'), KEY, nested);
+      await expect(setDefaultBankAccountWith(c, a.actor, theirs.id, nested)).rejects.toMatchObject({ code: 'not_found' });
+      await expect(archiveBankAccountWith(c, a.actor, theirs.id, nested)).rejects.toMatchObject({ code: 'not_found' });
+      await expect(renameBankAccountWith(c, a.actor, theirs.id, { accountName: 'Hijack', bankName: '' }, nested)).rejects.toMatchObject({ code: 'not_found' });
+      for (let i = 0; i < 10; i += 1) await addBankAccountWith(c, a.actor, acct(String(i)), KEY, nested);
+      await expect(addBankAccountWith(c, a.actor, acct('9'), KEY, nested)).rejects.toMatchObject({ code: 'limit' });
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('owner settings: retention, session policy, signature', () => {
+  it('retention and the session limits are saved (upsert) and audited with values only', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      await c.query(`delete from public.tenant_defaults where tenant_id = $1`, [b.tenantId]);
+      await setRetentionWith(c, b.actor, 365, nested);
+      await setSessionPolicyWith(c, b.actor, { idleMinutes: 15, maxDays: 2 }, nested);
+      const d = (await c.query(`select retention_days, idle_logout_minutes, max_session_days from public.tenant_defaults where tenant_id = $1`, [b.tenantId])).rows[0];
+      expect(d).toEqual({ retention_days: 365, idle_logout_minutes: 15, max_session_days: 2 });
+      const audit = await c.query(`select action, meta from public.audit_log where tenant_id = $1 order by id`, [b.tenantId]);
+      expect(audit.rows).toEqual([{ action: 'settings.retention', meta: { days: 365 } }, { action: 'settings.session', meta: { idle: 15, days: 2 } }]);
+      await expect(setSessionPolicyWith(c, b.actor, { idleMinutes: 5, maxDays: 2 }, nested)).rejects.toThrow(/check constraint/);
+      await expect(setSessionPolicyWith(c, b.actor, { idleMinutes: 30, maxDays: 31 }, nested)).rejects.toThrow(/check constraint/);
+    });
+  });
+
+  it('the app role (even the owner) cannot change these settings or reset them, but can still change the others', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      await actAs(c, b.userId);
+      const server = /only be changed by the server|only be removed by the server/;
+      await expectFail(c, `update public.tenant_defaults set retention_days = 30 where tenant_id = $1`, [b.tenantId], server);
+      await expectFail(c, `update public.tenant_defaults set idle_logout_minutes = 480 where tenant_id = $1`, [b.tenantId], server);
+      await expectFail(c, `update public.tenant_defaults set max_session_days = 30 where tenant_id = $1`, [b.tenantId], server);
+      await expectFail(c, `update public.tenant_defaults set signature_consent = true where tenant_id = $1`, [b.tenantId], server);
+      await expectFail(c, `delete from public.tenant_defaults where tenant_id = $1`, [b.tenantId], server);
+      expect((await c.query(`update public.tenant_defaults set vat_rate_bp = 500 where tenant_id = $1`, [b.tenantId])).rowCount).toBe(1);
+      await actAsServer(c);
+      await c.query(`delete from public.tenant_defaults where tenant_id = $1`, [b.tenantId]);
+      await actAs(c, b.userId);
+      await expectFail(c, `insert into public.tenant_defaults (tenant_id, idle_logout_minutes) values ($1, 480)`, [b.tenantId], server);
+      expect((await c.query(`insert into public.tenant_defaults (tenant_id) values ($1)`, [b.tenantId])).rowCount).toBe(1);
+    });
+  });
+
+  it('a signature row can only be written by the server', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const kit = (await c.query(`select id from public.brand_kits where tenant_id = $1`, [b.tenantId])).rows[0].id;
+      await actAs(c, b.userId);
+      const ins = `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path) values ($1, $2, $3, $4) returning id`;
+      await expectFail(c, ins, [b.tenantId, kit, 'signature', `${b.tenantId}/x.png`], /only be stored by the server/);
+      // Other brand assets keep working for the owner.
+      expect((await c.query(ins, [b.tenantId, kit, 'badge', `${b.tenantId}/b.png`])).rowCount).toBe(1);
+      await actAsServer(c);
+      const s = await c.query(ins, [b.tenantId, kit, 'signature', `${b.tenantId}/s.png`]);
+      await actAs(c, b.userId);
+      await expectFail(c, `update public.brand_assets set storage_path = $2 where id = $1`, [s.rows[0].id, `${b.tenantId}/t.png`], /only be stored by the server/);
+      await expectFail(c, `delete from public.brand_assets where id = $1`, [s.rows[0].id], /only be stored by the server/);
+    });
+  });
+
+  it('stores the picture (row and file together), replaces the old one, prints only with consent, and removes both', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const st = new InMemoryStorage();
+      await expect(setSignatureConsentWith(c, b.actor, true, nested)).rejects.toMatchObject({ code: 'invalid' });
+      const one = await saveSignatureWith(c, st, b.actor, { png: Buffer.from('png-one'), width: 300, height: 100 }, nested);
+      const two = await saveSignatureWith(c, st, b.actor, { png: Buffer.from('png-two'), width: 300, height: 100 }, nested);
+      expect([...st.blobs.keys()]).toEqual([signaturePath(b.tenantId, two.id)]);
+      expect((await c.query(`select id from public.brand_assets where tenant_id = $1 and kind = 'signature'`, [b.tenantId])).rows.map((r) => r.id)).toEqual([two.id]);
+      expect(one.id).not.toBe(two.id);
+      const read = (p: string) => st.get(p);
+      expect(await signatureWith(c, b.tenantId, read)).toEqual({ uri: null, problem: null });
+      await setSignatureConsentWith(c, b.actor, true, nested);
+      const on = await signatureWith(c, b.tenantId, read);
+      expect(on.uri).toBe(`data:image/png;base64,${Buffer.from('png-two').toString('base64')}`);
+      const consent = (await c.query(`select signature_consent, signature_consent_by from public.tenant_defaults where tenant_id = $1`, [b.tenantId])).rows[0];
+      expect(consent).toEqual({ signature_consent: true, signature_consent_by: b.userId });
+      // A consented picture that cannot be read blocks the document (preview and final never differ).
+      expect((await signatureWith(c, b.tenantId, async () => null)).problem).toMatch(/could not be read/);
+      await removeSignatureWith(c, st, b.actor, nested);
+      expect(st.blobs.size).toBe(0);
+      expect(await signatureWith(c, b.tenantId, read)).toEqual({ uri: null, problem: null });
+    });
+  });
+
+  it('a failed upload stores nothing; a refused database step deletes the uploaded file', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const st = new InMemoryStorage();
+      st.put = async () => { throw new Error('Storage upload failed'); };
+      await expect(saveSignatureWith(c, st, b.actor, { png: Buffer.from('x'), width: 1, height: 1 }, nested)).rejects.toThrow();
+      expect((await c.query(`select count(*)::int n from public.brand_assets where tenant_id = $1 and kind = 'signature'`, [b.tenantId])).rows[0].n).toBe(0);
+      const ok = new InMemoryStorage();
+      // An impossible size makes the insert fail after the upload: the file must go again.
+      await expect(saveSignatureWith(c, ok, b.actor, { png: Buffer.from('x'), width: 3_000_000_000, height: 1 }, nested)).rejects.toThrow();
+      expect(ok.blobs.size).toBe(0);
+    });
+  });
+});

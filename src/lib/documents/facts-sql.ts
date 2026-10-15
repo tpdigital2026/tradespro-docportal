@@ -4,6 +4,7 @@
  * ever used together with it.
  *
  * Bank numbers are decrypted only when asked (at render time), and never leave this process except inside the PDF.
+ * The owner's stored signature is read at render time too, and only when the owner has switched printing on.
  */
 import { tenantWordingSchema } from '../../db/wording';
 import { decryptBankDetails, parseKey } from '../../security/bank-crypto';
@@ -17,6 +18,33 @@ import { planFromJson } from '../payment-plan';
 import { quoteFormSchema, type QuoteFormValues } from '../validation/quote';
 import type { BusinessFacts, DocumentFacts } from './map';
 import { renderBrandFrom, type AssetRow } from './render-brand';
+import { signatureDataUri } from '../signature-image';
+
+/** Reads a stored file (the private bucket). */
+export type FileReader = (path: string) => Promise<Buffer | null>;
+
+/**
+ * The signature to print, as a data: URI: only with the owner's consent on AND a stored picture. null otherwise (the
+ * templates then leave the line for a hand signature). A consented picture that cannot be read is a problem that blocks
+ * the document, so a preview and its final copy never differ on whether the signature is there.
+ */
+export async function signatureWith(db: Db, tenantId: string, readFile: FileReader): Promise<{ uri: string | null; problem: string | null }> {
+  const r = await db.query(
+    `select d.signature_consent, a.storage_path from public.tenant_defaults d
+       left join lateral (select storage_path from public.brand_assets where tenant_id = d.tenant_id and kind = 'signature' order by created_at desc limit 1) a on true
+      where d.tenant_id = $1`,
+    [tenantId],
+  );
+  const row = r.rows[0];
+  if (!row || row.signature_consent !== true || typeof row.storage_path !== 'string') return { uri: null, problem: null };
+  const unreadable = 'Your signature picture could not be read. Try again, or switch off signature printing in Settings.';
+  try {
+    const png = await readFile(row.storage_path);
+    return png ? { uri: signatureDataUri(png), problem: null } : { uri: null, problem: unreadable };
+  } catch {
+    return { uri: null, problem: unreadable };
+  }
+}
 
 export interface VersionRow {
   id: string;
@@ -172,7 +200,7 @@ export async function bankWith(db: Db, tenantId: string, preferredId: string | n
   );
   const b = r.rows[0];
   if (!b) return { id: null, label: null, details: null, problem: null };
-  const label = `${b.account_name}, ${b.bank_name}, ending ${b.last4}`;
+  const label = [b.account_name, b.bank_name, `ending ${b.last4}`].filter((x) => typeof x === 'string' && x.trim() !== '').join(', ');
   if (!decrypt) return { id: String(b.id), label, details: null, problem: null };
   const raw = process.env.BANK_ENCRYPTION_KEY;
   if (!raw) return { id: String(b.id), label, details: null, problem: 'Your bank details cannot be read on this server. Contact TradesPro Digital.' };
@@ -206,7 +234,11 @@ function parseFollowOn(input: unknown): { instalment: number; paymentId: string 
  * Everything for one document: its newest version, the job, the customer, the quote it comes from, the job's other
  * documents and payments, the business, its brand and (when decryptBank) the bank details.
  */
-export async function loadWith(db: Db, tenantId: string, documentId: string, opts: { lock?: boolean; decryptBank?: boolean; head?: DocumentHead } = {}): Promise<Loaded | null> {
+/**
+ * decryptBank marks a load for drawing the document (preview, finalise, the render seam): bank numbers are decrypted
+ * and the consented signature is read with `files` (default: the app's storage). Other loads (summaries) skip both.
+ */
+export async function loadWith(db: Db, tenantId: string, documentId: string, opts: { lock?: boolean; decryptBank?: boolean; head?: DocumentHead; files?: FileReader } = {}): Promise<Loaded | null> {
   const head = opts.head ?? (await loadHeadWith(db, tenantId, documentId, opts.lock));
   if (!head) return null;
   const problems: string[] = [];
@@ -260,6 +292,12 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
   problems.push(...biz.problems);
   const brand = await brandWith(db, tenantId, biz.slug);
   problems.push(...brand.problems);
+  if (opts.decryptBank === true && brand.brand) {
+    const files: FileReader = opts.files ?? (async (p) => (await import('../storage')).getStorage().get(p));
+    const sig = await signatureWith(db, tenantId, files);
+    if (sig.problem) problems.push(sig.problem);
+    brand.brand = { ...brand.brand, assets: { ...brand.brand.assets, signature: sig.uri } };
+  }
   const wantsBank = head.type !== 'receipt';
   const bank = wantsBank ? await bankWith(db, tenantId, quoteBankId ?? (quoteForm?.bankAccountId || null), opts.decryptBank === true) : { id: null, label: null, details: null, problem: null };
   if (bank.problem && head.type !== 'quotation') problems.push(bank.problem);

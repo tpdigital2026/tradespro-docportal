@@ -7,6 +7,7 @@
  */
 import 'server-only';
 import { demoBusiness, demoCustomers, demoQuoteDefaults } from '../demo-data';
+import { demoSignatureForDocuments } from './settings';
 import { demoSlot, isDemo } from '../demo';
 import type { CoveringEmailFacts, EmailDocKind } from '../covering-email';
 import { confirmationFor, type Confirmation } from '../documents/confirmation';
@@ -604,7 +605,7 @@ function demoLoad(id: string): Loaded | null {
     followOn,
     bank: { accountName: 'Demo Business Account', bankName: 'Demo Bank', sortCode: '00-00-00', accountNumber: '00000000' },
   };
-  return { head, facts, problems: [], business: demoBusinessFacts(), brand: demoRenderBrand(), bankLabel: 'Demo Business Account, Demo Bank, ending 0000', bankAccountId: null };
+  return { head, facts, problems: [], business: demoBusinessFacts(), brand: demoRenderBrand(undefined, demoSignatureForDocuments()), bankLabel: 'Demo Business Account, Demo Bank, ending 0000', bankAccountId: null };
 }
 
 async function demoPreview(id: string, secret: string): Promise<PreviewState | null> {

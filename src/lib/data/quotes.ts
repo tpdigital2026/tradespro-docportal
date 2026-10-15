@@ -1,5 +1,4 @@
 import {
-  demoBankAccounts,
   demoCustomers,
   demoJobTypes,
   demoQuoteDefaults,
@@ -7,6 +6,7 @@ import {
   demoUsedNumbers,
 } from '../demo-data';
 import { demoSlot, isDemo } from '../demo';
+import { bankLabel, demoBankOptions } from './settings';
 import { MAX_VAT_RATE_BP } from '../money';
 import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
@@ -119,7 +119,7 @@ export async function listBankAccountsWith(client: DataClient): Promise<BankAcco
   if (error) throw new QuoteError('failed', 'Could not load bank accounts');
   return ((data ?? []) as { id: string; account_name: string; bank_name: string; last4: string; is_default: boolean }[]).map((r) => ({
     id: r.id,
-    label: `${r.account_name}, ${r.bank_name}, ending ${r.last4}`,
+    label: bankLabel({ accountName: r.account_name, bankName: r.bank_name ?? '', last4: r.last4 }),
     last4: r.last4,
     isDefault: r.is_default,
   }));
@@ -442,7 +442,7 @@ export async function getQuoteContext(): Promise<QuoteContext> {
     return {
       customers: demoCustomers.map((c) => ({ id: c.id, name: c.name, postcode: c.postcode, addressLine: c.addressLines[0] ?? '' })),
       jobTypes: demoJobTypes,
-      bankAccounts: demoBankAccounts,
+      bankAccounts: demoBankOptions(),
       defaults: demoQuoteDefaults,
       suggestedNumber: suggestNextNumber(used),
       today: todayIso(),

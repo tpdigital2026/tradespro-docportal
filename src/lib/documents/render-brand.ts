@@ -4,8 +4,9 @@
  *
  * Logos come from the brand kit's asset rows. Until brand files move into storage, a stored path
  * `<tenant id>/<file>` maps to /public/brands/<slug>/<file> (the same rule the app shell uses).
- * Phase 1 never prints a stored signature: no consent setting exists yet, so the sign line is left for a hand
- * signature. Cover photos and build-up diagrams appear only when the business has them on record.
+ * The stored signature is added by the loader (facts-sql signatureWith) only when the owner has switched printing on
+ * in Settings; otherwise the sign line is left for a hand signature. Cover photos and build-up diagrams appear only
+ * when the business has them on record.
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -69,11 +70,11 @@ export function renderBrandFrom(args: { slug: string | null; tenantId: string; c
   };
 }
 
-/** Demo mode: the real FJC logo files with the approved FJC colours, nothing else. */
-export function demoRenderBrand(read: (file: string) => string = dataUri): Brand {
+/** Demo mode: the real FJC logo files with the approved FJC colours, and the demo signature when switched on. */
+export function demoRenderBrand(read: (file: string) => string = dataUri, signature: string | null = null): Brand {
   const dir = path.join(process.cwd(), 'public', 'brands', 'fjc');
   return {
     colours: { ...FJC_COLOURS },
-    assets: { logoColour: read(path.join(dir, 'logo.png')), logoWhite: read(path.join(dir, 'logo_white.png')), signature: null, coverPhoto: null, diagram: null },
+    assets: { logoColour: read(path.join(dir, 'logo.png')), logoWhite: read(path.join(dir, 'logo_white.png')), signature, coverPhoto: null, diagram: null },
   };
 }

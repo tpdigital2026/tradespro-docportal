@@ -260,7 +260,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
   }
 
   // Invoices.
-  if (!f.bank) missing.push('Your bank details are not on record, so the customer would not know how to pay. Contact TradesPro Digital to add them.');
+  if (!f.bank) missing.push('No bank account is set up yet, so the customer would not know how to pay. The owner can add one in Settings.');
   const common = {
     invoiceNo: f.number,
     quoteRef: f.quoteNumber,

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { cookiesAreSecure } from './auth-cookies';
+import { IDLE_MINUTES, MAX_SESSION_DAYS, inRange, type SessionLimits } from './session-policy-limits';
 
 /**
  * Per-business session policy: sign out after a spell of no activity, and a hard cap on how long a sign-in lasts.
@@ -14,28 +15,10 @@ import { cookiesAreSecure } from './auth-cookies';
  * database now, against the activity time the browser sent (the proxy never rewrites the request's copy), so a
  * stricter setting applies to everyone at once; a looser one applies to others from their next sign-in.
  */
-export const IDLE_MINUTES = { min: 10, max: 480, default: 30 } as const;
-export const MAX_SESSION_DAYS = { min: 1, max: 30, default: 7 } as const;
+export { IDLE_MINUTES, MAX_SESSION_DAYS, DEFAULT_LIMITS, limitsFrom, type SessionLimits } from './session-policy-limits';
 export { SESSION_EXPIRED_MESSAGE } from './signed-out';
 /** The proxy rewrites the activity cookie only when the stored time is at least this old, to keep headers quiet. */
 export const ACTIVITY_REFRESH_SECONDS = 60;
-
-export interface SessionLimits {
-  idleMinutes: number;
-  maxDays: number;
-}
-export const DEFAULT_LIMITS: SessionLimits = { idleMinutes: IDLE_MINUTES.default, maxDays: MAX_SESSION_DAYS.default };
-
-const inRange = (n: unknown, r: { min: number; max: number }): n is number => typeof n === 'number' && Number.isInteger(n) && n >= r.min && n <= r.max;
-
-/** Limits from a database row (or anything); each value falls back to its default when missing or out of range. */
-export function limitsFrom(row: unknown): SessionLimits {
-  const r = (row && typeof row === 'object' ? row : {}) as { idle_logout_minutes?: unknown; max_session_days?: unknown };
-  return {
-    idleMinutes: inRange(r.idle_logout_minutes, IDLE_MINUTES) ? r.idle_logout_minutes : IDLE_MINUTES.default,
-    maxDays: inRange(r.max_session_days, MAX_SESSION_DAYS) ? r.max_session_days : MAX_SESSION_DAYS.default,
-  };
-}
 
 const ACTIVITY = 'dp-la';
 export function activityCookieName(): string {

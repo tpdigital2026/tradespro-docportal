@@ -138,6 +138,12 @@
   --backdrop: rgb(7 22 38 / 0.7);
   --dim: 0.55;
   --nudge: -2px;
+  --switch-w: 52px; /* the on/off switch track; the whole button is at least --tap high */
+  --switch-h: 30px;
+  --switch-knob: 24px;
+  --sig-h: 100px; /* the signature preview, about the height it prints at */
+  --set-side-w: 22rem;
+  --num-w: 8rem; /* short number fields (days, minutes) */
 }
 
 /* Derived from --accent and --accent-ink, so they are declared on every element that may override those

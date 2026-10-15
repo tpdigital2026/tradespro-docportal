@@ -76,7 +76,7 @@ export function readIssued(finalContent: unknown, money: unknown, number: string
     for (const r of input.paymentSchedule as unknown[]) if (Array.isArray(r) && r.length === 2) rows.push({ label: str(r[0]), value: str(r[1]) });
   }
   const bank = input.bank as { accountName?: unknown; bankName?: unknown; accountEnding?: unknown } | undefined;
-  if (bank && str(bank.accountName)) rows.push({ label: 'Paid into', value: `${str(bank.accountName)}, ${str(bank.bankName)}, ending ${str(bank.accountEnding)}` });
+  if (bank && str(bank.accountName)) rows.push({ label: 'Paid into', value: [str(bank.accountName), str(bank.bankName), `ending ${str(bank.accountEnding)}`].filter(Boolean).join(', ') });
 
   const emailKinds: EmailDocKind[] = ['quotation', 'deposit-invoice', 'balance-invoice', 'invoice-full', 'invoice-stage', 'receipt'];
   const email: CoveringEmailFacts | null = emailKinds.includes(kind as EmailDocKind)
