@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sessionMock = vi.hoisted(() => ({ role: 'owner' as 'owner' | 'staff' }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined, set: () => undefined }) }));
-vi.mock('next/navigation', () => ({ redirect: (to: string) => { throw new Error(`NEXT_REDIRECT ${to}`); } }));
+vi.mock('next/navigation', () => ({ redirect: (to: string) => { throw new Error(`NEXT_REDIRECT ${to}`); }, useRouter: () => ({ refresh: () => undefined }) }));
 vi.mock('../../src/lib/session', () => ({
   requireSession: async () => ({ userId: 'u1', tenantId: 't1', role: sessionMock.role, email: 'o@example.test', fullName: 'O', businessName: 'B' }),
 }));
@@ -28,6 +28,9 @@ import {
   setSessionPolicyAction,
   setSignatureConsentAction,
 } from '../../src/app/(app)/settings/actions';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import SettingsPage, { metadata } from '../../src/app/(app)/settings/page';
 import { bankLabel, demoBankOptions, demoSettings, demoSettingsView, demoSignatureForDocuments, getSettingsWith, resetDemoSettings } from '../../src/lib/data/settings';
 import { normaliseAccountNumber, normaliseSortCode } from '../../src/security/bank-crypto';
 import { ACCOUNT_NUMBER_ERROR, parseBankAccount, parseBankNames, retentionSchema, sessionPolicySchema, SORT_CODE_ERROR } from '../../src/lib/validation/settings';
@@ -230,5 +233,33 @@ describe('getSettingsWith (the signed-in session, safe columns only)', () => {
     expect(v.business).toMatchObject({ name: 'FJC', vatNumber: '', addressLines: ['1 Road'], postcode: 'ME3 9UD' });
     expect(v.bankAccounts.map((a) => [a.id, a.isDefault, a.archived])).toEqual([['b1', true, false], ['b2', false, true]]);
     expect(v).toMatchObject({ retentionDays: 120, session: { idleMinutes: 15, maxDays: 3 }, signature: { consent: true, hasImage: true } });
+  });
+});
+
+describe('the Settings page', () => {
+  beforeEach(() => {
+    vi.stubEnv('DEMO_MODE', '1');
+    vi.stubEnv('NODE_ENV', 'development');
+    resetDemoSettings();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  const html = async () => renderToStaticMarkup(createElement('div', null, await SettingsPage()));
+
+  it('has its own title and one h1; owners get the controls', async () => {
+    sessionMock.role = 'owner';
+    expect(metadata.title).toBe('Settings');
+    const out = await html();
+    expect(out.match(/<h1/g)).toHaveLength(1);
+    expect(out).toContain('Add a bank account');
+    expect(out).toContain('Change how long customer data is kept');
+    expect(out).toContain('To change these, contact TradesPro Digital.');
+    expect(out).toContain('ending </span>0000');
+  });
+  it('staff see read-only summaries: no controls, never more than the last four digits', async () => {
+    sessionMock.role = 'staff';
+    const out = await html();
+    expect(out).toContain('Only the owner can change these settings.');
+    for (const control of ['Add a bank account', 'Make default', 'Rename', 'Archive', 'Change how long', 'Change when people', 'Add a picture of your signature</label>', 'Delete the picture']) expect(out).not.toContain(control);
+    expect(out).toMatch(/role="switch"[^>]*disabled=""/);
   });
 });

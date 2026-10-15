@@ -56,10 +56,10 @@ describe.skipIf(!dbAvailable)('tenant slug and public brand', () => {
 
   it('the live reserved-word check equals RESERVED_SLUGS, so code and database cannot drift', async () => {
     await withRollback(async (c) => {
-      const r = await c.query(`select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'tenants_slug_not_reserved'`);
-      expect(r.rows).toHaveLength(1);
-      const arr = /ARRAY\[([^\]]+)\]/.exec(r.rows[0].def as string)!;
-      const words = [...arr[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+      // tenants_slug_not_reserved plus any tenants_slug_not_reserved_* added later (040 adds 'settings' separately).
+      const r = await c.query(`select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.tenants'::regclass and conname like 'tenants\\_slug\\_not\\_reserved%'`);
+      expect(r.rows.map((x) => x.conname)).toContain('tenants_slug_not_reserved');
+      const words = [...new Set(r.rows.flatMap((row) => [.../ARRAY\[([^\]]+)\]/.exec(row.def as string)![1].matchAll(/'([^']+)'/g)].map((m) => m[1])))].sort();
       expect(words).toEqual([...RESERVED_SLUGS].sort());
     });
   });
