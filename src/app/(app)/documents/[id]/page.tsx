@@ -11,6 +11,7 @@ import { requireSession } from '../../../../lib/session';
 import { DownloadButton } from './DownloadButton';
 import { EmailPanel } from './EmailPanel';
 import { ReviseForm } from './ReviseForm';
+import { SurveyNext } from './SurveyNext';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -74,7 +75,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
   );
 }
 
-function Final({ doc, justFinalised }: { doc: DocumentPage; justFinalised: boolean }) {
+function Final({ doc, justFinalised, quoteFailed }: { doc: DocumentPage; justFinalised: boolean; quoteFailed: boolean }) {
   const name = DOC_TYPE_NAMES[doc.type];
   const pdf = `/api/documents/${doc.id}/pdf`;
   const when = doc.finalisedAt ? new Date(doc.finalisedAt) : null;
@@ -118,6 +119,7 @@ function Final({ doc, justFinalised }: { doc: DocumentPage; justFinalised: boole
         </div>
 
         <aside className="doc-side" aria-label="Details">
+          {doc.survey ? <SurveyNext doc={doc} failed={quoteFailed} /> : null}
           <div className="doc-side-panel">
             <h2 className="section-title">What is on it</h2>
             <Summary sections={doc.summary} />
@@ -157,5 +159,5 @@ export default async function DocumentPageRoute({ params, searchParams }: { para
   const sp = await searchParams;
   const doc = await getDocumentPage(id);
   if (!doc) notFound();
-  return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} />;
+  return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} quoteFailed={sp.quote === 'failed'} />;
 }

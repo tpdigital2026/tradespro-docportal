@@ -11,8 +11,8 @@
  *  - the guarantee step is done once a final or sent guarantee exists.
  * The current step is the last one reached without a gap. A step skipped over does not count.
  *
- * A "Surveyed" step is reserved for the survey work (it will sit between Quoted and the first invoice). It is
- * not part of the rail yet.
+ * When the job has a final survey report, a "Surveyed" step comes first, before Quoted. A job with a final survey
+ * and no issued quote yet is shown with surveyedOnlyProgress (next step: write the quote).
  */
 
 export const DOC_TYPES = [
@@ -151,8 +151,9 @@ export function deriveJobStage(
 ): JobProgress {
   const list = [...instalments].sort((a, b) => a.index - b.index);
   const count = list.length;
-  const steps: ProgressStep[] = [{ key: 'quoted', label: 'Quoted' }];
-  const done: boolean[] = [true];
+  const surveyed = documents.some((d) => d.type === 'survey' && live(d.status));
+  const steps: ProgressStep[] = [...(surveyed ? [{ key: 'surveyed', label: 'Surveyed' }] : []), { key: 'quoted', label: 'Quoted' }];
+  const done: boolean[] = surveyed ? [true, true] : [true];
   const paidSoFar = (i: number) => sum(payments.filter((p) => p.instalment === i).map((p) => p.amountPence));
 
   for (const inst of list) {
@@ -197,6 +198,19 @@ export function deriveJobStage(
   const receiptsDue = list.filter((inst) => payments.some((p) => p.instalment === inst.index && !p.receiptLinked)).map((inst) => inst.index);
 
   return { steps, currentIndex, next, receiptsDue };
+}
+
+/** A job with a final survey report and no issued quote yet: Surveyed, then the quote to write. */
+export function surveyedOnlyProgress(): JobProgress {
+  return {
+    steps: [
+      { key: 'surveyed', label: 'Surveyed' },
+      { key: 'quoted', label: 'Quoted' },
+    ],
+    currentIndex: 0,
+    next: { label: 'Write the quote', type: 'quotation', action: 'create', instalment: null },
+    receiptsDue: [],
+  };
 }
 
 export interface HrefOptions {

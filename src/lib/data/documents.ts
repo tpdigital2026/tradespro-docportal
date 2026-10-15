@@ -23,6 +23,9 @@ import { requireSession, type Session } from '../session';
 import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
 import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
+import { demoSurveyAudited, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRows } from './surveys';
+import { surveyEditHref, surveyEditStep, surveyNotes, surveySummary } from '../survey/page';
+import { isFindingApproved, isOpinionApproved } from '../survey/model';
 import { withServiceConnection } from './customer-admin';
 import { ownerClient, type DataClient } from './customers';
 import { demoDraftRows, demoRemoveDraft, demoRestoreDraft, isKnownId, isRealId } from './quotes';
@@ -155,6 +158,8 @@ export interface DocumentPage {
   uncertain: string[];
   /** This quote is a new version of one already issued. */
   isRevision: boolean;
+  /** Survey reports: the job's quote, if there is one (for "Create quote from this survey"). */
+  survey?: { quote: { id: string; status: 'draft' | 'final' } | null };
 }
 
 function emailKind(t: DocType): EmailDocKind | null {
@@ -170,6 +175,39 @@ export function editStepFor(form: QuoteFormValues, vatRateBp: number): string {
   if (!isApproved(form.scope)) keys.push('scope');
   const first = keys.map(step).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0];
   return first ?? 'review';
+}
+
+function surveyPageFrom(l: Loaded, quote: { id: string; status: 'draft' | 'final' } | null): DocumentPage {
+  const h = l.head;
+  const status = statusOf(h.status);
+  const newest = h.versions[0];
+  const shown = status === 'final' ? (h.versions.find((v) => v.id === h.currentVersionId) ?? newest) : newest;
+  const form = l.survey?.form ?? null;
+  const notes = surveyNotes(form);
+  return {
+    id: h.id,
+    type: h.type,
+    number: h.number,
+    status,
+    date: h.docDate,
+    quoteNumber: h.quoteNumber,
+    jobId: h.jobId,
+    customerId: h.customerId,
+    customerName: l.survey?.customerName || 'Customer',
+    versionId: shown?.id ?? null,
+    version: shown?.version ?? 1,
+    finalisedAt: shown?.finalisedAt ?? null,
+    pages: Number((shown?.finalContent as { pages?: unknown } | null)?.pages) || 0,
+    summary: surveySummary(form, l.survey?.customerName || 'Customer', h.number),
+    earlier: h.versions.filter((v) => v.finalisedAt && v.id !== shown?.id).map((v) => ({ versionId: v.id, version: v.version, finalisedAt: v.finalisedAt as string })),
+    editHref: status === 'draft' ? surveyEditHref(h.id, surveyEditStep(form)) : null,
+    revise: null,
+    email: null,
+    corrections: notes.corrections,
+    uncertain: notes.uncertain,
+    isRevision: false,
+    survey: { quote },
+  };
 }
 
 function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
@@ -244,12 +282,17 @@ export async function getDocumentPage(id: string): Promise<DocumentPage | null> 
   if (!isKnownId(id)) return null;
   if (isDemo()) {
     const l = demoLoad(id);
+    if (l?.head.type === 'survey') return surveyPageFrom(l, demoQuoteOfJob(l.head.jobId));
     return l ? pageFrom(l, { otherDocuments: demoOtherDocs(l.head) }) : null;
   }
   if (!isRealId(id)) return null;
   return withServiceConnection(async (db) => {
     const l = await loadWith(db, s.tenantId, id);
     if (!l) return null;
+    if (l.head.type === 'survey') {
+      const q = await db.query(`select id, status::text as status from public.documents where job_id = $1 and tenant_id = $2 and type = 'quotation'`, [l.head.jobId, s.tenantId]);
+      return surveyPageFrom(l, q.rows[0] ? { id: String(q.rows[0].id), status: statusOf(String(q.rows[0].status)) } : null);
+    }
     const others = await db.query(`select count(*)::int as n from public.documents where job_id = $1 and tenant_id = $2 and id <> $3`, [l.head.jobId, s.tenantId, id]);
     return pageFrom(l, { otherDocuments: Number(others.rows[0]?.n ?? 0) });
   });
@@ -492,6 +535,45 @@ function demoRefs(): DemoDocRef[] {
 }
 
 function demoLibrary(): LibraryItem[] {
+  const surveys: LibraryItem[] = demoSurveyRows().map((r) => ({ id: r.id, type: 'survey', number: r.number, status: r.status, date: r.values.surveyDate || r.createdAt.slice(0, 10), customerName: r.customerName, jobId: r.jobId, quoteNumber: demoSurveyJob(r.jobId)?.reference ?? '', totalPence: null, createdAt: r.createdAt }));
+  return [...surveys, ...demoQuoteLibrary()];
+}
+
+function demoQuoteOfJob(jobId: string): { id: string; status: 'draft' | 'final' } | null {
+  const d = demoDraftRows().find((r) => r.jobId === jobId);
+  if (d) return { id: `demo-doc-${jobId}`, status: 'draft' };
+  const q = (demoBillingState().documents.get(jobId) ?? []).find((x) => x.type === 'quotation');
+  return q ? { id: q.id, status: statusOf(q.status) } : null;
+}
+
+function demoSurveyLoad(id: string): Loaded | null {
+  const r = demoSurveyRows().find((x) => x.id === id);
+  if (!r) return null;
+  const st = docState(id);
+  const versions = [
+    ...(r.status === 'draft' ? [{ id: `demo-ver-${id}-v${st.draftVersion}`, version: st.draftVersion, finalisedAt: null, pdfPath: null, input: { schema: 1, survey: r.values }, finalContent: null, bankAccountId: null }] : []),
+    ...[...st.finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: { schema: 1, survey: r.values }, finalContent: { pages: f.pages }, bankAccountId: null })),
+  ];
+  const last = st.finals[st.finals.length - 1];
+  const head: DocumentHead = {
+    id,
+    type: 'survey',
+    number: r.number,
+    status: r.status,
+    docDate: r.values.surveyDate || r.createdAt.slice(0, 10),
+    jobId: r.jobId,
+    customerId: r.customerId,
+    quoteNumber: demoSurveyJob(r.jobId)?.reference ?? '',
+    currentVersionId: r.status === 'draft' ? (versions[0]?.id ?? null) : (last?.versionId ?? null),
+    pdfPath: r.status === 'draft' ? null : (last?.pdfPath ?? null),
+    finalisedAt: r.status === 'draft' ? null : (last?.finalisedAt ?? null),
+    versions,
+  };
+  const photos = Object.fromEntries(demoSurveyPhotos(r.jobId).map((p) => [p.id, { id: p.id, path: p.path, sha256: p.sha256, width: p.width, height: p.height }]));
+  return { head, facts: null, problems: [], business: demoBusinessFacts(), brand: demoRenderBrand(), bankLabel: null, bankAccountId: null, survey: { number: r.number, jobReference: head.quoteNumber, customerName: r.customerName, form: structuredClone(r.values), photos } };
+}
+
+function demoQuoteLibrary(): LibraryItem[] {
   return demoRefs().map((r, i) => {
     const l = demoLoad(r.id);
     let total: number | null = null;
@@ -508,6 +590,7 @@ function demoOtherDocs(h: DocumentHead): number {
 }
 
 function demoLoad(id: string): Loaded | null {
+  if (id.startsWith('demo-survey-')) return demoSurveyLoad(id);
   const r = demoRefs().find((x) => x.id === id);
   if (!r) return null;
   const st = docState(id);
@@ -616,6 +699,12 @@ async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promis
   const p = prepareLoaded(l, secret);
   if (!p.ok) throw new DocumentError('missing', 'Some details this document needs are missing.', p.missing);
   if (p.key !== a.key) throw new DocumentError('changed', 'This document changed after you read it. Read it again before you confirm.');
+  if (l.head.type === 'survey') {
+    const v = l.survey?.form;
+    const audited = demoSurveyAudited(a.documentId);
+    const ok = v && v.findings.every((f) => isFindingApproved(f) && audited.has(f.approvalHash ?? '')) && isOpinionApproved(v) && audited.has(v.opinionHash ?? '');
+    if (!ok) throw new DocumentError('missing', 'Some parts of the report have not been approved.', ['Approve every finding and your professional opinion.']);
+  }
   const out = await (await render())(p.mapped, p.tenant, p.brand);
   if (!allPagesRead(secret, { tenantId: 'demo-tenant', userId: s.userId, documentId: a.documentId, versionId: newest.id, key: p.key }, out.pngPages.length, a.tokens)) {
     throw new DocumentError('unread', `Open all ${out.pngPages.length} pages before you confirm.`);
@@ -629,7 +718,8 @@ async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promis
   if (l.head.type === 'quotation') {
     demoIssueQuote({ jobId: l.head.jobId, form: l.facts!.quoteForm, documentId: a.documentId });
     demoRemoveDraft(l.head.jobId);
-  } else demoMarkFinal(l.head.jobId, a.documentId);
+  } else if (l.head.type === 'survey') demoSurveyMarkFinal(a.documentId);
+  else demoMarkFinal(l.head.jobId, a.documentId);
   return { documentId: a.documentId, versionId: newest.id, pdfPath, pages: out.pngPages.length, already: false };
 }
 

@@ -9,6 +9,8 @@ import { emptyQuoteForm, QUOTE_STEPS, type QuoteStep } from '../../../../lib/val
 import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-stage';
 import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
+import { SurveyNewView } from './SurveyNewView';
+import { jobIdForReference } from '../../../../lib/data/survey-links';
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -23,6 +25,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     }
     return { title: 'New quotation', description: 'Price a job step by step. The draft saves as you go.' };
   }
+  if (type === 'survey') return { title: first(sp.draft) ? 'Survey report' : 'New survey report', description: 'Photos and one line for each finding, then your professional opinion. The draft saves as you go.' };
   if (isDocType(type)) return { title: `New ${DOC_TYPE_NAMES[type].toLowerCase()}`, description: 'Start a document from a saved job.' };
   return { title: 'New document', description: 'Choose the document you need: a quotation, an invoice, a receipt or a guarantee.' };
 }
@@ -40,6 +43,8 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
       </div>
     );
   }
+
+  if (type === 'survey') return <SurveyNewView draft={first(sp.draft)} step={first(sp.step)} job={first(sp.job)} />;
 
   if (isDocType(type) && (type === 'receipt' || isInvoiceType(type))) {
     return <FollowOnView type={type} job={first(sp.job)} n={first(sp.n)} payment={first(sp.payment)} />;
@@ -66,7 +71,9 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
       </div>
     );
   }
-  const draftId = first(sp.draft);
+  // From a job's next step ("Write the quote" after a survey): the job number names the job.
+  const jobRef = first(sp.job);
+  const draftId = first(sp.draft) ?? (jobRef ? ((await jobIdForReference(jobRef)) ?? undefined) : undefined);
   const draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
 
   if (draftId && !draft) {
@@ -105,6 +112,9 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
         title={draft ? `Quote ${draft.values.quoteNumber}` : 'Price a new job'}
         lede="Six short steps. Everything saves as you go, so you can stop and come back any time."
       />
+      {first(sp.from) === 'survey' && draft ? (
+        <p className="doc-note" role="note">This quote is for the job you surveyed. The customer and address are filled in, and the note says to read it alongside the survey report.</p>
+      ) : null}
       {first(sp.revised) === '1' && draft ? (
         <p className="doc-note" role="note">This is a new version of a quote you had already finalised. Make your changes, save, then read and tick it again. The earlier version stays as it was.</p>
       ) : null}

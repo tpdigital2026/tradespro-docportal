@@ -50,7 +50,7 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-P99`],
         ['receipt', `RCP-${q}-S10-P99`],
         ['guarantee', 'GUA-anything-1'],
-        ['survey_report', 'SUR-anything-1'],
+        ['survey_report', `SR-${q}`], // migration 020: a survey report is numbered after its job
       ];
       for (const [type, number] of good) {
         await doc(c, a, type, number);

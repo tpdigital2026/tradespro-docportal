@@ -26,6 +26,8 @@ import { mapDocument, redactMapped, type DocumentMoney, type Mapped } from './ma
 import { loadHeadWith, loadWith, type DocumentHead, type Loaded } from './facts-sql';
 import { allPagesRead, contentKey } from './read-proof';
 import { confirmationFor } from './confirmation';
+import { mapSurvey } from '../survey/map';
+import { surveyApprovalProblemsWith } from '../survey/approval-sql';
 
 /** Bumped whenever the templates change what a document looks like, so old preview images are never reused. */
 export const TEMPLATE_VERSION = 't1';
@@ -57,6 +59,14 @@ export type Prepared = { ok: true; mapped: Mapped; money: DocumentMoney; tenant:
 /** Facts to template input, plus the content key. Adds the checks that need the business (VAT number on a VAT invoice). */
 export function prepareLoaded(l: Loaded, secret: string): Prepared {
   const missing = [...l.problems];
+  if (l.head.type === 'survey') {
+    if (!l.survey || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };
+    const s = mapSurvey(l.survey, l.business.tenant, l.business.wording?.survey);
+    if (!s.ok || missing.length > 0) return { ok: false, missing: [...new Set([...missing, ...(s.ok ? [] : s.missing)])] };
+    const mapped: Mapped = { kind: 'survey', input: s.input };
+    const json = JSON.stringify(mapped);
+    return { ok: true, mapped, money: { netPence: 0, vatPence: 0, grossPence: 0 }, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, json, TEMPLATE_VERSION), mappedJson: json };
+  }
   if (!l.facts || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };
   const r = mapDocument(l.facts, l.business);
   if (!r.ok) return { ok: false, missing: [...missing, ...r.missing] };
@@ -175,6 +185,12 @@ export async function finaliseWith(
       }
     }
 
+    // A survey report is issued only when every finding and the opinion were approved on the server, with audit rows.
+    if (head.type === 'survey') {
+      const problems = await surveyApprovalProblemsWith(db, actor.tenantId, head.id, loaded.survey?.form ?? null);
+      if (problems.length > 0) throw new DocumentError('missing', 'Some parts of the report have not been approved.', problems);
+    }
+
     const out = await deps.render(p.mapped, p.tenant, p.brand);
     if (!allPagesRead(deps.secret, { tenantId: actor.tenantId, userId: actor.userId, documentId: head.id, versionId: newest.id, key: p.key }, out.pngPages.length, a.tokens)) {
       throw new DocumentError('unread', `Open all ${out.pngPages.length} pages before you confirm.`);
@@ -190,7 +206,7 @@ export async function finaliseWith(
     );
     await db.query(
       `update public.documents set status = 'final', current_version_id = $1, total_pence = $2, pdf_path = $3, finalised_at = now() where id = $4 and tenant_id = $5`,
-      [newest.id, p.money.grossPence, pdfPath, head.id, actor.tenantId],
+      [newest.id, p.mapped.kind === 'survey' ? null : p.money.grossPence, pdfPath, head.id, actor.tenantId],
     );
     if (head.type === 'quotation') await db.query(`update public.jobs set status = 'quoted' where id = $1 and tenant_id = $2 and status = 'open'`, [head.jobId, actor.tenantId]);
 

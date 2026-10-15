@@ -7,16 +7,17 @@ type Item = { type: DocType; name: string; blurb: string; group: Group };
 
 const GROUP_LABEL: Record<Group, string> = { start: 'Start a job', paid: 'Get paid', finish: 'Finish up' };
 
-// In the order a job runs. Quotation is the one primary action; the others are tinted by what they are for.
+// In the order a job runs. Quotation is the one primary action; the survey report (which usually comes first on
+// site) starts a job too, as a quieter tile. The others are tinted by what they are for.
 const items: Item[] = [
   { type: 'quotation', name: 'Quotation', blurb: 'Price the work for a customer. It saves as you go.', group: 'start' },
+  { type: 'survey', name: 'Survey report', blurb: 'Photos and a line for each defect you find on site.', group: 'start' },
   { type: 'deposit-invoice', name: 'Deposit invoice', blurb: 'Ask for the deposit before work starts.', group: 'paid' },
   { type: 'balance-invoice', name: 'Balance invoice', blurb: 'Bill what is left once the job is done.', group: 'paid' },
   { type: 'invoice-full', name: 'Full invoice', blurb: 'Bill the whole job in one go, no deposit.', group: 'paid' },
   { type: 'invoice-stage', name: 'Stage invoice', blurb: 'Bill the next stage of a staged job.', group: 'paid' },
   { type: 'receipt', name: 'Receipt', blurb: 'Confirm a payment you have received.', group: 'paid' },
   { type: 'guarantee', name: 'Guarantee certificate', blurb: 'Hand over the guarantee for finished work.', group: 'finish' },
-  { type: 'survey', name: 'Survey report', blurb: 'Record what you found on site.', group: 'finish' },
 ];
 
 const Arrow = () => (
@@ -37,14 +38,14 @@ export function DocTypeList() {
       <ul className="tiles">
         {items.map((i) => (
           <li key={i.type} className={`tile-cell is-${i.type}`}>
-            <Link href={newDocumentHref(i.type)} className={`tile is-${i.group}`}>
+            <Link href={newDocumentHref(i.type)} className={`tile is-${i.group}${i.type === 'quotation' ? '' : i.group === 'start' ? ' is-start-alt' : ''}`}>
               <span className="tile-icon"><DocTypeIcon type={i.type} /></span>
               <span className="tile-text">
                 <span className="sr-only">{GROUP_LABEL[i.group]}: </span>
                 <span className="tile-name">{i.name}</span>
                 <span className="tile-blurb">{i.blurb}</span>
               </span>
-              {i.group === 'start' ? (
+              {i.type === 'quotation' ? (
                 <span className="tile-cta" aria-hidden="true">Start a quote <Arrow /></span>
               ) : (
                 <Arrow />

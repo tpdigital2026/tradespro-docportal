@@ -17,6 +17,7 @@ import { planFromJson } from '../payment-plan';
 import { quoteFormSchema, type QuoteFormValues } from '../validation/quote';
 import type { BusinessFacts, DocumentFacts } from './map';
 import { renderBrandFrom, type AssetRow } from './render-brand';
+import type { SurveyFacts } from '../survey/map';
 
 export interface VersionRow {
   id: string;
@@ -53,6 +54,8 @@ export interface Loaded {
   brand: Brand | null;
   bankLabel: string | null;
   bankAccountId: string | null;
+  /** Survey reports only (src/lib/survey/facts-sql.ts). */
+  survey?: SurveyFacts | null;
 }
 
 const iso = (d: unknown): string => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d ?? '').slice(0, 10));
@@ -199,6 +202,7 @@ function parseFollowOn(input: unknown): { instalment: number; paymentId: string 
 export async function loadWith(db: Db, tenantId: string, documentId: string, opts: { lock?: boolean; decryptBank?: boolean; head?: DocumentHead } = {}): Promise<Loaded | null> {
   const head = opts.head ?? (await loadHeadWith(db, tenantId, documentId, opts.lock));
   if (!head) return null;
+  if (head.type === 'survey') return (await import('../survey/facts-sql')).loadSurveyWith(db, tenantId, head);
   const problems: string[] = [];
   const newest = head.versions[0] ?? null;
 

@@ -49,7 +49,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
           </ul>
         </section>
         <div className="doc-actions">
-          {doc.editHref ? <ButtonLink href={doc.editHref}>Open the quote</ButtonLink> : <ButtonLink href={`/documents/${id}`}>Back to the draft</ButtonLink>}
+          {doc.editHref ? <ButtonLink href={doc.editHref}>{doc.type === 'survey' ? 'Open the survey' : 'Open the quote'}</ButtonLink> : <ButtonLink href={`/documents/${id}`}>Back to the draft</ButtonLink>}
         </div>
         <p className="cust-back"><Link href="/documents">Back to Documents</Link></p>
       </div>
@@ -72,7 +72,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
         confirmation={state.confirmation}
         corrections={doc.corrections}
         uncertain={doc.uncertain}
-        showNotes={doc.type === 'quotation'}
+        showNotes={doc.type === 'quotation' || doc.type === 'survey'}
         editHref={doc.editHref}
       />
     </div>
