@@ -20,7 +20,18 @@ export interface StorageDeleter {
   deleteStoragePrefix(prefix: string): Promise<void>;
 }
 
-export interface DocumentStorage extends StorageDeleter {
+/** One stored file and when it was created (null when the store does not say: such a file is never swept). */
+export interface StoredFile {
+  path: string;
+  createdAt: Date | null;
+}
+
+export interface StorageLister {
+  /** Every file under a tenant's folder (`{tenant}/`), recursively. Throws on failure. */
+  listFiles(prefix: string): Promise<StoredFile[]>;
+}
+
+export interface DocumentStorage extends StorageDeleter, StorageLister {
   /** Stores bytes at a path. Refuses to overwrite unless `overwrite` is set (preview images may be redrawn). */
   put(path: string, bytes: Buffer, contentType: string, opts?: { overwrite?: boolean }): Promise<void>;
   /** The bytes at a path, or null when there is nothing there. Throws on any other failure. */
@@ -40,6 +51,8 @@ export class InMemoryStorage implements DocumentStorage {
   readonly blobs = new Map<string, { bytes: Buffer; contentType: string }>();
   readonly deleted: string[] = [];
   readonly deletedPrefixes: string[] = [];
+  /** When each file was stored; tests may backdate entries. */
+  readonly createdAt = new Map<string, Date>();
   /** Test hook: make the next deletion fail. */
   failNext = false;
 
@@ -47,6 +60,11 @@ export class InMemoryStorage implements DocumentStorage {
     if (!opts.overwrite && this.blobs.has(path)) throw new Error('That file already exists');
     this.objects.add(path);
     this.blobs.set(path, { bytes: Buffer.from(bytes), contentType });
+    this.createdAt.set(path, new Date());
+  }
+
+  async listFiles(prefix: string): Promise<StoredFile[]> {
+    return [...this.blobs.keys()].filter((p) => p.startsWith(prefix)).sort().map((p) => ({ path: p, createdAt: this.createdAt.get(p) ?? null }));
   }
 
   async get(path: string): Promise<Buffer | null> {
@@ -81,7 +99,7 @@ export interface BucketApi {
   upload(path: string, body: Buffer, opts: { contentType: string; upsert: boolean }): Promise<{ error: { message: string; statusCode?: string } | null }>;
   download(path: string): Promise<{ data: Blob | null; error: { message: string; statusCode?: string; status?: number } | null }>;
   remove(paths: string[]): Promise<{ error: { message: string } | null }>;
-  list(prefix: string, opts: { limit: number; offset: number }): Promise<{ data: { name: string; id: string | null }[] | null; error: { message: string } | null }>;
+  list(prefix: string, opts: { limit: number; offset: number }): Promise<{ data: { name: string; id: string | null; created_at?: string | null }[] | null; error: { message: string } | null }>;
 }
 
 const notFound = (e: { message?: string; statusCode?: string; status?: number } | null): boolean =>
@@ -119,8 +137,18 @@ export class SupabaseStorage implements DocumentStorage {
   /** Lists the folder recursively (Supabase lists one level at a time), then removes every file found. */
   async deleteStoragePrefix(prefix: string): Promise<void> {
     if (!/^[0-9a-f-]{36}\/([0-9a-f-]{36}\/)?$/.test(prefix)) throw new Error('Unsafe storage prefix');
-    const files: string[] = [];
-    const walk = async (folder: string, depth: number): Promise<void> => {
+    await this.deleteStorageObjects((await this.walk(prefix)).map((f) => f.path));
+  }
+
+  /** Every file under a tenant's folder, with its creation time (for the orphan sweep). Never logs paths. */
+  async listFiles(prefix: string): Promise<StoredFile[]> {
+    if (!/^[0-9a-f-]{36}\/$/.test(prefix)) throw new Error('Unsafe storage prefix');
+    return this.walk(prefix);
+  }
+
+  private async walk(prefix: string): Promise<StoredFile[]> {
+    const files: StoredFile[] = [];
+    const visit = async (folder: string, depth: number): Promise<void> => {
       if (depth > 8) throw new Error('Storage folder is nested too deeply');
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await this.bucket.list(folder.replace(/\/$/, ''), { limit: 1000, offset });
@@ -128,14 +156,17 @@ export class SupabaseStorage implements DocumentStorage {
         const rows = data ?? [];
         for (const r of rows) {
           const full = `${folder}${r.name}`;
-          if (r.id === null) await walk(`${full}/`, depth + 1);
-          else files.push(full);
+          if (r.id === null) await visit(`${full}/`, depth + 1);
+          else {
+            const at = r.created_at ? new Date(r.created_at) : null;
+            files.push({ path: full, createdAt: at && Number.isFinite(at.getTime()) ? at : null });
+          }
         }
         if (rows.length < 1000) break;
       }
     };
-    await walk(prefix, 0);
-    await this.deleteStorageObjects(files);
+    await visit(prefix, 0);
+    return files;
   }
 }
 

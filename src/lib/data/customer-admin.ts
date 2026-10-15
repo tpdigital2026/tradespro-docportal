@@ -31,6 +31,8 @@ export function compactId(id: string): string {
  */
 export interface TxOptions {
   nested?: boolean;
+  /** Statement timeout for this transaction, in seconds (default 60). The scheduled purge asks for longer. */
+  statementTimeoutSeconds?: number;
 }
 
 function tx(db: Db, o: TxOptions) {
@@ -41,7 +43,8 @@ function tx(db: Db, o: TxOptions) {
       // A leaked JWT claim on this connection would make the final-version guard refuse, so clear it.
       await db.query('reset role');
       await db.query(`select set_config('request.jwt.claims', '', true)`);
-      await db.query(`set local statement_timeout = '60s'`);
+      const secs = Number.isInteger(o.statementTimeoutSeconds) && (o.statementTimeoutSeconds as number) > 0 && (o.statementTimeoutSeconds as number) <= 900 ? (o.statementTimeoutSeconds as number) : 60;
+      await db.query(`set local statement_timeout = '${secs}s'`);
     },
     commit: () => db.query(nested ? 'release savepoint customer_tx' : 'commit'),
     rollback: () => db.query(nested ? 'rollback to savepoint customer_tx' : 'rollback'),
