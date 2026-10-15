@@ -181,8 +181,11 @@ describe('settings actions', () => {
     expect(await setRetentionAction({ days: '20' })).toMatchObject({ status: 'invalid' });
     expect(await setRetentionAction({ days: '60' })).toEqual({ status: 'step-up' });
     stepUp.fresh = true;
-    expect((await setRetentionAction({ days: '60' })).status).toBe('ok');
+    const lower = await setRetentionAction({ days: '60' });
+    expect(lower).toEqual({ status: 'ok', message: 'Customer data is now kept for 60 days after the last activity. Customers already on file keep their current deletion date until something happens on their record.' });
     expect(demoSettingsView().retentionDays).toBe(60);
+    const higher = await setRetentionAction({ days: '365' });
+    expect(higher.status === 'ok' && higher.message).toMatch(/Customers already on file get the longer time too\.$/);
     expect(await setSessionPolicyAction({ idleMinutes: '5', maxDays: '7' })).toMatchObject({ status: 'invalid', errors: { idleMinutes: expect.any(String) } });
     expect((await setSessionPolicyAction({ idleMinutes: '15', maxDays: '3' })).status).toBe('ok');
     expect(demoSettingsView().session).toEqual({ idleMinutes: 15, maxDays: 3 });

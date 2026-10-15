@@ -16,6 +16,7 @@ import {
 import { signatureWith } from '../../src/lib/documents/facts-sql';
 import { InMemoryStorage } from '../../src/lib/storage';
 import { decryptBankDetails } from '../../src/security/bank-crypto';
+import { connect } from '../../src/db/connect';
 import { actAs, actAsServer, createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
 const nested = { nested: true } as const;
@@ -97,6 +98,37 @@ describe.skipIf(!dbAvailable)('owner settings: bank accounts', () => {
   });
 });
 
+describe.skipIf(!dbAvailable)('owner settings: the account cap under concurrency', () => {
+  it('two adds at the same moment with nine accounts: exactly one succeeds (committed data, cleaned up after)', async () => {
+    const setup = await connect();
+    let t: { tenantId: string; userId: string } | null = null;
+    try {
+      t = await createTenantWithUser(setup, `Cap ${randomBytes(4).toString('hex')}`);
+      const actor = { tenantId: t.tenantId, userId: t.userId };
+      for (let i = 0; i < 9; i += 1) await addBankAccountWith(setup, actor, acct(String(i)), KEY);
+      const one = await connect();
+      const two = await connect();
+      try {
+        const results = await Promise.allSettled([addBankAccountWith(one, actor, acct('8'), KEY), addBankAccountWith(two, actor, acct('9'), KEY)]);
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        const bad = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+        expect(bad.reason).toMatchObject({ code: 'limit' });
+        expect((await setup.query(`select count(*)::int n from public.bank_accounts where tenant_id = $1 and archived_at is null`, [t.tenantId])).rows[0].n).toBe(10);
+      } finally {
+        await one.end();
+        await two.end();
+      }
+    } finally {
+      if (t) {
+        // Audit rows are append only and hold ids only; they stay.
+        await setup.query(`delete from public.tenants where id = $1`, [t.tenantId]);
+        await setup.query(`delete from auth.users where id = $1`, [t.userId]);
+      }
+      await setup.end();
+    }
+  });
+});
+
 describe.skipIf(!dbAvailable)('owner settings: retention, session policy, signature', () => {
   it('retention and the session limits are saved (upsert) and audited with values only', async () => {
     await withRollback(async (c) => {
@@ -107,9 +139,33 @@ describe.skipIf(!dbAvailable)('owner settings: retention, session policy, signat
       const d = (await c.query(`select retention_days, idle_logout_minutes, max_session_days from public.tenant_defaults where tenant_id = $1`, [b.tenantId])).rows[0];
       expect(d).toEqual({ retention_days: 365, idle_logout_minutes: 15, max_session_days: 2 });
       const audit = await c.query(`select action, meta from public.audit_log where tenant_id = $1 order by id`, [b.tenantId]);
-      expect(audit.rows).toEqual([{ action: 'settings.retention', meta: { days: 365 } }, { action: 'settings.session', meta: { idle: 15, days: 2 } }]);
+      expect(audit.rows).toEqual([{ action: 'settings.retention', meta: { days: 365, was: 90, extended: 0 } }, { action: 'settings.session', meta: { idle: 15, days: 2 } }]);
       await expect(setSessionPolicyWith(c, b.actor, { idleMinutes: 5, maxDays: 2 }, nested)).rejects.toThrow(/check constraint/);
       await expect(setSessionPolicyWith(c, b.actor, { idleMinutes: 30, maxDays: 31 }, nested)).rejects.toThrow(/check constraint/);
+    });
+  });
+
+  it('raising retention gives customers already on file the longer time; lowering never shortens a date', async () => {
+    await withRollback(async (c) => {
+      const b = await business(c);
+      const other = await business(c);
+      const ins = `insert into public.customers (tenant_id, name, last_activity_at, purge_at) values ($1, $2, now() - interval '20 days', now() + interval '70 days') returning id`;
+      const a1 = (await c.query(ins, [b.tenantId, 'A'])).rows[0].id;
+      // Already further out than the new setting gives: must stay where it is.
+      const far = (await c.query(`insert into public.customers (tenant_id, name, last_activity_at, purge_at) values ($1, 'Far', now() - interval '20 days', now() + interval '600 days') returning id`, [b.tenantId])).rows[0].id;
+      const theirs = (await c.query(ins, [other.tenantId, 'Theirs'])).rows[0].id;
+      const days = async (id: string) => Number((await c.query(`select round(extract(epoch from purge_at - now()) / 86400) d from public.customers where id = $1`, [id])).rows[0].d);
+      expect(await setRetentionWith(c, b.actor, 365, nested)).toEqual({ previous: 90, extended: 1 });
+      expect(await days(a1)).toBe(345);
+      expect(await days(far)).toBe(600);
+      expect(await days(theirs)).toBe(70);
+      expect(await setRetentionWith(c, b.actor, 30, nested)).toEqual({ previous: 365, extended: 0 });
+      expect(await days(a1)).toBe(345);
+      const meta = (await c.query(`select meta from public.audit_log where tenant_id = $1 and action = 'settings.retention' order by id`, [b.tenantId])).rows.map((r) => r.meta);
+      expect(meta).toEqual([{ days: 365, was: 90, extended: 1 }, { days: 30, was: 365, extended: 0 }]);
+      // The function is for the server only.
+      await actAs(c, b.userId);
+      await expectFail(c, `select private.extend_purge_for_retention($1, 365)`, [b.tenantId], /permission denied/);
     });
   });
 

@@ -151,6 +151,9 @@ export async function addBankAccountWith(db: Db, actor: Actor, input: BankInput,
   // Encrypt before the transaction: nothing secret is ever in a statement's text, only in its parameters.
   const enc = encryptBankDetails({ sortCode: input.sortCode, accountNumber: input.accountNumber }, key, actor.tenantId);
   return inTx(db, async () => {
+    // One add at a time per business: row locks cannot stop two inserts both counting nine and both adding one,
+    // so a transaction-scoped advisory lock on the tenant serialises adds before the count.
+    await db.query(`select pg_advisory_xact_lock(hashtextextended('bank-accounts:' || $1::text, 0))`, [actor.tenantId]);
     const active = await db.query(`select id, is_default from public.bank_accounts where tenant_id = $1 and archived_at is null order by id for update`, [actor.tenantId]);
     if (active.rows.length >= MAX_ACTIVE_ACCOUNTS) throw new SettingsError('limit', `You can keep up to ${MAX_ACTIVE_ACCOUNTS} accounts. Archive one you no longer use first.`);
     const isDefault = !active.rows.some((r) => r.is_default === true);
@@ -219,10 +222,24 @@ async function upsertDefaults(db: Db, tenantId: string, set: Record<string, unkn
   );
 }
 
-export async function setRetentionWith(db: Db, actor: Actor, days: number, o: TxOptions = {}): Promise<void> {
-  await inTx(db, async () => {
+/**
+ * Saves retention_days. Raising it also gives every customer already on file the longer period
+ * (greatest(purge_at, last activity + days), private.extend_purge_for_retention, same transaction). Lowering it never
+ * shortens a date already set: those customers keep their current deletion date until something happens on their
+ * record. Returns the old value and how many customers were moved later.
+ */
+export async function setRetentionWith(db: Db, actor: Actor, days: number, o: TxOptions = {}): Promise<{ previous: number; extended: number }> {
+  return inTx(db, async () => {
+    const cur = await db.query(`select retention_days from public.tenant_defaults where tenant_id = $1 for update`, [actor.tenantId]);
+    const previous = safeRetentionDays(cur.rows[0]?.retention_days);
     await upsertDefaults(db, actor.tenantId, { retention_days: days });
-    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'settings.retention', entity: 'tenant', entityId: compactId(actor.tenantId), meta: { days } });
+    let extended = 0;
+    if (days > previous) {
+      const r = await db.query('select private.extend_purge_for_retention($1, $2) as n', [actor.tenantId, days]);
+      extended = Number(r.rows[0]?.n ?? 0);
+    }
+    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'settings.retention', entity: 'tenant', entityId: compactId(actor.tenantId), meta: { days, was: previous, extended } });
+    return { previous, extended };
   }, o);
 }
 

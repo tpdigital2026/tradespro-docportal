@@ -56,7 +56,7 @@ export function RetentionSettings({ days, isOwner, email, demo }: { days: number
           <Field
             id="ret-days"
             label="Days to keep customer data"
-            hint={`Between ${MIN_RETENTION_DAYS} and ${MAX_RETENTION_DAYS} days. Customers already on file keep whichever date is later.`}
+            hint={`Between ${MIN_RETENTION_DAYS} and ${MAX_RETENTION_DAYS} days. A longer time also applies to customers already on file. With a shorter time, customers already on file keep their current deletion date until something happens on their record.`}
             inputMode="numeric"
             autoComplete="off"
             className="set-num"
