@@ -222,6 +222,31 @@ describe.skipIf(!dbAvailable)('finalise', () => {
     });
   });
 
+  it('a lock timeout on the job row (taken first) also says someone else is busy, and cleans up its files', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const seen: string[] = [];
+      // Stand-in for a payment or follow-on save holding the job row: the job lock times out, before the document lock.
+      const db = {
+        query: (sql: string, params?: unknown[]) => {
+          seen.push(sql);
+          if (/from public\.jobs where id = \$1 and tenant_id = \$2 for update/.test(sql)) return Promise.reject(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+          return c.query(sql, params);
+        },
+      };
+      const err = await finaliseWith(db, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render, secret: SECRET }, nested).catch((e) => e);
+      expect(err).toBeInstanceOf(DocumentError);
+      expect(err.code).toBe('busy');
+      expect(err.message).toMatch(/Someone else is finalising this document/);
+      expect(seen.some((q) => /for update of d/.test(q) && seen.indexOf(q) > seen.findIndex((x) => /from public\.jobs where id/.test(x)))).toBe(false);
+      expect(under(storage, `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/`).filter((k) => !k.includes('/preview-'))).toEqual([]);
+      expect((await c.query(`select status::text from public.documents where id = $1`, [f.quoteId])).rows[0].status).toBe('draft');
+    });
+  });
+
   it('B uploads, A finishes first: B removes only its own files, A\'s row points at files that exist', async () => {
     await withRollback(async (c) => {
       const f = await fixture(c);

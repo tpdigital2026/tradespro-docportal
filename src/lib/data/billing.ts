@@ -16,6 +16,7 @@ import { normaliseQuote, quoteFormSchema, NUMBER_RE, type QuoteFormValues } from
 import { withServiceConnection, type Actor, type ServiceDb } from './customer-admin';
 import { ownerClient, type DataClient } from './customers';
 import { getQuoteDefaultsWith, isRealId } from './quotes';
+import { retryOnDeadlock } from './retry';
 
 export interface JobSummary {
   jobId: string;
@@ -71,20 +72,24 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
   const docRows = (docsRes.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string; current_version_id?: string | null }[];
 
   const quoteDocs = docRows.filter((d) => d.type === DB_DOC_TYPES.quotation);
-  const verRes = quoteDocs.length
-    ? await client.from('document_versions').select('id, document_id, version, input, final_content').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
+  // Each quote's current version, read by id: exactly one row per quote, so no limit can push the issued version out
+  // of the result (a revise or a new draft version always moves current_version_id to the newest version).
+  const currentIds = [...new Set(quoteDocs.map((d) => d.current_version_id).filter((x): x is string => typeof x === 'string'))];
+  const verRes = currentIds.length
+    ? await client.from('document_versions').select('id, document_id, version, input, final_content').in('id', currentIds)
     : { data: [], error: null };
   if (verRes.error) throw new BillingError('failed', 'Could not load the quotes');
   const latest = new Map<string, unknown>();
   // The VAT rate the issued quote was finalised at, read from the issued version (current_version_id), never from a
   // newer draft: the job's money stays at that rate whatever the setting is today.
   const issuedRate = new Map<string, number>();
-  const issuedVersion = new Map(quoteDocs.filter((d) => d.status !== 'draft' && d.current_version_id).map((d) => [d.current_version_id as string, d.id]));
+  const currentOf = new Map(quoteDocs.filter((d) => d.current_version_id).map((d) => [d.current_version_id as string, d]));
   for (const v of (verRes.data ?? []) as { id: string; document_id: string; input: { form?: unknown } | null; final_content?: { content?: { input?: { vatRateBp?: unknown } } } | null }[]) {
-    if (!latest.has(v.document_id)) latest.set(v.document_id, v.input?.form);
-    const docId = issuedVersion.get(v.id);
+    const doc = currentOf.get(v.id);
+    if (!doc || doc.id !== v.document_id) continue;
+    latest.set(v.document_id, v.input?.form);
     const r = v.final_content?.content?.input?.vatRateBp;
-    if (docId && typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(docId, r);
+    if (doc.status !== 'draft' && typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(doc.id, r);
   }
   const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000);
   if (payRes.error) throw new BillingError('failed', 'Could not load payments');
@@ -250,11 +255,25 @@ export async function recordPaymentWith(
   actor: Actor,
   args: { jobId: string; invoiceId: string; grossPence: number; payment: RecordablePayment },
 ): Promise<{ paymentId: string; paidPence: number; repeat: boolean }> {
+  // A deadlock (40P01) rolls the whole attempt back, so trying once more is safe.
+  return retryOnDeadlock(() => recordPaymentOnce(db, actor, args));
+}
+
+async function recordPaymentOnce(
+  db: ServiceDb | { query: ServiceDb['query'] },
+  actor: Actor,
+  args: { jobId: string; invoiceId: string; grossPence: number; payment: RecordablePayment },
+): Promise<{ paymentId: string; paidPence: number; repeat: boolean }> {
   await db.query('begin');
   try {
     await db.query('reset role');
     await db.query(`select set_config('request.jwt.claims', '', true)`);
-    // Lock the invoice row so concurrent payments queue.
+    // The job row first, then the invoice: the same order as finalise, revise and follow-on saves (README "Server code
+    // rules"). The payment insert takes a key share on the job row through its foreign key; holding the job row
+    // already means that share can never wait behind a finalise that holds the job and wants this invoice.
+    const job = await db.query(`select id from public.jobs where id = $1 and tenant_id = $2 for update`, [args.jobId, actor.tenantId]);
+    if (!job.rows[0]) throw new BillingError('not_found', 'That invoice could not be found.');
+    // Then the invoice row, so concurrent payments queue.
     const inv = await db.query(
       `select d.id, d.status::text as status, d.type::text as type from public.documents d
        where d.id = $1 and d.tenant_id = $2 and d.job_id = $3 for update`,
@@ -361,7 +380,12 @@ export interface FollowOnWrite {
  * Production owns begin/commit; tests pass nested: true inside their own rolled-back transaction.
  */
 export async function saveFollowOnWith(db: { query: ServiceDb['query'] }, actor: Actor, w: FollowOnWrite, o: { nested?: boolean } = {}): Promise<FollowOnSaved> {
-  const nested = o.nested === true;
+  // Production owns the transaction, so a deadlock (40P01) rolled all of it back and one more try is safe. Inside a
+  // caller's transaction (tests) a deadlock has already aborted that transaction, so it is passed straight up.
+  return o.nested === true ? saveFollowOnOnce(db, actor, w, true) : retryOnDeadlock(() => saveFollowOnOnce(db, actor, w, false));
+}
+
+async function saveFollowOnOnce(db: { query: ServiceDb['query'] }, actor: Actor, w: FollowOnWrite, nested: boolean): Promise<FollowOnSaved> {
   await db.query(nested ? 'savepoint followon_tx' : 'begin');
   try {
     if (!nested) {

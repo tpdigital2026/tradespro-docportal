@@ -67,11 +67,11 @@ function seed(over: Record<string, Row[]> = {}) {
     ],
     customers: [{ id: C1, name: 'Mr Test' }],
     documents: [
-      { id: Q1, job_id: J1, type: 'quotation', number: 'QT-9', status: 'final' },
+      { id: Q1, job_id: J1, type: 'quotation', number: 'QT-9', status: 'final', current_version_id: V1 },
       { id: D1, job_id: J1, type: 'deposit_invoice', number: 'INV-QT-9-D', status: 'final' },
       { id: Q2, job_id: J2, type: 'quotation', number: 'QT-10', status: 'draft' },
     ],
-    document_versions: [{ document_id: Q1, version: 1, input: { form } }],
+    document_versions: [{ id: V1, document_id: Q1, version: 1, input: { form } }],
     payments: [{ id: 'p1', job_id: J1, document_id: D1, amount_pence: 100000, paid_on: '2026-10-10', method: 'cash', note: null, receipt_document_id: null }],
     ...over,
   });
@@ -125,31 +125,58 @@ describe('loadJobSummariesWith', () => {
     expect(j.problem).toMatch(/cannot work out/);
   });
 
-  it('uses the latest version of the quote', async () => {
-    // The real query asks for the newest first; the stand-in returns rows in the order given.
+  it('uses the version current_version_id names (always the newest)', async () => {
+    const V2 = '50000000-0000-4000-8000-000000000002';
     const { client } = seed({
+      documents: [
+        { id: Q1, job_id: J1, type: 'quotation', number: 'QT-9', status: 'final', current_version_id: V2 },
+        { id: D1, job_id: J1, type: 'deposit_invoice', number: 'INV-QT-9-D', status: 'final' },
+      ],
       document_versions: [
-        { document_id: Q1, version: 2, input: { form: { ...form, price: '20000' } } },
-        { document_id: Q1, version: 1, input: { form } },
+        { id: V1, document_id: Q1, version: 1, input: { form } },
+        { id: V2, document_id: Q1, version: 2, input: { form: { ...form, price: '20000' } } },
       ],
     });
     const [j] = await loadJobSummariesWith(client);
     expect(j.billing?.totals.grossPence).toBe(2400000);
   });
+
+  it('finds the issued version however many versions other quotes have (no shared limit can push it out)', async () => {
+    const Q3 = '30000000-0000-4000-8000-000000000003';
+    const many = Array.from({ length: 700 }, (_, i) => ({ id: `6${String(i).padStart(7, '0')}-0000-4000-8000-000000000000`, document_id: Q3, version: 700 - i, input: { form } }));
+    const { client } = seed({
+      documents: [
+        { id: Q1, job_id: J1, type: 'quotation', number: 'QT-9', status: 'final', current_version_id: V1 },
+        { id: D1, job_id: J1, type: 'deposit_invoice', number: 'INV-QT-9-D', status: 'final' },
+        { id: Q3, job_id: J2, type: 'quotation', number: 'QT-10', status: 'final', current_version_id: many[0].id },
+      ],
+      document_versions: [...many, { id: V1, document_id: Q1, version: 1, input: { form }, final_content: { content: { input: { vatRateBp: 2000 } } } }],
+    });
+    const list = await loadJobSummariesWith(client);
+    expect(list.find((j) => j.quoteNumber === 'QT-9')?.billing?.totals.grossPence).toBe(1200000);
+  });
 });
 
 /** A scripted stand-in for the service connection. */
-function fakeDb(opts: { invoice?: { status: string } | null; paid?: number; dup?: boolean } = {}) {
+function fakeDb(opts: { invoice?: { status: string } | null; paid?: number; dup?: boolean; job?: boolean; deadlocks?: number } = {}) {
   const sql: string[] = [];
   const params: unknown[][] = [];
   const invoice = opts.invoice === undefined ? { status: 'final', type: 'invoice_full' } : opts.invoice;
+  let deadlocks = opts.deadlocks ?? 0;
   return {
     sql,
     params,
     async query(text: string, p: unknown[] = []) {
       sql.push(text.replace(/\s+/g, ' ').trim());
       params.push(p);
-      if (/from public\.documents d/.test(text)) return { rows: invoice ? [invoice] : [] };
+      if (/from public\.jobs where id = \$1 and tenant_id = \$2 for update/.test(text)) return { rows: opts.job === false ? [] : [{ id: 'J' }] };
+      if (/from public\.documents d/.test(text)) {
+        if (deadlocks > 0) {
+          deadlocks -= 1;
+          throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+        }
+        return { rows: invoice ? [invoice] : [] };
+      }
       if (/created_at > now\(\)/.test(text)) return { rows: opts.dup ? [{ id: 'existing' }] : [] };
       if (/sum\(amount_pence\)/.test(text)) return { rows: [{ paid: String(opts.paid ?? 0) }] };
       if (/insert into public\.payments/.test(text)) return { rows: [{ id: 'new-payment' }] };
@@ -169,9 +196,40 @@ describe('recordPaymentWith', () => {
     expect(db.sql.at(-1)).toBe('commit');
     const ins = db.sql.findIndex((s) => s.startsWith('insert into public.payments'));
     expect(db.params[ins]).toEqual(['T', 'J', 'I', 5000, '2026-10-15', 'cash', null, 'U']);
-    // The invoice row is locked and looked up inside the tenant and job.
-    const lock = db.sql.findIndex((s) => /for update/.test(s));
-    expect(db.params[lock]).toEqual(['I', 'T', 'J']);
+    // The job row is locked first (inside the tenant), then the invoice row inside the tenant and job.
+    const locks = db.sql.map((s, i) => [s, i] as const).filter(([s]) => /for update/.test(s));
+    expect(locks[0][0]).toMatch(/from public\.jobs/);
+    expect(db.params[locks[0][1]]).toEqual(['J', 'T']);
+    expect(locks[1][0]).toMatch(/from public\.documents d/);
+    expect(db.params[locks[1][1]]).toEqual(['I', 'T', 'J']);
+  });
+
+  it('locks the job before the invoice, the same order as finalise, so the two cannot deadlock', async () => {
+    const db = fakeDb();
+    await recordPaymentWith(db, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay });
+    const job = db.sql.findIndex((s) => /from public\.jobs .*for update/.test(s));
+    const inv = db.sql.findIndex((s) => /from public\.documents d .*for update/.test(s));
+    const ins = db.sql.findIndex((s) => s.startsWith('insert into public.payments'));
+    expect(job).toBeGreaterThan(0);
+    expect(job).toBeLessThan(inv);
+    expect(inv).toBeLessThan(ins);
+  });
+
+  it('a job from another business is refused before anything else is read', async () => {
+    const db = fakeDb({ job: false });
+    await expect(recordPaymentWith(db, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay })).rejects.toMatchObject({ code: 'not_found' });
+    expect(db.sql.some((s) => /from public\.documents d/.test(s))).toBe(false);
+  });
+
+  it('retries once on a deadlock (40P01), from a fresh transaction, and gives up after a second one', async () => {
+    const once = fakeDb({ deadlocks: 1 });
+    const r = await recordPaymentWith(once, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay });
+    expect(r.paymentId).toBe('new-payment');
+    expect(once.sql.filter((s) => s === 'begin')).toHaveLength(2);
+    expect(once.sql.filter((s) => s === 'rollback')).toHaveLength(1);
+    const twice = fakeDb({ deadlocks: 2 });
+    await expect(recordPaymentWith(twice, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay })).rejects.toMatchObject({ code: '40P01' });
+    expect(twice.sql.filter((s) => s.startsWith('insert into public.payments'))).toHaveLength(0);
   });
 
   it('never updates the invoice', async () => {
@@ -228,6 +286,28 @@ function txDb(failOn?: RegExp) {
 const write = { jobId: 'J', type: 'receipt' as const, number: 'RCP-Q-D', instalment: 1, heading: 'Deposit', netPence: 100, vatPence: 20, grossPence: 120, date: '2026-10-15', paymentId: 'P' };
 
 describe('saveFollowOnWith', () => {
+  it('retries once on a deadlock (40P01) when it owns the transaction, never inside a caller\'s', async () => {
+    let left = 1;
+    const base = txDb();
+    const db = {
+      sql: base.sql,
+      async query(text: string) {
+        if (/^select id from public\.jobs/.test(text.trim()) && left > 0) {
+          left -= 1;
+          base.sql.push('deadlock');
+          throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+        }
+        return base.query(text);
+      },
+    };
+    expect((await saveFollowOnWith(db, actor, write)).documentId).toBe('D');
+    expect(db.sql.filter((s) => s === 'begin')).toHaveLength(2);
+    left = 1;
+    db.sql.length = 0;
+    await expect(saveFollowOnWith(db, actor, write, { nested: true })).rejects.toMatchObject({ code: '40P01' });
+    expect(db.sql.filter((s) => s.startsWith('savepoint'))).toHaveLength(1);
+  });
+
   it('writes document, version, pointer and receipt link between one begin and one commit', async () => {
     const db = txDb();
     const r = await saveFollowOnWith(db, actor, write);

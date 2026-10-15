@@ -306,15 +306,7 @@ export async function finaliseWith(
   }
 }
 
-/** Runs fn again once if Postgres reports a deadlock (40P01). */
-export async function retryOnDeadlock<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (e) {
-    if ((e as { code?: string }).code === '40P01') return fn();
-    throw e;
-  }
-}
+export { retryOnDeadlock } from '../data/retry';
 
 /**
  * Changing an issued quote: a new draft version, a copy of the issued one, which must be read and ticked again. The
