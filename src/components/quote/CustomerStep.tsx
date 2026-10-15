@@ -2,7 +2,10 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { ButtonLink } from '../Button';
+import { EmptyState } from '../EmptyState';
 import { Field } from '../Field';
+import { initials } from '../../lib/initials';
 import type { StepProps } from './types';
 
 const SHOWN = 8;
@@ -21,10 +24,15 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
   if (locked && selected) {
     return (
       <section aria-labelledby="step-h" className="qt-step">
-        <h2 id="step-h" className="qt-h" tabIndex={-1}>Who is it for?</h2>
+        <div className="qt-step-head">
+          <h2 id="step-h" className="qt-h" tabIndex={-1}>Who is it for?</h2>
+        </div>
         <p className="qt-locked">
+          <span className="avatar" aria-hidden="true">{initials(selected.name)}</span>
+          <span className="qt-locked-main">
           <strong>{selected.name}</strong>
           <span>{[selected.addressLine, selected.postcode].filter(Boolean).join(', ')}</span>
+          </span>
         </p>
         <p className="hint">The customer is fixed once a draft is saved. To quote someone else, start a new quote.</p>
       </section>
@@ -33,9 +41,14 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
 
   return (
     <section aria-labelledby="step-h" className="qt-step">
-      <h2 id="step-h" className="qt-h" tabIndex={-1}>Who is it for?</h2>
+      <div className="qt-step-head">
+        <h2 id="step-h" className="qt-h" tabIndex={-1}>Who is it for?</h2>
+        <p className="qt-lede">Pick the customer. Their address fills in for you on the next step.</p>
+      </div>
       {ctx.customers.length === 0 ? (
-        <p className="empty">You have no customers yet. Add the first one, then come back to start the quote.</p>
+        <EmptyState icon="people" title="You have no customers yet" action={<ButtonLink href="/customers/new">Add your first customer</ButtonLink>}>
+          Add their name and address once, then come back here to start the quote. Their details go on every document.
+        </EmptyState>
       ) : (
         <>
           <Field announce={false}
@@ -63,6 +76,7 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
                     touch('customerId');
                   }}
                 />
+                <span className="avatar" aria-hidden="true">{initials(c.name)}</span>
                 <span className="qt-opt-main">
                   <span className="qt-opt-title">{c.name}</span>
                   <span className="qt-opt-meta">{[c.addressLine, c.postcode].filter(Boolean).join(', ')}</span>
@@ -75,7 +89,7 @@ export function CustomerStep({ values, set, err, touch, ctx, locked }: StepProps
           {error ? <p className="error" id="cust-error">{error}</p> : null}
         </>
       )}
-      <p className="qt-link"><Link href="/customers/new">Add a new customer</Link></p>
+      {ctx.customers.length > 0 ? <p className="qt-link"><Link href="/customers/new">Someone new? Add a customer</Link></p> : null}
     </section>
   );
 }

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { ButtonLink } from '../../../../components/Button';
+import { EmptyState } from '../../../../components/EmptyState';
 import { PageHeader } from '../../../../components/PageHeader';
+import { initials } from '../../../../lib/initials';
 import { getJobSummary, listJobSummaries } from '../../../../lib/data/billing';
 import { followOnFor, type JobBilling } from '../../../../lib/job-billing';
 import { DOC_TYPE_NAMES, invoiceTypeFor, newDocumentHref, type DocType } from '../../../../lib/job-stage';
@@ -37,25 +39,28 @@ async function Chooser({ type }: { type: DocType }) {
   });
   return (
     <div className="page">
-      <PageHeader muted="Which job is the" title={DOC_TYPE_NAMES[type].toLowerCase() + ' for?'} />
+      <PageHeader muted={`New ${DOC_TYPE_NAMES[type].toLowerCase()}`} title="Which job is it for?" lede="Pick the job and everything else fills in from its saved quote." />
       {options.length > 0 ? (
-        <ul className="rows">
+        <ul className="cust-list">
           {options.map(({ job, n }) => (
             <li key={job.quoteNumber}>
               <Link href={newDocumentHref(type, job.quoteNumber, { n })} className="cust-row">
+                <span className="avatar" aria-hidden="true">{initials(job.customerName)}</span>
                 <span className="cust-main">
-                  <span className="row-title">{job.customerName}</span>
-                  <span className="row-meta">Quote {job.quoteNumber}</span>
+                  <span className="cust-name">{job.customerName}</span>
+                  <span className="cust-addr">Quote {job.quoteNumber}{job.addressLine ? `, ${job.addressLine}` : ''}</span>
                 </span>
-                <span className="cust-kept">Choose</span>
+                <span className="chip is-go">Choose</span>
               </Link>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="empty">No job is waiting for a {DOC_TYPE_NAMES[type].toLowerCase()}. Jobs show up here once their quote has been issued and the payment plan fits.</p>
+        <EmptyState icon="jobs" title={`No job needs a ${DOC_TYPE_NAMES[type].toLowerCase()} right now`} action={<ButtonLink href="/" variant="secondary">Back to Home</ButtonLink>}>
+          Jobs show up here once their quote has been issued and the payment plan has a {DOC_TYPE_NAMES[type].toLowerCase()} due.
+        </EmptyState>
       )}
-      <Back />
+      {options.length > 0 ? <Back /> : null}
     </div>
   );
 }
@@ -89,7 +94,10 @@ export async function FollowOnView({ type, job, n, payment }: { type: DocType; j
   const received = f.receivedEarlier.reduce((s, p) => s + p.amountPence, 0);
   return (
     <div className="page page-quote">
-      <PageHeader eyebrow={`Quote ${summary.quoteNumber}`} muted="Start a" title={DOC_TYPE_NAMES[type].toLowerCase()} lede="Everything below comes from the saved quote. Nothing is typed twice." />
+      <PageHeader compact eyebrow={`Job ${summary.quoteNumber}`} title={`New ${DOC_TYPE_NAMES[type].toLowerCase()}`} lede="Everything here comes from the saved quote, so nothing is typed twice. Check it, then save the draft." />
+      <div className="fo-layout">
+      <div className="fo-main">
+      <h2 className="fgroup-h">{isReceipt ? 'The payment' : 'Who and what'}</h2>
       <dl className="qt-facts">
         <div><dt>For</dt><dd>{summary.customerName}</dd></div>
         {summary.addressLine ? <div><dt>Address of the work</dt><dd>{summary.addressLine}</dd></div> : null}
@@ -103,22 +111,22 @@ export async function FollowOnView({ type, job, n, payment }: { type: DocType; j
           </>
         ) : null}
       </dl>
-      <h3 className="qt-h3">Money</h3>
+      {!isReceipt && f.receivedEarlier.length > 0 ? (
+        <p className="qt-note">Already received on this job: {formatGBP(received)}. It is listed on the invoice.</p>
+      ) : null}
+      {f.exists ? <p className="qt-note">A document with this number is already saved for the job.</p> : null}
+      </div>
+      <aside className="fo-side qt-sum-card" aria-label="Money">
+      <p className="eyebrow">{f.number}</p>
       <dl className="qt-sum">
         <div><dt>Before VAT</dt><dd>{formatGBP(f.netPence)}</dd></div>
         <div><dt>VAT</dt><dd>{f.vatPence > 0 ? formatGBP(f.vatPence) : 'None'}</dd></div>
         <div className="is-total"><dt>{isReceipt ? 'Received' : 'To pay'}</dt><dd>{formatGBP(f.grossPence)}</dd></div>
       </dl>
-      {!isReceipt ? (
-        <>
-          {f.receivedEarlier.length > 0 ? (
-            <p className="qt-note">Already received on this job: {formatGBP(received)}. It is listed on the invoice.</p>
-          ) : null}
-        </>
-      ) : null}
-      {f.exists ? <p className="qt-note">A document with this number is already saved for the job.</p> : null}
       <FollowOnForm job={summary.quoteNumber} type={type} n={f.instalment} payment={f.payment?.id ?? null} exists={f.exists} />
-      <p className="qt-note">Making the PDF and finalising it come next. Saving now keeps the draft with the job.</p>
+      <p className="qt-note">Saving keeps the draft with the job. Making the PDF and sending it come next.</p>
+      </aside>
+      </div>
       <p className="cust-back"><Link href={`/documents/jobs/${encodeURIComponent(summary.quoteNumber)}`}>Back to the job</Link></p>
     </div>
   );

@@ -2,56 +2,57 @@ import Link from 'next/link';
 import { DocTypeIcon } from './DocTypeIcon';
 import { newDocumentHref, type DocType } from '../lib/job-stage';
 
-type Item = { type: DocType; name: string; blurb: string };
+type Group = 'start' | 'paid' | 'finish';
+type Item = { type: DocType; name: string; blurb: string; group: Group };
 
-const groups: { label: string; items: Item[] }[] = [
-  {
-    label: 'Start a job',
-    items: [{ type: 'quotation', name: 'Quotation', blurb: 'Price the work for a new customer.' }],
-  },
-  {
-    label: 'Get paid',
-    items: [
-      { type: 'deposit-invoice', name: 'Deposit invoice', blurb: 'Ask for the deposit before work begins.' },
-      { type: 'balance-invoice', name: 'Balance invoice', blurb: 'Bill what remains once the job is done.' },
-      { type: 'invoice-full', name: 'Full invoice', blurb: 'Bill the whole job at once, no deposit.' },
-      { type: 'invoice-stage', name: 'Stage invoice', blurb: 'Bill one stage of a job paid in stages.' },
-      { type: 'receipt', name: 'Receipt', blurb: 'Confirm a payment you have received.' },
-    ],
-  },
-  {
-    label: 'Finish up',
-    items: [
-      { type: 'guarantee', name: 'Guarantee certificate', blurb: 'Hand over the guarantee for the finished work.' },
-      { type: 'survey', name: 'Survey report', blurb: 'Record what you found on site.' },
-    ],
-  },
+const GROUP_LABEL: Record<Group, string> = { start: 'Start a job', paid: 'Get paid', finish: 'Finish up' };
+
+// In the order a job runs. Quotation is the one primary action; the others are tinted by what they are for.
+const items: Item[] = [
+  { type: 'quotation', name: 'Quotation', blurb: 'Price the work for a customer. It saves as you go.', group: 'start' },
+  { type: 'deposit-invoice', name: 'Deposit invoice', blurb: 'Ask for the deposit before work starts.', group: 'paid' },
+  { type: 'balance-invoice', name: 'Balance invoice', blurb: 'Bill what is left once the job is done.', group: 'paid' },
+  { type: 'invoice-full', name: 'Full invoice', blurb: 'Bill the whole job in one go, no deposit.', group: 'paid' },
+  { type: 'invoice-stage', name: 'Stage invoice', blurb: 'Bill the next stage of a staged job.', group: 'paid' },
+  { type: 'receipt', name: 'Receipt', blurb: 'Confirm a payment you have received.', group: 'paid' },
+  { type: 'guarantee', name: 'Guarantee certificate', blurb: 'Hand over the guarantee for finished work.', group: 'finish' },
+  { type: 'survey', name: 'Survey report', blurb: 'Record what you found on site.', group: 'finish' },
 ];
 
+const Arrow = () => (
+  <svg className="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+/** The document picker: tinted tiles, grouped by colour (start, get paid, finish up), Quotation first and primary. */
 export function DocTypeList() {
   return (
-    <div className="picker">
-      {groups.map((g) => (
-        <div key={g.label} className="picker-group">
-          <h2 className="group-label">{g.label}</h2>
-          <ul className="rows">
-            {g.items.map((i) => (
-              <li key={i.type}>
-                <Link href={newDocumentHref(i.type)} className="pick">
-                  <span className="pick-icon"><DocTypeIcon type={i.type} /></span>
-                  <span className="pick-text">
-                    <span className="pick-name">{i.name}</span>
-                    <span className="pick-blurb">{i.blurb}</span>
-                  </span>
-                  <svg className="pick-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M9 6l6 6-6 6" />
-                  </svg>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+    <div className="tiles-wrap">
+      <ul className="tile-key" aria-hidden="true">
+        {(Object.keys(GROUP_LABEL) as Group[]).map((g) => (
+          <li key={g} className={`is-${g}`}>{GROUP_LABEL[g]}</li>
+        ))}
+      </ul>
+      <ul className="tiles">
+        {items.map((i) => (
+          <li key={i.type} className={`tile-cell is-${i.type}`}>
+            <Link href={newDocumentHref(i.type)} className={`tile is-${i.group}`}>
+              <span className="tile-icon"><DocTypeIcon type={i.type} /></span>
+              <span className="tile-text">
+                <span className="sr-only">{GROUP_LABEL[i.group]}: </span>
+                <span className="tile-name">{i.name}</span>
+                <span className="tile-blurb">{i.blurb}</span>
+              </span>
+              {i.group === 'start' ? (
+                <span className="tile-cta" aria-hidden="true">Start a quote <Arrow /></span>
+              ) : (
+                <Arrow />
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

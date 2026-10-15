@@ -24,9 +24,15 @@ export function CustomerForm({
   return (
     <form action={formAction} className="cust-form" noValidate>
       {state.message ? <p className="form-error" role="alert">{state.message}</p> : null}
-      <Field id="name" name="name" label="Name" autoComplete="off" defaultValue={v.name} error={e.name} maxLength={120} required />
-      <Field id="address1" name="address1" label="Address line 1" autoComplete="off" defaultValue={v.address1} error={e.address1} maxLength={120} required />
-      <Field id="address2" name="address2" label="Address line 2" hint="Optional" autoComplete="off" defaultValue={v.address2} error={e.address2} maxLength={120} />
+      <div className="fgroup">
+        <h3 className="fgroup-h">Who</h3>
+        <Field id="name" name="name" label="Name" hint="As it should appear on their documents, like Mr John Smith." autoComplete="off" defaultValue={v.name} error={e.name} maxLength={120} required />
+      </div>
+      <div className="fgroup">
+        <h3 className="fgroup-h">Address</h3>
+        <Field id="address1" name="address1" label="Address line 1" autoComplete="off" defaultValue={v.address1} error={e.address1} maxLength={120} required />
+        <Field id="address2" name="address2" label="Address line 2" hint="Optional" autoComplete="off" defaultValue={v.address2} error={e.address2} maxLength={120} />
+        <div className="fgroup-row">
       <Field id="town" name="town" label="Town or city" autoComplete="off" defaultValue={v.town} error={e.town} maxLength={120} />
       <Field
         id="postcode"
@@ -40,13 +46,18 @@ export function CustomerForm({
         maxLength={10}
         required
       />
+        </div>
+      </div>
+      <div className="fgroup">
+        <h3 className="fgroup-h">Contact</h3>
+        <div className="fgroup-row">
       <Field
         id="email"
         name="email"
         type="email"
         inputMode="email"
         label="Email"
-        hint="Optional. Only used to copy into your own emails."
+        hint="Optional. Only used when you copy it into your own emails."
         autoComplete="off"
         autoCapitalize="none"
         spellCheck={false}
@@ -54,7 +65,9 @@ export function CustomerForm({
         error={e.email}
         maxLength={254}
       />
-      <Field id="phone" name="phone" type="tel" inputMode="tel" label="Phone" hint="Optional" autoComplete="off" defaultValue={v.phone} error={e.phone} maxLength={20} />
+      <Field id="phone" name="phone" type="tel" inputMode="tel" label="Phone" hint="Optional." autoComplete="off" defaultValue={v.phone} error={e.phone} maxLength={20} />
+        </div>
+      </div>
       <Button type="submit" className="btn-block-sm" disabled={pending}>{pending ? 'Saving...' : submitLabel}</Button>
     </form>
   );

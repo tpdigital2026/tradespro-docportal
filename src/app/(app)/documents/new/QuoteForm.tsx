@@ -267,9 +267,16 @@ export function QuoteForm({
             ? 'The draft saves as you go.'
             : 'The draft starts saving once you have chosen a customer and a quote number.';
 
+  const chosen = ctx.customers.find((c) => c.id === values.customerId);
+  const summaryCustomer = chosen ? { name: chosen.name, address: [chosen.addressLine, chosen.postcode].filter(Boolean).join(', ') } : null;
+  const summaryType = ctx.jobTypes.find((t) => t.id === values.jobTypeId)?.label ?? null;
+
   return (
     <div className={`qt-form${step === 'scope' ? ' is-scope' : ''}`}>
       <nav aria-label="Quote steps" className="qt-steps">
+        <p className="qt-steps-now" aria-hidden="true">
+          Step {stepIx + 1} of {QUOTE_STEPS.length}: <strong>{STEP_LABEL[step]}</strong>
+        </p>
         <ol>
           {QUOTE_STEPS.map((s, i) => (
             <li key={s}>
@@ -280,7 +287,13 @@ export function QuoteForm({
                 disabled={i > reachable}
                 onClick={() => goTo(i)}
               >
-                <span className="qt-stepbar" aria-hidden="true" />
+                <span className="qt-stepnum" aria-hidden="true">
+                  {i < stepIx ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                  ) : (
+                    i + 1
+                  )}
+                </span>
                 <span className="qt-steplabel">{STEP_LABEL[s]}</span>
               </button>
             </li>
@@ -288,39 +301,51 @@ export function QuoteForm({
         </ol>
       </nav>
 
-      <TotalsBar totals={totals} vatApplies={values.vatApplies} />
+      <div className="qt-layout">
+        <div className="qt-main">
+          <p className={`qt-save${save.kind === 'error' ? ' is-error' : save.kind === 'saved' ? ' is-saved' : ''}`} role="status" aria-live="polite">{saveText}</p>
 
-      <p className={`qt-save${save.kind === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite">{saveText}</p>
+          {reverted ? <p className="qt-save" role="status" aria-live="polite">The quote number and customer are fixed once saved.</p> : null}
 
-      {reverted ? <p className="qt-save" role="status" aria-live="polite">The quote number and customer are fixed once saved.</p> : null}
+          <div ref={headingBox} className="qt-body">
+            {step === 'customer' ? <CustomerStep {...stepProps} /> : null}
+            {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} /> : null}
+            {step === 'scope' ? <ScopeStep {...stepProps} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
+            {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
+            {step === 'plan' ? <PlanStep {...stepProps} /> : null}
+            {step === 'review' ? <ReviewStep {...stepProps} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s))} vatRatePct={vatRatePct} /> : null}
+          </div>
 
-      <div ref={headingBox} className="qt-body">
-        {step === 'customer' ? <CustomerStep {...stepProps} /> : null}
-        {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} /> : null}
-        {step === 'scope' ? <ScopeStep {...stepProps} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
-        {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
-        {step === 'plan' ? <PlanStep {...stepProps} /> : null}
-        {step === 'review' ? <ReviewStep {...stepProps} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s))} vatRatePct={vatRatePct} /> : null}
-      </div>
+          {finishError ? <p className="form-error" role="alert">{finishError}</p> : null}
 
-      {finishError ? <p className="form-error" role="alert">{finishError}</p> : null}
+          {step !== 'scope' && stepIx > 0 ? (
+            <div className="qt-nav">
+              <Button type="button" variant="secondary" onClick={() => goTo(stepIx - 1)}>Back to {STEP_LABEL[QUOTE_STEPS[stepIx - 1]].toLowerCase()}</Button>
+            </div>
+          ) : null}
+        </div>
 
-      {step === 'scope' ? null : (
-      <div className="qt-nav">
-        {stepIx > 0 ? (
-          <Button type="button" variant="secondary" onClick={() => goTo(stepIx - 1)}>Back</Button>
-        ) : (
-          <span />
+        {step === 'scope' ? null : (
+          <aside className="qt-side" aria-label="Quote summary">
+            <TotalsBar
+              totals={totals}
+              vatApplies={values.vatApplies}
+              quoteNumber={values.quoteNumber.trim()}
+              customer={summaryCustomer}
+              jobType={summaryType}
+              planKind={values.plan.kind}
+            >
+              {last ? (
+                <Button type="button" onClick={finish} disabled={finishing || blockers.length > 0}>
+                  {finishing ? 'Saving' : 'Save quote'}
+                </Button>
+              ) : (
+                <Button type="button" onClick={next}>Continue to {STEP_LABEL[QUOTE_STEPS[stepIx + 1]].toLowerCase()}</Button>
+              )}
+            </TotalsBar>
+          </aside>
         )}
-        {last ? (
-          <Button type="button" onClick={finish} disabled={finishing || blockers.length > 0}>
-            {finishing ? 'Saving' : 'Save quote'}
-          </Button>
-        ) : (
-          <Button type="button" onClick={next}>Continue</Button>
-        )}
       </div>
-      )}
     </div>
   );
 }

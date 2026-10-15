@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ButtonLink } from '../../../../components/Button';
 import { notFound } from 'next/navigation';
 import { CustomerForm } from '../../../../components/customers/CustomerForm';
 import { DeleteCustomer } from '../../../../components/customers/DeleteCustomer';
 import { KeepForm } from '../../../../components/customers/KeepForm';
 import { SavedNotice } from '../../../../components/customers/SavedNotice';
+import { EmptyState } from '../../../../components/EmptyState';
 import { PageHeader } from '../../../../components/PageHeader';
+import { initials } from '../../../../lib/initials';
 import { savedKindFrom } from '../../../../lib/customer-flash';
 import { getCustomer, getRetentionDays, listCustomerDocuments } from '../../../../lib/data/customers';
 import { daysLeft, formatKeptUntil, isRunningOut } from '../../../../lib/retention';
@@ -53,14 +56,21 @@ export default async function CustomerPage({
   };
 
   return (
-    <div className="page">
-      <PageHeader muted="Customer" title={customer.name} />
+    <div className="page page-wide">
+      <PageHeader
+        eyebrow="Customer"
+        title={customer.name}
+        lede={[...customer.addressLines.filter(Boolean), customer.postcode].filter(Boolean).join(', ') || undefined}
+        lead={<span className="avatar avatar-lg" aria-hidden="true">{initials(customer.name)}</span>}
+      />
       <SavedNotice kind={saved === 'created' ? 'created' : null} stamp={stamp} bringIntoView={false} />
-      {flags.kept ? <p className="cust-flash" role="status">Done. This customer's details are kept for longer.</p> : null}
+      {flags.kept ? <p className="flash" role="status">Done. This customer&rsquo;s details are kept for longer.</p> : null}
 
+      <div className="cust-layout">
+      <div className="cust-side">
       <section className={`cust-retention${warn ? ' is-warn' : ''}`} aria-label="How long their details are kept">
-        <p className="cust-retention-main">Data kept until {formatKeptUntil(customer.purgeAt)}</p>
-        <p className="row-meta">Any new document resets this.</p>
+        <p className="cust-retention-main">Details kept until {formatKeptUntil(customer.purgeAt)}</p>
+        <p className="row-meta">Making a new document for them resets this.</p>
         {warn ? (
           <div className="cust-retention-warn">
             <p role="status">
@@ -71,30 +81,42 @@ export default async function CustomerPage({
         ) : null}
       </section>
 
-      <section aria-labelledby="docs-h" className="cust-section">
-        <h2 id="docs-h" className="section-title">Documents</h2>
+      <section aria-labelledby="docs-h" className="side-panel">
+        <div className="sec-head">
+          <h2 id="docs-h" className="section-title">Documents</h2>
+          <p className="section-sub">{docs.length ? 'Everything made for this customer.' : 'Nothing made for them yet.'}</p>
+        </div>
         {docs.length ? (
-          <ul className="rows">
+          <ul className="mini-list">
             {docs.map((d) => (
-              <li key={d.id} className="row">
-                <div className="row-main">
-                  <p className="row-title">{TYPE_NAMES[d.type] ?? 'Document'}</p>
-                  <p className="row-meta">{d.number} · {dateFmt.format(new Date(d.date))}</p>
-                </div>
-                <p className="row-tag">{d.status === 'draft' ? 'Draft' : 'Final'}</p>
+              <li key={d.id} className="mini-row is-static">
+                <span className="mini-main">
+                  <span className="mini-title">{TYPE_NAMES[d.type] ?? 'Document'}</span>
+                  <span className="mini-meta">{d.number}, {dateFmt.format(new Date(d.date))}</span>
+                </span>
+                <span className={`status-chip ${d.status === 'draft' ? 'is-draft' : 'is-final'}`}>{d.status === 'draft' ? 'Draft' : 'Final'}</span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="empty">No documents for this customer yet.</p>
+          <EmptyState icon="docs" title="No documents yet" compact action={<ButtonLink href={`/documents/new?type=quotation&customer=${customer.id}`} variant="secondary">Start a quotation</ButtonLink>}>
+            Quotes, invoices and receipts you make for {customer.name} are listed here.
+          </EmptyState>
         )}
       </section>
+      </div>
 
-      <section aria-labelledby="edit-h" className="cust-section">
-        <h2 id="edit-h" className="section-title">Their details</h2>
+      <section aria-labelledby="edit-h" className="cust-main-col">
+        <div className="sec-head">
+          <h2 id="edit-h" className="section-title">Their details</h2>
+          <p className="section-sub">What goes on their documents. Change anything, then save.</p>
+        </div>
         <SavedNotice kind={saved === 'updated' ? 'updated' : null} stamp={stamp} />
-        <CustomerForm action={updateCustomerAction.bind(null, customer.id)} initial={initial} submitLabel="Save changes" />
+        <div className="form-panel">
+          <CustomerForm action={updateCustomerAction.bind(null, customer.id)} initial={initial} submitLabel="Save changes" />
+        </div>
       </section>
+      </div>
 
       {session.role === 'owner' ? (
         <DeleteCustomer customerId={customer.id} customerName={customer.name} ownerEmail={session.email} />

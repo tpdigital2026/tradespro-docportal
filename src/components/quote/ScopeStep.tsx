@@ -136,9 +136,9 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
 
   return (
     <section aria-labelledby="step-h" className="qt-step sc">
-      <div>
+      <div className="qt-step-head">
         <h2 id="step-h" className="qt-h" tabIndex={-1} ref={headingRef}>{reviewing ? 'Check the wording' : 'What the work involves'}</h2>
-        <p className="sc-lede">
+        <p className="qt-lede">
           {reviewing
             ? 'Read it through. Change anything that is not right, then approve it. The price comes next.'
             : 'Write the job one sentence at a time, in the order you do it. Type it, or tap Speak. Then we tidy the wording and you check it.'}

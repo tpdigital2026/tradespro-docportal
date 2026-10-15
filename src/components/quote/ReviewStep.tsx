@@ -5,6 +5,9 @@ import { isApproved } from '../../lib/scope/model';
 import type { QuoteStep } from '../../lib/validation/quote';
 import type { StepProps } from './types';
 
+const longDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+const showDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) && !Number.isNaN(Date.parse(iso)) ? longDate.format(new Date(`${iso}T00:00:00Z`)) : iso || 'Not set');
+
 export function ReviewStep({
   values,
   set,
@@ -21,7 +24,10 @@ export function ReviewStep({
   const stepName: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', scope: 'Scope', price: 'Price', plan: 'Plan', review: 'Review' };
   return (
     <section aria-labelledby="step-h" className="qt-step">
-      <h2 id="step-h" className="qt-h" tabIndex={-1}>Check it over</h2>
+      <div className="qt-step-head">
+        <h2 id="step-h" className="qt-h" tabIndex={-1}>Check it over</h2>
+        <p className="qt-lede">Everything the quote will say. Tap a step above to change anything.</p>
+      </div>
 
       {blockers.length > 0 ? (
         <div className="qt-blockers">
@@ -41,7 +47,7 @@ export function ReviewStep({
       <dl className="qt-facts">
         <div><dt>For</dt><dd>{customer ? customer.name : 'Not chosen'}</dd></div>
         <div><dt>Quote number</dt><dd>{values.quoteNumber || 'Not set'}</dd></div>
-        <div><dt>Date</dt><dd>{values.date || 'Not set'}</dd></div>
+        <div><dt>Date</dt><dd>{showDate(values.date)}</dd></div>
         <div><dt>Job type</dt><dd>{type ? type.label : 'Not listed'}</dd></div>
         <div><dt>Guarantee</dt><dd>{guarantee}</dd></div>
         <div><dt>Address of the work</dt><dd>{values.propertyAddress || 'Not set'}</dd></div>
@@ -60,7 +66,7 @@ export function ReviewStep({
         </div>
       </dl>
 
-      <h3 className="qt-h3">Money</h3>
+      <h3 className="fgroup-h">Money</h3>
       <dl className="qt-sum">
         <div><dt>Price and extras</dt><dd>{formatGBP(totals.subtotalNetPence)}</dd></div>
         {totals.discountPence > 0 ? <div><dt>Discount</dt><dd>{formatGBP(-totals.discountPence)}</dd></div> : null}
@@ -69,7 +75,7 @@ export function ReviewStep({
         <div className="is-total"><dt>Total</dt><dd>{formatGBP(totals.grossPence)}</dd></div>
       </dl>
 
-      <h3 className="qt-h3">How it is paid</h3>
+      <h3 className="fgroup-h">How it is paid</h3>
       {totals.schedule ? (
         <ul className="qt-sched">
           {totals.schedule.map((i) => (

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import type { TenantBrand } from '../lib/brand-core';
+import { initials } from '../lib/initials';
 import { PoweredBy } from './PoweredBy';
 
 const icons = {
@@ -22,7 +23,21 @@ function Icon({ name }: { name: keyof typeof icons }) {
   );
 }
 
-function Brand({ brand }: { brand: TenantBrand }) {
+/** Rail: logo centred with clear space, then the DocPortal label and business name aligned with the nav. */
+function RailBrand({ brand }: { brand: TenantBrand }) {
+  const logo = brand.logoDark;
+  return (
+    <div className="rail-brand">
+      <div className="rail-logo">
+        <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      </div>
+      <p className="rail-org"><small>DocPortal</small>{brand.name}</p>
+    </div>
+  );
+}
+
+/** Phone and tablet header: logo, then the name with its own space, never touching the logo. */
+function TopBrand({ brand }: { brand: TenantBrand }) {
   const logo = brand.logoDark;
   return (
     <div className="brand">
@@ -84,31 +99,33 @@ export function Shell({
 
       <aside className="rail">
         <div>
-          <Brand brand={brand} />
+          <RailBrand brand={brand} />
           <nav aria-label="Main">
             <Nav path={path} />
           </nav>
         </div>
         <div className="rail-foot">
-          {brand.isOwnBrand ? null : <PoweredBy variant="rail" />}
-          <p>{userName}</p>
+          <div className="rail-user">
+            <span className="rail-avatar" aria-hidden="true">{initials(userName)}</span>
+            <span className="rail-user-name">{userName}</span>
+          </div>
           <LogOut />
+          {brand.isOwnBrand ? null : <PoweredBy variant="rail" />}
         </div>
       </aside>
 
       <div>
         <div className="topbar">
-          <Brand brand={brand} />
-          {brand.isOwnBrand ? null : (
-            <p className="topbar-powered">
-              <span>Powered by</span>
-              <Image src="/tradespro-logo.png" width={704} height={355} alt="TradesPro Digital" />
-            </p>
-          )}
+          <TopBrand brand={brand} />
         </div>
         <main id="main" tabIndex={-1} className="main">
           {children}
         </main>
+        {brand.isOwnBrand ? null : (
+          <footer className="main-foot">
+            <PoweredBy variant="light" />
+          </footer>
+        )}
       </div>
 
       <nav className="bottomnav" aria-label="Main">

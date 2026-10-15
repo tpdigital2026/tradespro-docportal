@@ -82,6 +82,9 @@ export function MarkAsPaid({
       <dialog ref={dialog} className="pay-dialog" aria-labelledby={`${id}-h`} onClose={onClosed}>
         {done ? (
           <div className="pay-body" role="status">
+            <span className="pay-tick" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            </span>
             <h2 id={`${id}-h`} className="pay-h">{done.repeat ? 'Already recorded' : 'Payment recorded'}</h2>
             {done.repeat ? <p className="pay-lede">That payment was already recorded just now.</p> : null}
             <p className="pay-lede">
@@ -94,12 +97,16 @@ export function MarkAsPaid({
           </div>
         ) : (
           <form className="pay-body" onSubmit={submit} noValidate>
-            <h2 id={`${id}-h`} className="pay-h">Mark as paid</h2>
-            <p className="pay-lede">{invoiceNumber}: {heading}. Still owed: {formatGBP(outstandingPence)}.</p>
+            <div className="pay-head">
+              <p className="eyebrow">{invoiceNumber}</p>
+              <h2 id={`${id}-h`} className="pay-h">Mark as paid</h2>
+              <p className="pay-lede">{heading}</p>
+            </div>
+            <p className="pay-owed"><span>Still owed</span><strong>{formatGBP(outstandingPence)}</strong></p>
             <MoneyField id={`${id}-amount`} label="Amount received" hint="Change it if only part has been paid." value={values.amount} onChange={(e) => set({ amount: e.target.value })} error={errors.amount} />
             <Field id={`${id}-date`} label="Date received" type="date" max={today} value={values.paidOn} onChange={(e) => set({ paidOn: e.target.value })} error={errors.paidOn} />
             <div className="field">
-              <label htmlFor={`${id}-method`}>How was it paid</label>
+              <label htmlFor={`${id}-method`}>How was it paid?</label>
               <select id={`${id}-method`} className="input" value={values.method} onChange={(e) => set({ method: e.target.value })} aria-invalid={errors.method ? true : undefined} aria-describedby={errors.method ? `${id}-method-error` : undefined}>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
@@ -107,7 +114,7 @@ export function MarkAsPaid({
               </select>
               {errors.method ? <p className="error" id={`${id}-method-error`} role="alert">{errors.method}</p> : null}
             </div>
-            <Field id={`${id}-note`} label="Note (optional)" maxLength={PAYMENT_NOTE_MAX} value={values.note} onChange={(e) => set({ note: e.target.value })} error={errors.note} />
+            <Field id={`${id}-note`} label="Note" hint="Optional, for example a cheque number." maxLength={PAYMENT_NOTE_MAX} value={values.note} onChange={(e) => set({ note: e.target.value })} error={errors.note} />
             {message ? <p className="form-error" role="alert">{message}</p> : null}
             <div className="pay-actions">
               <Button type="submit" disabled={pending}>{pending ? 'Saving' : 'Save payment'}</Button>

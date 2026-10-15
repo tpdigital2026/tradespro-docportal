@@ -32,13 +32,16 @@ describe('sign-in pages', () => {
     expect(plain).toContain('Illustration of a document page');
     expect(plain).toContain('Quotes, invoices, receipts and guarantees, ready to send.');
   });
-  it('only the FJC brand shows the FJC sample page', () => {
+  it('only the FJC brand shows the FJC van photo; nobody shows the old letterhead sample', () => {
     const fjc = signin(DEMO_BRAND);
-    expect(fjc).toContain('login-sample.png');
+    expect(fjc).toContain('/brands/fjc/van-1600.jpg');
+    expect(fjc).toContain('alt="FJC Roofing van"');
     expect(fjc).not.toContain('Illustration of a document page');
     const other = signin({ ...DEMO_BRAND, slug: 'other', name: 'Other Ltd' });
-    expect(other).not.toContain('login-sample.png');
-    expect(signin(TRADESPRO_BRAND)).not.toContain('login-sample.png');
+    expect(other).not.toContain('/brands/fjc/van');
+    expect(other).toContain('Illustration of a document page');
+    expect(signin(TRADESPRO_BRAND)).not.toContain('/brands/fjc/van');
+    for (const html of [fjc, other, signin(TRADESPRO_BRAND)]) expect(html).not.toContain('login-sample.png');
   });
   it('the illustration holds no text at all', () => {
     const plain = signin(TRADESPRO_BRAND);

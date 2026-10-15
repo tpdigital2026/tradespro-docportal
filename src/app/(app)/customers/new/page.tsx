@@ -10,9 +10,11 @@ export const metadata: Metadata = { title: 'Add a customer', description: 'Add a
 export default async function NewCustomerPage() {
   await requireSession();
   return (
-    <div className="page">
-      <PageHeader muted="Add a" title="customer" lede="Their details go on the paperwork you make for them." />
-      <CustomerForm action={createCustomerAction} submitLabel="Save customer" />
+    <div className="page page-mid">
+      <PageHeader muted="Add a" title="customer" lede="Fill this in once. Their name and address then go on every document you make for them." />
+      <div className="form-panel">
+        <CustomerForm action={createCustomerAction} submitLabel="Save customer" />
+      </div>
       <p className="cust-back"><Link href="/customers">Back to customers</Link></p>
     </div>
   );

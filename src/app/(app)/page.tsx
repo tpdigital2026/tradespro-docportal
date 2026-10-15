@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { DocTypeIcon } from '../../components/DocTypeIcon';
 import { DocTypeList } from '../../components/DocTypeList';
+import { EmptyState } from '../../components/EmptyState';
+import { HomeHero } from '../../components/HomeHero';
 import { JobRow, type Job } from '../../components/JobRow';
+import { getTenantBrand } from '../../lib/brand';
 import { demoRecentDocs, type DemoRecentDoc } from '../../lib/demo-data';
 import { isDemo } from '../../lib/demo';
-import { byUrgency, DOC_TYPE_NAMES } from '../../lib/job-stage';
+import { initials } from '../../lib/initials';
+import { byUrgency, DOC_TYPE_NAMES, isInvoiceType } from '../../lib/job-stage';
 import { listJobSummaries } from '../../lib/data/billing';
 import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
 import { requireSession } from '../../lib/session';
@@ -12,6 +17,8 @@ import { requireSession } from '../../lib/session';
 export const metadata: Metadata = { title: 'Home', description: 'Start a document, pick up a draft and see what is next for each job.' };
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await requireSession();
@@ -35,78 +42,130 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     jobs = [];
   }
   const recent: DemoRecentDoc[] = demo ? demoRecentDocs : [];
+  const brand = await getTenantBrand(session.tenantId);
   const firstName = session.fullName.split(' ')[0];
 
+  // Counts of the owner's own records, nothing more. Hidden entirely when there is nothing to count.
+  const waiting = jobs.filter((j) => j.progress.next?.action === 'mark-paid').length;
+  const toInvoice = jobs.filter((j) => j.progress.next?.action === 'create' && isInvoiceType(j.progress.next.type)).length;
+  const counts = [
+    { n: drafts.length, label: drafts.length === 1 ? 'quote to finish' : 'quotes to finish', href: '#drafts-h' },
+    { n: jobs.length, label: jobs.length === 1 ? 'job in progress' : 'jobs in progress', href: '#jobs-h' },
+    { n: toInvoice, label: 'ready to invoice', href: '#jobs-h' },
+    { n: waiting, label: 'waiting for payment', href: '#jobs-h' },
+  ];
+  const anything = counts.some((c) => c.n > 0);
+
   return (
-    <div className="page page-wide">
-      <header className="home-head">
-        <p className="eyebrow">{demo ? 'Demo mode, dummy data' : `Hello, ${firstName}`}</p>
-        <h1>
-          <span className="muted">Let&rsquo;s make some money.</span>
-          What documents do you need?
-        </h1>
-      </header>
+    <div className="home">
+      <HomeHero brand={brand} hello={`Hello, ${firstName}`}>
+        <span className="hero-lead">Let&rsquo;s make some money.</span>
+        <span className="hero-ask">What documents do you need?</span>
+      </HomeHero>
 
-      {saved ? (
-        <p className="cust-flash" role="status">Quote {saved} is saved. You can carry on with it below.</p>
-      ) : null}
+      <div className="home-body">
+        {demo ? <p className="demo-chip">Demo mode. Everything here is dummy data.</p> : null}
+        {saved ? (
+          <p className="flash" role="status">Quote {saved} is saved. You can carry on with it under Quotes to finish.</p>
+        ) : null}
 
-      <section className="home-section">
-        <DocTypeList />
-      </section>
-
-      {drafts.length > 0 ? (
-        <section aria-labelledby="drafts-h" className="home-section">
-          <h2 id="drafts-h" className="section-title">Quotes to finish</h2>
-          <p className="section-sub">Drafts save as you type. Pick one up where you left off.</p>
-          <ul className="rows">
-            {drafts.map((d) => (
-              <li key={d.jobId}>
-                <Link href={`/documents/new?type=quotation&draft=${d.jobId}`} className="cust-row">
-                  <span className="cust-main">
-                    <span className="row-title">{d.customerName}</span>
-                    <span className="row-meta">Quote {d.quoteNumber}</span>
-                  </span>
-                  <span className="cust-kept">Continue</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+        <section aria-labelledby="docs-h" className="home-docs">
+          <h2 id="docs-h" className="sr-only">Start a document</h2>
+          <DocTypeList />
         </section>
-      ) : null}
 
-      <section aria-labelledby="jobs-h" className="home-section">
-        <h2 id="jobs-h" className="section-title">Jobs in progress</h2>
-        <p className="section-sub">What is next for each job, with the most urgent first.</p>
-        {jobs.length ? (
-          <ul className="jobs">
-            {jobs.map((j, i) => (
-              <JobRow key={j.quoteNumber} job={j} primary={i === 0} />
-            ))}
-          </ul>
-        ) : (
-          <p className="empty">No jobs yet. Send a quotation and the next step for that job shows up here.</p>
-        )}
-      </section>
+        {anything ? (
+          <nav aria-label="At a glance" className="glance">
+            <ul>
+              {counts.map((c) => (
+                <li key={c.label} className={c.n === 0 ? 'is-zero' : undefined}>
+                  <a href={c.href}>
+                    <span className="glance-n">{c.n}</span>
+                    <span className="glance-label">{c.label}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
 
-      <section aria-labelledby="recent-h" className="home-section">
-        <h2 id="recent-h" className="section-title">Recent documents</h2>
-        {recent.length ? (
-          <ul className="recent">
-            {recent.map((d) => (
-              <li key={d.number} className="recent-row">
-                <p className="recent-type">{DOC_TYPE_NAMES[d.type]}</p>
-                <p className="recent-num">{d.number}</p>
-                <p className="recent-who">{d.customerName}</p>
-                <p className="recent-date">{dateFmt.format(new Date(d.date))}</p>
-                <p className={`recent-status${d.status === 'Draft' ? ' is-draft' : ''}`}>{d.status}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty">Documents you make are listed here.</p>
-        )}
-      </section>
+        <div className="home-lower">
+          <section aria-labelledby="jobs-h" className="home-jobs">
+            <div className="sec-head">
+              <h2 id="jobs-h" className="section-title">Jobs in progress</h2>
+              <p className="section-sub">The most urgent first, each with its next step.</p>
+            </div>
+            {jobs.length ? (
+              <ul className="jobs">
+                {jobs.map((j, i) => (
+                  <JobRow key={j.quoteNumber} job={j} primary={i === 0} />
+                ))}
+              </ul>
+            ) : (
+              <EmptyState icon="jobs" title="No jobs on the go yet">
+                When a quotation is issued, the job shows up here with what to do next: invoices, payments and receipts.
+              </EmptyState>
+            )}
+          </section>
+
+          <div className="home-side">
+            <section aria-labelledby="drafts-h" className="side-panel">
+              <div className="sec-head">
+                <h2 id="drafts-h" className="section-title">Quotes to finish</h2>
+                <p className="section-sub">{drafts.length ? `${plural(drafts.length, 'draft', 'drafts')}, saved as you typed.` : 'Drafts save as you type.'}</p>
+              </div>
+              {drafts.length ? (
+                <ul className="mini-list">
+                  {drafts.map((d) => (
+                    <li key={d.jobId}>
+                      <Link href={`/documents/new?type=quotation&draft=${d.jobId}`} className="mini-row">
+                        <span className="avatar" aria-hidden="true">{initials(d.customerName)}</span>
+                        <span className="mini-main">
+                          <span className="mini-title">{d.customerName}</span>
+                          <span className="mini-meta">Quote {d.quoteNumber}</span>
+                        </span>
+                        <span className="mini-go">Continue</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState icon="drafts" title="Nothing half finished" compact>
+                  Start a quotation and stop whenever you like. It waits here until you come back.
+                </EmptyState>
+              )}
+            </section>
+
+            <section aria-labelledby="recent-h" className="side-panel">
+              <div className="sec-head">
+                <h2 id="recent-h" className="section-title">Recent documents</h2>
+                <p className="section-sub">The newest first.</p>
+              </div>
+              {recent.length ? (
+                <ul className="mini-list">
+                  {recent.map((d) => (
+                    <li key={d.number} className="mini-row is-static">
+                      <span className="doc-chip" aria-hidden="true"><DocTypeIcon type={d.type} /></span>
+                      <span className="mini-main">
+                        <span className="mini-title">{DOC_TYPE_NAMES[d.type]}</span>
+                        <span className="mini-meta">{d.number} for {d.customerName}</span>
+                      </span>
+                      <span className="mini-end">
+                        <span className={`status-chip ${d.status === 'Draft' ? 'is-draft' : 'is-final'}`}>{d.status}</span>
+                        <span className="mini-date">{dateFmt.format(new Date(d.date))}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState icon="docs" title="No documents yet" compact>
+                  Everything you make is listed here, so you can find it again in a couple of taps.
+                </EmptyState>
+              )}
+            </section>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

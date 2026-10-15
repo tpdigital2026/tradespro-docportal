@@ -28,8 +28,14 @@ export function JobStep({
   const showSuggest = !locked && ctx.suggestedNumber !== '' && values.quoteNumber.trim() !== ctx.suggestedNumber;
   return (
     <section aria-labelledby="step-h" className="qt-step">
-      <h2 id="step-h" className="qt-h" tabIndex={-1}>About the job</h2>
+      <div className="qt-step-head">
+        <h2 id="step-h" className="qt-h" tabIndex={-1}>About the job</h2>
+        <p className="qt-lede">The number, the date and where the work is. These go on every document for this job.</p>
+      </div>
 
+      <div className="fgroup">
+        <h3 className="fgroup-h">Reference</h3>
+        <div className="fgroup-row">
       <div className="qt-number">
         <Field announce={false}
           id="quote-number"
@@ -66,6 +72,11 @@ export function JobStep({
         min="2000-01-01"
         max="2100-12-31"
       />
+        </div>
+      </div>
+
+      <div className="fgroup">
+        <h3 className="fgroup-h">The work</h3>
 
       <div className="field">
         <label htmlFor="job-type">Type of job</label>
@@ -99,7 +110,7 @@ export function JobStep({
         error={err('propertyAddress')}
         maxLength={200}
       />
-
+      </div>
     </section>
   );
 }

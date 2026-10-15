@@ -46,7 +46,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
   if (!b) {
     return (
       <div className="page">
-        <PageHeader eyebrow={`Quote ${job.quoteNumber}`} muted="This job" title={job.customerName} lede={job.problem ?? undefined} />
+        <PageHeader eyebrow={`Job ${job.quoteNumber}`} title={job.customerName} lede={job.problem ?? 'The money side of this job shows here once its quote has been issued.'} />
         <p className="cust-back"><Link href="/">Back to Home</Link></p>
       </div>
     );
@@ -56,15 +56,22 @@ export default async function JobPage({ params, searchParams }: { params: Promis
 
   return (
     <div className="page page-wide">
-      <PageHeader eyebrow={`Quote ${job.quoteNumber}`} muted="Money for" title={job.customerName} lede={job.addressLine || undefined} />
-      {drafted ? <p className="cust-flash" role="status">Draft {drafted} is saved with this job.</p> : null}
+      <PageHeader eyebrow={`Job ${job.quoteNumber}`} title={job.customerName} lede={job.addressLine || undefined} />
+      {drafted ? <p className="flash" role="status">Draft {drafted} is saved with this job.</p> : null}
       <section aria-label="Where this job is" className="job-top">
+        <p className="job-total">
+          <span className="job-total-label">Job total</span>
+          <span className="job-total-amount">{formatGBP(b.totals.grossPence)}</span>
+          <span className="job-total-plan">{b.kind === 'full' ? 'Paid in full' : b.kind === 'deposit' ? 'Deposit, then the balance' : `${b.instalments.length} stage payments`}</span>
+        </p>
         <StageChips progress={b.progress} />
-        <p className="job-total">Job total <strong>{formatGBP(b.totals.grossPence)}</strong></p>
       </section>
 
-      <section aria-labelledby="inst-h" className="home-section">
-        <h2 id="inst-h" className="section-title">{b.kind === 'full' ? 'The invoice' : b.kind === 'deposit' ? 'Deposit and balance' : 'The stages'}</h2>
+      <section aria-labelledby="inst-h" className="job-section">
+        <div className="sec-head">
+          <h2 id="inst-h" className="section-title">{b.kind === 'full' ? 'The invoice' : b.kind === 'deposit' ? 'Deposit and balance' : 'The stages'}</h2>
+          <p className="section-sub">Raise each invoice when it is due, then mark it paid when the money arrives.</p>
+        </div>
         <ul className="inst-list">
           {b.instalments.map((inst) => {
             const heading = instalmentHeading(b, inst.index);
@@ -74,13 +81,14 @@ export default async function JobPage({ params, searchParams }: { params: Promis
             const outstanding = Math.max(0, inst.grossPence - paid);
             const mine = b.payments.filter((p) => p.instalment === inst.index);
             const status = !invoice ? (draft ? 'Draft saved, not yet final' : 'Not invoiced yet') : paid >= inst.grossPence ? 'Paid' : paid > 0 ? `Part paid, ${formatGBP(outstanding)} to come` : 'Invoiced, waiting for payment';
+            const tone = !invoice ? 'is-draft' : paid >= inst.grossPence ? 'is-paid' : paid > 0 ? 'is-part' : 'is-final';
             const isNext = nextIdx === inst.index;
             return (
-              <li key={inst.index} id={`instalment-${inst.index}`} className="inst">
+              <li key={inst.index} id={`instalment-${inst.index}`} className={`inst${isNext ? ' is-next' : ''}${tone === 'is-paid' ? ' is-done' : ''}`}>
                 <div className="inst-main">
                   <h3 className="inst-h">{heading}</h3>
                   <p className="inst-amount">{formatGBP(inst.grossPence)}</p>
-                  <p className="inst-status">{status}</p>
+                  <p className={`status-chip ${tone}`}>{status}</p>
                 </div>
                 {mine.length > 0 ? (
                   <ul className="inst-pays">

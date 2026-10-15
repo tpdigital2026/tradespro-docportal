@@ -7,16 +7,28 @@ import { SamplePage } from './SamplePage';
 /**
  * The sign-in screen shared by /login, /{slug} and the demo preview. Public by design: it shows the
  * business's logo and accent and nothing about anyone's account.
- * Desktop: white form panel on the left, navy panel with a dummy-data sample page on the right.
- * Phone: navy strip with the logo, white form below.
+ * Desktop: white form panel on the left, navy panel on the right: FJC's own van photo for FJC, a wordless
+ * document illustration for everyone else. Phone: navy strip with the logo (and FJC's photo), white form below.
  */
+/** FJC's own photo (Ben and the van). Only ever shown for the FJC address. */
+function VanPhoto({ className, sizes }: { className: string; sizes: string }) {
+  return (
+    <picture className={className}>
+      <source type="image/webp" srcSet="/brands/fjc/van-900.webp 900w, /brands/fjc/van-1600.webp 1600w" sizes={sizes} />
+      <img src="/brands/fjc/van-1600.jpg" srcSet="/brands/fjc/van-900.jpg 900w, /brands/fjc/van-1600.jpg 1600w" sizes={sizes} width={1600} height={1200} alt="FJC Roofing van" />
+    </picture>
+  );
+}
+
 export function SignIn({ brand, children }: { brand: TenantBrand; children: ReactNode }) {
   const dark = brand.logoDark;
+  const photo = brand.slug === 'fjc';
   return (
     <div className="signin brandroot" style={brandStyle(brand)}>
       <header className="signin-bar">
         <Image src={dark.url} width={dark.width} height={dark.height} alt={`${brand.name} logo`} className="brand-logo" priority />
       </header>
+      {photo ? <VanPhoto className="signin-photo-m" sizes="100vw" /> : null}
 
       <main id="main" className="signin-main">
         <div className="signin-brand">
@@ -37,17 +49,19 @@ export function SignIn({ brand, children }: { brand: TenantBrand; children: Reac
         </footer>
       </main>
 
-      <aside className="signin-art">
-        <figure>
-          {/* The FJC sample is FJC's own letterhead, so only FJC's page shows it. Everyone else gets the neutral illustration. */}
-          {brand.slug === 'fjc' ? (
-            <Image src="/login-sample.png" width={1588} height={2246} alt="Sample quotation (dummy data)" sizes="26rem" />
-          ) : (
+      {photo ? (
+        <aside className="signin-art is-photo">
+          <VanPhoto className="signin-photo" sizes="50vw" />
+          <p className="signin-photo-cap">Quotes, invoices, receipts and guarantees, ready to send.</p>
+        </aside>
+      ) : (
+        <aside className="signin-art">
+          <figure>
             <SamplePage />
-          )}
-          <figcaption>Quotes, invoices, receipts and guarantees, ready to send.</figcaption>
-        </figure>
-      </aside>
+            <figcaption>Quotes, invoices, receipts and guarantees, ready to send.</figcaption>
+          </figure>
+        </aside>
+      )}
     </div>
   );
 }

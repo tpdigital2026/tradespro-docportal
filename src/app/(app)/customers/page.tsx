@@ -27,9 +27,14 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     };
   });
   return (
-    <div className="page">
-      <PageHeader muted="Your" title="customers" action={<ButtonLink href="/customers/new" className="btn-block-sm">Add a customer</ButtonLink>} />
-      {deleted ? <p className="cust-flash" role="status">That customer and their files have been deleted.</p> : null}
+    <div className="page page-mid">
+      <PageHeader
+        muted="Your"
+        title="customers"
+        lede="Everyone you make documents for. Tap a name to see their documents or change their details."
+        action={items.length > 0 ? <ButtonLink href="/customers/new" className="btn-block-sm">Add a customer</ButtonLink> : undefined}
+      />
+      {deleted ? <p className="flash" role="status">That customer and their files have been deleted.</p> : null}
       <CustomerSearch customers={items} />
     </div>
   );

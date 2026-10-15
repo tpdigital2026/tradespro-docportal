@@ -12,8 +12,13 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
     set({ extras: values.extras.map((e, k) => (k === i ? { ...e, ...patch } : e)) });
   return (
     <section aria-labelledby="step-h" className="qt-step">
-      <h2 id="step-h" className="qt-h" tabIndex={-1}>The price</h2>
+      <div className="qt-step-head">
+        <h2 id="step-h" className="qt-h" tabIndex={-1}>The price</h2>
+        <p className="qt-lede">What you are charging. The totals update as you type.</p>
+      </div>
 
+      <div className="fgroup">
+        <h3 className="fgroup-h">Price and VAT</h3>
       <MoneyField announce={false}
         id="price"
         label="Price of the work, before VAT"
@@ -42,10 +47,11 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
           </span>
         </label>
       </fieldset>
+      </div>
 
-      <div className="qt-extras">
-        <h3 className="qt-h3">Extras</h3>
-        <p className="hint">Anything on top of the main price, like extra flashing. Optional.</p>
+      <div className="fgroup qt-extras">
+        <h3 className="fgroup-h">Extras and discount</h3>
+        <p className="hint">Optional. Anything on top of the main price, like extra flashing, then any discount.</p>
         {values.extras.map((x, i) => (
           <div className="qt-extra" key={i}>
             <Field announce={false}
@@ -79,7 +85,6 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
         ) : (
           <p className="hint">That is the most extras one quote can carry.</p>
         )}
-      </div>
 
       <MoneyField announce={false}
         id="discount"
@@ -91,8 +96,9 @@ export function PriceStep({ values, set, err, touch, totals, vatRatePct }: StepP
         error={err('discount')}
         maxLength={34}
       />
+      </div>
 
-      <dl className="qt-sum">
+      <dl className="qt-sum is-price">
         <div><dt>Price and extras</dt><dd>{formatGBP(totals.subtotalNetPence)}</dd></div>
         {totals.discountPence > 0 ? <div><dt>Discount</dt><dd>{formatGBP(-totals.discountPence)}</dd></div> : null}
         <div><dt>Before VAT</dt><dd>{formatGBP(totals.netPence)}</dd></div>

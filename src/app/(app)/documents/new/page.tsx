@@ -35,7 +35,7 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
   if (type === '') {
     return (
       <div className="page page-wide">
-        <PageHeader muted="Make a" title="document" lede="Choose what you need." />
+        <PageHeader muted="Make a" title="new document" lede="Pick what you need. Anything that belongs to a job fills itself in from the saved quote." />
         <DocTypeList />
       </div>
     );
@@ -48,7 +48,7 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
   if (type !== 'quotation') {
     return (
       <div className="page">
-        <PageHeader muted="Coming" title="soon" lede="That document is built in a later step. For now you can start a quotation." />
+        <PageHeader muted="Nearly ready" title={`${DOC_TYPE_NAMES[type as keyof typeof DOC_TYPE_NAMES] ?? 'That document'} is coming soon`} lede="We are still building this one. In the meantime you can price a job with a quotation." />
         <ButtonLink href="/documents/new?type=quotation">Start a quotation</ButtonLink>
         <p className="cust-back"><Link href="/">Back to Home</Link></p>
       </div>
@@ -97,7 +97,12 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
 
   return (
     <div className="page page-quote">
-      <PageHeader eyebrow={draft ? `Draft ${draft.values.quoteNumber}` : undefined} muted={draft ? 'Carry on with the' : 'Start a'} title="quotation" />
+      <PageHeader
+        compact
+        eyebrow={draft ? 'Draft quotation' : 'New quotation'}
+        title={draft ? `Quote ${draft.values.quoteNumber}` : 'Price a new job'}
+        lede="Six short steps. Everything saves as you go, so you can stop and come back any time."
+      />
       <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} />
     </div>
   );

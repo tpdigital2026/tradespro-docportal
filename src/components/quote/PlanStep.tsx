@@ -70,7 +70,10 @@ export function PlanStep({ values, set, err, touch, totals }: StepProps) {
 
   return (
     <section aria-labelledby="step-h" className="qt-step">
-      <h2 id="step-h" className="qt-h" tabIndex={-1}>How is it paid?</h2>
+      <div className="qt-step-head">
+        <h2 id="step-h" className="qt-h" tabIndex={-1}>How is it paid?</h2>
+        <p className="qt-lede">Choose how the customer pays. The invoices for this job follow the plan you pick.</p>
+      </div>
       {gross <= 0 ? <p className="qt-warn">Enter the price first. The plan is worked out from the job total.</p> : null}
 
       <fieldset className="qt-plans">
