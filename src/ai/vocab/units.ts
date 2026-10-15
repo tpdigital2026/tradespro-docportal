@@ -6,3 +6,6 @@ export const UNIT_WORDS: readonly string[] = [
   'decade', 'century', 'annual', 'annually', 'annum', 'fortnight', 'day', 'daily', 'yearly', 'monthly', 'weekly',
 ];
 
+
+/** Several words that make a figure or unit together. Matched like the claim phrases. */
+export const UNIT_PHRASES: readonly string[] = ['per cent', 'a grand'];

@@ -164,12 +164,12 @@ describe('drafts from before the scope builder', () => {
     for (const l of lines) expect(kept, l).toContain(l);
   });
   it('text that cannot be packed into the steps is kept untouched in the preserved field, and a save that leaves the field out does not drop it', async () => {
-    const big = Array.from({ length: 400 }, (_, i) => `${i} ${'long '.repeat(55)}`.trim());
+    const big = Array.from({ length: 365 }, (_, i) => `${i} ${'long '.repeat(55)}`.trim());
     expect(big.every((l) => l.length > 250)).toBe(true);
     const d = await legacy(big.join('\n'));
     const scope = d!.values.scope;
     expect(scope.items.filter((i) => i.kind === 'step')).toHaveLength(360);
-    expect((scope.legacyOverflow ?? '').split('\n')).toHaveLength(40);
+    expect((scope.legacyOverflow ?? '').split('\n')).toHaveLength(5);
     const all = `${scope.items.map((i) => i.text).join('\n')}\n${scope.legacyOverflow}`;
     for (const l of big) expect(all.replace(/\s+/g, ' '), l.slice(0, 20)).toContain(l.slice(0, 20));
     const fx = fakeClient({ customers: [{ id: CUSTOMER, name: 'A' }] });
@@ -181,6 +181,11 @@ describe('drafts from before the scope builder', () => {
     // an explicit empty string is the owner discarding it
     await saveDraftWith(fx.client, TENANT, form({ ...scope, legacyOverflow: '' }), first.jobId, 2000, TODAY);
     expect((await storedScopeWith(fx.client, first.jobId))!.legacyOverflow ?? '').toBe('');
+  });
+  it('the preserved field is capped at 8000 characters', () => {
+    const scope = { ...emptyQuoteForm({ date: TODAY, vatApplies: true }).scope };
+    expect(scopeFormSchema.safeParse({ ...scope, legacyOverflow: 'a'.repeat(8000) }).success).toBe(true);
+    expect(scopeFormSchema.safeParse({ ...scope, legacyOverflow: 'a'.repeat(8001) }).success).toBe(false);
   });
   it('an empty old box, or a draft that already has steps, is left alone', async () => {
     expect((await legacy('   \n '))?.values.scope.items).toEqual([]);

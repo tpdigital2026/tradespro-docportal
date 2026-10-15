@@ -1,10 +1,10 @@
 import { stripInvisible, hasInvisible } from '../lib/scope/invisible';
 import { BRANDS } from './brands';
-import { CLAIM_WORDS } from './vocab/claims';
+import { CLAIM_PHRASES, CLAIM_WORDS } from './vocab/claims';
 import { NUMBER_WORDS } from './vocab/numbers';
 import { PRODUCT_WORDS } from './vocab/products';
 import { pluralStem, stemCandidates } from './vocab/stems';
-import { UNIT_WORDS } from './vocab/units';
+import { UNIT_PHRASES, UNIT_WORDS } from './vocab/units';
 
 /**
  * The guard against invention. Whatever the engine, the wording that comes back may not contain a figure, a
@@ -27,6 +27,20 @@ export interface Invention {
 const PRODUCTS = new Set(PRODUCT_WORDS);
 const UNITS = new Set(UNIT_WORDS);
 const CLAIMS = new Set(CLAIM_WORDS);
+
+/** Phrases as lists of stems, and which of them a text contains. */
+const PHRASES: ReadonlyArray<{ kind: InventionKind; text: string; stems: string[] }> = [
+  ...CLAIM_PHRASES.map((text) => ({ kind: 'claim' as const, text, stems: text.split(' ').map(pluralStem) })),
+  ...UNIT_PHRASES.map((text) => ({ kind: 'unit' as const, text, stems: text.split(' ').map(pluralStem) })),
+];
+function phrasesIn(text: string): Set<string> {
+  const ws = [...text.matchAll(WORD)].map((m) => pluralStem(m[0]));
+  const found = new Set<string>();
+  for (const p of PHRASES) {
+    for (let i = 0; i + p.stems.length <= ws.length; i++) if (p.stems.every((s, j) => ws[i + j] === s)) found.add(p.text);
+  }
+  return found;
+}
 
 const BRAND_SET = new Set(BRANDS);
 
@@ -74,6 +88,7 @@ export function findInventions(inputTexts: readonly string[], outputTexts: reado
   const inputNumbers = new Set(numbersIn(input));
   const inputWords = new Set([...input.matchAll(WORD)].map((m) => m[0].toLocaleLowerCase('en-GB')));
   const inputStems = new Set([...inputWords].map(stem));
+  const inputPhrases = phrasesIn(input);
   const inputSymbols = new Set(input.match(/[£$€%]/g) ?? []);
   const found: Invention[] = [];
   const seen = new Set<string>();
@@ -89,6 +104,7 @@ export function findInventions(inputTexts: readonly string[], outputTexts: reado
     // Invisible characters in the wording are refused outright: they only ever serve to split a word.
     if (hasInvisible(raw)) add('hidden', 'hidden character');
     const text = strip(norm(raw));
+    for (const ph of phrasesIn(text)) if (!inputPhrases.has(ph)) add(PHRASES.find((x) => x.text === ph)!.kind, ph);
     for (const n of numbersIn(text)) if (!inputNumbers.has(n)) add('number', n);
     for (const sym of text.match(/[£$€%]/g) ?? []) if (!inputSymbols.has(sym)) add('number', sym);
     for (const m of text.matchAll(WORD)) {

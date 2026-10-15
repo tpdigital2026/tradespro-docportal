@@ -7,5 +7,9 @@
 const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 const HAS_INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 
-export const stripInvisible = (t: string): string => t.replace(INVISIBLE, '');
+/** Non-breaking spaces and the blank braille cell look like spaces but are not whitespace to every check. */
+const LOOKS_LIKE_SPACE = /[\u00A0\u202F\u2007\u2800]/g;
+
+export const plainSpaces = (t: string): string => t.replace(LOOKS_LIKE_SPACE, ' ');
+export const stripInvisible = (t: string): string => plainSpaces(t).replace(INVISIBLE, '');
 export const hasInvisible = (t: string): boolean => HAS_INVISIBLE.test(t);

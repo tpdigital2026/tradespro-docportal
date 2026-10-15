@@ -16,6 +16,7 @@ export type GenerateOutcome =
   | { ok: false; code: 'empty' | 'failed'; message: string };
 
 export const LIMIT_MESSAGE = 'You have used the AI assistant a lot in the last few minutes, so the basic tidy was used this time. Try the AI again in a little while.';
+export const COPY_TOO_OLD = 'This copy is more than a day old. Generate it again, then approve.';
 const FAILED = 'We could not tidy that just now. Please try again.';
 
 interface Who {
@@ -96,7 +97,11 @@ export async function approveScopeWith(who: Who, form: QuoteFormValues, jobId: s
   const scope = form.scope;
   const copy = scope.copy;
   if (!copy || countSteps(scope.items) === 0) return { ok: false, code: 'invalid', message: 'Generate the copy first.' };
-  if (!verifyGenerated(who.tenantId, copy)) return { ok: false, code: 'invalid', message: 'Generate the copy again, then approve it.' };
+  if (!verifyGenerated(who.tenantId, copy)) {
+    // Genuine but more than a day old: say so, rather than a generic refusal.
+    if (verifyGenerated(who.tenantId, copy, { allowExpired: true })) return { ok: false, code: 'invalid', message: COPY_TOO_OLD };
+    return { ok: false, code: 'invalid', message: 'Generate the copy again, then approve it.' };
+  }
   if (copy.sourceKey !== scopeKey(scope.items)) return { ok: false, code: 'stale', message: 'The steps changed after the wording was made. Generate the copy again.' };
   const bad = Object.values(copyErrors(copy))[0];
   if (bad) return { ok: false, code: 'invalid', message: bad };

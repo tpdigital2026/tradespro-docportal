@@ -161,7 +161,7 @@ describe('approveScopeWith', () => {
   it('refuses wording whose proof is more than a day old, and accepts it inside the day', async () => {
     const save = vi.fn(async () => saved);
     const old = form({ scope: generatedScope('t1', {}, new Date(Date.now() - 25 * 3600_000).toISOString()) });
-    expect(await approveScopeWith({ userId: 'u1', tenantId: 't1' }, old, JOB, { save, audit: async () => undefined })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(await approveScopeWith({ userId: 'u1', tenantId: 't1' }, old, JOB, { save, audit: async () => undefined })).toEqual({ ok: false, code: 'invalid', message: 'This copy is more than a day old. Generate it again, then approve.' });
     expect(save).not.toHaveBeenCalled();
     const fresh = form({ scope: generatedScope('t1', {}, new Date(Date.now() - 23 * 3600_000).toISOString()) });
     expect(await approveScopeWith({ userId: 'u1', tenantId: 't1' }, fresh, JOB, { save, audit: async () => undefined })).toMatchObject({ ok: true });

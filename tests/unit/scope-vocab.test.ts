@@ -109,3 +109,27 @@ describe('the vocabularies, word by word', () => {
     expect(NUMBER_WORDS.third).toBe('3');
   });
 });
+
+describe('round three vocabulary', () => {
+  it.each(['lifelong', 'lifespan', 'quarterly', 'warrantee', 'assured', 'assurance', 'lifetime'])('claim word: %s', (w) => {
+    expect(inv(base, [`Fit it, ${w}.`])).toContain(`claim:${w}`);
+  });
+  it.each(['long term', 'long-term', 'Long Term', 'kite mark', 'Gas Safe', 'GAS SAFE', 'gas-safe', 'no leaks', 'never leak', 'weather tight', 'weather-tight', 'life time', 'life-time'])('claim phrase: %s', (p) => {
+    expect(inv(base, [`Fit it with ${p} cover.`]).some((x) => x.startsWith('claim:')), p).toBe(true);
+  });
+  it.each(['per cent', 'a grand'])('unit phrase: %s', (p) => {
+    expect(inv(base, [`It is ${p} of it.`]).some((x) => x.startsWith('unit:')), p).toBe(true);
+  });
+  it('a phrase the owner wrote is theirs; one word of it alone is not the phrase', () => {
+    expect(inv(['it is gas safe'], ['It is Gas Safe.'])).toEqual([]);
+    expect(inv(base, ['Take the gas off safe ground.'])).toEqual([]);
+  });
+  it('non-breaking spaces and the blank braille cell are plain spaces', () => {
+    for (const sp of ['\u00A0', '\u202F', '\u2800']) {
+      expect(inv(base, [`Fit it, gas${sp}safe.`]), sp).toContain('claim:gas safe');
+      expect(inv(base, [`Fit the${sp}felt.`]), sp).toContain('product:felt');
+      expect(inv([`strip the${sp}felt`], ['Strip the felt.']), sp).toEqual([]);
+      expect(cleanLine(`Fit${sp}the${sp}roof`)).toBe('Fit the roof');
+    }
+  });
+});

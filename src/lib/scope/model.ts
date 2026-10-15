@@ -26,6 +26,9 @@ export const SCOPE_LIMITS = {
   notes: 60,
 } as const;
 
+/** The old one-box scope notes were limited to 4000 characters, so real overflow is far below this. */
+export const LEGACY_OVERFLOW_MAX = 8000;
+
 export const NOTE_LABEL = 'Please note';
 export const DEFAULT_SECTION_HEADING = 'The works';
 
@@ -121,7 +124,7 @@ export const scopeFormSchema = z.object({
   note: para(SCOPE_LIMITS.note),
   items: z.array(scopeItemSchema).max(SCOPE_LIMITS.items),
   copy: scopeCopySchema.nullable(),
-  legacyOverflow: para(200_000).optional(),
+  legacyOverflow: para(LEGACY_OVERFLOW_MAX).optional(),
 });
 
 // ------------------------------------------------------------------ tidy text
