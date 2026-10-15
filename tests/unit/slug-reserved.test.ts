@@ -31,9 +31,14 @@ describe('reserved slugs', () => {
     const missing = topLevelSegments(APP).filter((s) => !RESERVED_SLUGS.includes(s));
     expect(missing).toEqual([]);
   });
-  it('matches the list in migration 005', () => {
-    const sql = readFileSync(path.join(__dirname, '../../supabase/migrations/005_tenant_slug.sql'), 'utf8');
-    const m = /tenants_slug_not_reserved[\s\S]*?array\[([^\]]+)\]/.exec(sql);
+  it('matches the list in the newest migration that sets the database check', () => {
+    // The check is replaced, never edited in place: the last migration (in name order) that adds it is the live one.
+    const dir = path.join(__dirname, '../../supabase/migrations');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+    const adds = files.filter((f) => /add constraint tenants_slug_not_reserved/.test(readFileSync(path.join(dir, f), 'utf8')));
+    expect(adds[0]).toBe('005_tenant_slug.sql');
+    const sql = readFileSync(path.join(dir, adds[adds.length - 1]), 'utf8');
+    const m = /add constraint tenants_slug_not_reserved[\s\S]*?array\[([^\]]+)\]/.exec(sql);
     const fromSql = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
     expect(fromSql).toEqual([...RESERVED_SLUGS].sort());
   });
