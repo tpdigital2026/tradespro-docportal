@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { checkQuoteNumber, getQuoteVatRateBp, isKnownId, QuoteError, saveQuoteDraft, type QuoteErrorCode } from '../../../../lib/data/quotes';
+import { requireApprovedScope } from '../../../../lib/data/scope';
 import { requireSession } from '../../../../lib/session';
 import { normaliseQuote, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../../../../lib/validation/quote';
 
@@ -60,7 +61,7 @@ export async function checkNumberAction(numberRaw: unknown): Promise<NumberCheck
  * a quote whose payment plan does not total the job gross exactly is refused, whatever the browser says.
  */
 export async function finishQuoteAction(raw: unknown, jobIdRaw: unknown): Promise<SaveResult> {
-  await requireSession();
+  const session = await requireSession();
   const form = readForm(raw);
   const jobId = readJobId(jobIdRaw);
   if (!form || jobId === undefined) return { ok: false, code: 'invalid', message: GENERIC };
@@ -70,7 +71,10 @@ export async function finishQuoteAction(raw: unknown, jobIdRaw: unknown): Promis
     const { errors } = normaliseQuote(form, 'final', vatRateBp);
     if (Object.keys(errors).length > 0) return { ok: false, code: 'invalid', message: 'Check the highlighted fields', errors };
     // The reference comes back from the stored job, never from the form.
-    number = (await saveQuoteDraft(form, jobId)).quoteNumber;
+    const saved = await saveQuoteDraft(form, jobId);
+    number = saved.quoteNumber;
+    // The browser's word that the wording is approved counts for nothing: the stored approval and its audit row must be real.
+    await requireApprovedScope(session.tenantId, saved.jobId);
   } catch (e) {
     return toResult(e);
   }

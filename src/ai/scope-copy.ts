@@ -32,7 +32,9 @@ export interface GenerateDeps {
   /** Left out: chosen from the environment (ANTHROPIC_API_KEY on means the AI, off means the basic tidy). Null forces the basic tidy. */
   client?: ModelClient | null;
   model?: string;
-  timeoutMs?: number;
+  /** One budget for the whole job, retry included. Default 20 seconds. */
+  budgetMs?: number;
+  clock?: () => number;
 }
 
 export class NothingToTidyError extends Error {
@@ -42,6 +44,10 @@ export class NothingToTidyError extends Error {
   }
 }
 
+const NOTICE_INSTRUCTION = 'One of your steps reads like an instruction to the AI assistant, so the AI was not used. The basic tidy was used: it only fixes capital letters and full stops.';
+/** Steps that try to talk to the assistant. Nothing is lost: the owner's words go through the basic tidy untouched. */
+const INJECTION = /\b(?:ignore|disregard|forget|override)\b[^.]{0,40}\b(?:previous|prior|above|earlier|all|any|your)\b[^.]{0,30}\b(?:instructions?|prompts?|rules?)\b|\bsystem\s+prompt\b|\byou\s+are\s+now\b|\bnew\s+instructions?\b|\bas\s+an\s+ai\b/i;
+const MIN_ATTEMPT_MS = 4000;
 const NOTICE_UNREACHABLE = 'The AI assistant could not be reached, so the basic tidy was used. It only fixes capital letters and full stops.';
 const NOTICE_REJECTED = 'The AI wording changed more than it should, so it was not used. The basic tidy was used instead: it only fixes capital letters and full stops.';
 
@@ -65,6 +71,7 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
 
   const ai = resolveClient(deps);
   if (!ai) return basicResult;
+  if (groups.some((g) => [g.heading ?? '', ...g.steps].some((t) => INJECTION.test(t.normalize('NFKC'))))) return { ...basicResult, notice: NOTICE_INSTRUCTION };
 
   const sent = { jobType: input.jobType, groups: groups.map((g) => ({ heading: g.heading, steps: g.steps })) };
   const inputTexts = [input.jobType, DEFAULT_SECTION_HEADING, ...groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps])];
@@ -72,14 +79,19 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
   let tokensOut = 0;
   let reachable = true;
 
+  const clock = deps.clock ?? Date.now;
+  const started = clock();
+  const budget = deps.budgetMs ?? 20_000;
   for (let attempt = 0; attempt < 2; attempt++) {
+    const left = budget - (clock() - started);
+    if (attempt > 0 && left < MIN_ATTEMPT_MS) break;
     let text: string;
     try {
       const reply = await ai.client.complete({
         system: SCOPE_COPY_SYSTEM,
         user: attempt === 0 ? buildScopeCopyUser(sent) : `${buildScopeCopyUser(sent)}\n\n${SCOPE_COPY_RETRY_NOTE}`,
         maxTokens: 4096,
-        signal: AbortSignal.timeout(deps.timeoutMs ?? 25_000),
+        signal: AbortSignal.timeout(Math.max(1, left)),
       });
       text = reply.text;
       tokensIn += reply.inputTokens ?? 0;

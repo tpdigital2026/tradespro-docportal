@@ -53,7 +53,7 @@ export default async function CustomerPage({
   return (
     <div className="page">
       <PageHeader muted="Customer" title={customer.name} />
-      {saved === 'created' ? <SavedNotice key={stamp} kind={saved} bringIntoView={false} /> : null}
+      <SavedNotice kind={saved === 'created' ? 'created' : null} stamp={stamp} bringIntoView={false} />
       {flags.kept ? <p className="cust-flash" role="status">Done. This customer's details are kept for longer.</p> : null}
 
       <section className={`cust-retention${warn ? ' is-warn' : ''}`} aria-label="How long their details are kept">
@@ -90,7 +90,7 @@ export default async function CustomerPage({
 
       <section aria-labelledby="edit-h" className="cust-section">
         <h2 id="edit-h" className="section-title">Their details</h2>
-        {saved === 'updated' ? <SavedNotice key={stamp} kind={saved} /> : null}
+        <SavedNotice kind={saved === 'updated' ? 'updated' : null} stamp={stamp} />
         <CustomerForm action={updateCustomerAction.bind(null, customer.id)} initial={initial} submitLabel="Save changes" />
       </section>
 

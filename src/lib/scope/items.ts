@@ -103,3 +103,33 @@ export function joinSpoken(base: string, spoken: string, max: number = SCOPE_LIM
   const b = base.replace(/\s+$/, '');
   return `${b}${b === '' ? '' : ' '}${said}`.slice(0, max);
 }
+
+/**
+ * A draft from before the scope builder has its words in one box. Each non-empty line becomes a step (long lines are
+ * cut at a word, never dropped). More than 30 steps are grouped under headings so every limit still holds.
+ */
+export function itemsFromLegacyNotes(notes: string): ScopeItem[] {
+  const lines: string[] = [];
+  for (const raw of notes.split(/\r\n|\r|\n/)) {
+    let rest = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    while (rest !== '') {
+      if (rest.length <= SCOPE_LIMITS.step) {
+        lines.push(rest);
+        break;
+      }
+      const cut = rest.lastIndexOf(' ', SCOPE_LIMITS.step);
+      const at = cut > SCOPE_LIMITS.step / 2 ? cut : SCOPE_LIMITS.step;
+      lines.push(rest.slice(0, at).trim());
+      rest = rest.slice(at).trim();
+    }
+  }
+  const per = SCOPE_LIMITS.stepsPerSection;
+  const groups = Math.ceil(lines.length / per);
+  if (groups <= 1) return lines.map((l) => makeItem('step', l));
+  const out: ScopeItem[] = [];
+  for (let g = 0; g < Math.min(groups, SCOPE_LIMITS.sections); g++) {
+    out.push(makeItem('heading', g === 0 ? 'Earlier notes' : `Earlier notes, part ${g + 1}`));
+    for (const l of lines.slice(g * per, (g + 1) * per)) out.push(makeItem('step', l));
+  }
+  return out;
+}

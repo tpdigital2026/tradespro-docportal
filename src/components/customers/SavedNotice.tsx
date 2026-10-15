@@ -8,20 +8,26 @@ import { SAVED_TEXT, type SavedKind } from '../../lib/customer-flash';
  * screen readers say them. The notice sits beside the form and is brought into view, because the form is far
  * down the page and the person would otherwise see nothing happen. Reloading does not show it again.
  */
-export function SavedNotice({ kind, bringIntoView = true }: { kind: SavedKind | null; bringIntoView?: boolean }) {
+export function SavedNotice({ kind, stamp, bringIntoView = true }: { kind: SavedKind | null; /** Changes with every save, so two saves in a row each announce. */ stamp: number; bringIntoView?: boolean }) {
   const [shown, setShown] = useState<SavedKind | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!kind) return;
-    setShown(kind);
+    if (!kind) {
+      setShown(null);
+      return;
+    }
+    // Clear first, then fill, so a second save is announced again.
+    setShown(null);
+    const t = setTimeout(() => setShown(kind), 0);
     if (bringIntoView) box.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
     const url = new URL(window.location.href);
     if (url.searchParams.has('saved')) {
       url.searchParams.delete('saved');
       window.history.replaceState(window.history.state, '', url);
     }
-  }, [kind, bringIntoView]);
+    return () => clearTimeout(t);
+  }, [kind, stamp, bringIntoView]);
 
   return (
     <div ref={box} role="status" aria-live="polite" className={shown ? 'cust-saved' : undefined}>

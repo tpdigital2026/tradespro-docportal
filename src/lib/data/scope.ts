@@ -1,18 +1,22 @@
+import { aiConfig } from '../../ai/client';
 import { generateScopeCopy, SCOPE_COPY_PROMPT_VERSION, type GenerateDeps, type GenerateResult } from '../../ai/scope-copy';
 import { scopeCopyLimiter } from '../../ai/limits';
 import { writeAudit } from '../../security/audit';
+import type { Db } from '../../security/login-guard';
 import { isDemo } from '../demo';
 import { compactId, withServiceConnection, type ServiceDb } from './customer-admin';
-import { getJobTypeLabel, QuoteError, saveQuoteDraft, type SavedDraft } from './quotes';
-import { copyErrors, countSteps, scopeKey, type ScopeCopy, type ScopeItem } from '../scope/model';
+import { getJobTypeLabel, getQuoteDraft, QuoteError, saveQuoteDraft, storedScopeWith, type SaveOptions, type SavedDraft } from './quotes';
+import { ownerClient } from './customers';
+import { approvalHash, copyErrors, countSteps, isApproved, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../scope/model';
+import { signGenerated, verifyGenerated } from '../scope/proof';
 import type { QuoteFormValues } from '../validation/quote';
 
 /** What the browser gets back from "Generate copy". The copy is not approved. */
 export type GenerateOutcome =
   | { ok: true; copy: ScopeCopy; notice: string | null; promptVersion: string }
-  | { ok: false; code: 'limit' | 'empty' | 'failed'; message: string };
+  | { ok: false; code: 'empty' | 'failed'; message: string };
 
-export const LIMIT_MESSAGE = 'You have tidied the wording a lot in the last few minutes. Wait a little and try again.';
+export const LIMIT_MESSAGE = 'You have used the AI assistant a lot in the last few minutes, so the basic tidy was used this time. Try the AI again in a little while.';
 const FAILED = 'We could not tidy that just now. Please try again.';
 
 interface Who {
@@ -20,7 +24,10 @@ interface Who {
   tenantId: string;
 }
 
-/** Runs the engine for one person's steps. Rate limited per person. Never keeps or logs the text. */
+/**
+ * Runs the engine for one person's steps. Only a real AI call counts against the person's limit (the basic tidy is
+ * free); over the limit they get the basic tidy and are told. Never keeps or logs the text.
+ */
 export async function generateForOwner(
   who: Who,
   steps: readonly ScopeItem[],
@@ -28,23 +35,34 @@ export async function generateForOwner(
   deps: GenerateDeps & { now?: () => Date; recordRun?: (r: GenerateResult) => Promise<void>; label?: (id: string) => Promise<string> } = {},
 ): Promise<GenerateOutcome> {
   if (countSteps(steps) === 0) return { ok: false, code: 'empty', message: 'Add at least one step first.' };
-  if (!scopeCopyLimiter.take(who.userId)) return { ok: false, code: 'limit', message: LIMIT_MESSAGE };
+  const wantsAi = deps.client === null ? false : deps.client !== undefined || aiConfig() !== null;
+  let limited = false;
+  let useDeps = deps;
+  if (wantsAi && !scopeCopyLimiter.take(who.userId)) {
+    limited = true;
+    useDeps = { ...deps, client: null };
+  }
   try {
     const label = await (deps.label ?? getJobTypeLabel)(jobTypeId).catch(() => '');
-    const result = await generateScopeCopy({ steps, jobType: label }, deps);
+    const result = await generateScopeCopy({ steps, jobType: label }, useDeps);
     await (deps.recordRun ?? ((r) => recordAiRun(who.tenantId, r)))(result).catch(() => undefined);
+    const base = {
+      engine: result.engine,
+      generatedAt: (deps.now ?? (() => new Date()))().toISOString(),
+      sourceKey: scopeKey(steps),
+    };
     return {
       ok: true,
-      notice: result.notice,
+      notice: limited ? LIMIT_MESSAGE : result.notice,
       promptVersion: SCOPE_COPY_PROMPT_VERSION,
       copy: {
         sections: result.sections,
         corrections: result.corrections,
         uncertain: result.uncertain,
-        engine: result.engine,
-        generatedAt: (deps.now ?? (() => new Date()))().toISOString(),
-        sourceKey: scopeKey(steps),
+        ...base,
+        proof: signGenerated(who.tenantId, base),
         approvedAt: null,
+        approvalHash: null,
       },
     };
   } catch {
@@ -62,32 +80,37 @@ async function recordAiRun(tenantId: string, r: GenerateResult): Promise<void> {
 }
 
 export type ApproveOutcome =
-  | { ok: true; approvedAt: string; saved: SavedDraft | null }
+  | { ok: true; approvedAt: string; approvalHash: string; saved: SavedDraft | null }
   | { ok: false; code: 'invalid' | 'stale' | 'failed' | 'save'; message: string };
 
 export interface ApproveDeps {
   now?: () => Date;
-  save?: (form: QuoteFormValues, jobId: string | null) => Promise<SavedDraft>;
+  save?: (form: QuoteFormValues, jobId: string | null, opts?: SaveOptions) => Promise<SavedDraft>;
   audit?: (db: ServiceDb | null, entry: Parameters<typeof writeAudit>[1]) => Promise<void>;
 }
 
 /**
- * Approving the wording. The time comes from the server. The copy is saved with the draft (so the approval and the
- * steps it covers are stored together) and the audit trail gets the job's id, the engine and counts, nothing else.
+ * Approving the wording, the only place an approval is made. The time and the fingerprint come from the server. The
+ * generated copy must carry the server's proof (so its engine and source are real). The copy is saved with the
+ * draft (approval and the exact content it covers together) and the audit trail gets the job id, the engine, counts
+ * and the fingerprint, nothing else. If the audit cannot be written the approval is taken back.
  */
 export async function approveScopeWith(who: Who, form: QuoteFormValues, jobId: string | null, deps: ApproveDeps = {}): Promise<ApproveOutcome> {
   const scope = form.scope;
   const copy = scope.copy;
   if (!copy || countSteps(scope.items) === 0) return { ok: false, code: 'invalid', message: 'Generate the copy first.' };
+  if (!verifyGenerated(who.tenantId, copy)) return { ok: false, code: 'invalid', message: 'Generate the copy again, then approve it.' };
   if (copy.sourceKey !== scopeKey(scope.items)) return { ok: false, code: 'stale', message: 'The steps changed after the wording was made. Generate the copy again.' };
   const bad = Object.values(copyErrors(copy))[0];
   if (bad) return { ok: false, code: 'invalid', message: bad };
 
   const approvedAt = (deps.now ?? (() => new Date()))().toISOString();
-  const approved = { ...form, scope: { ...scope, copy: { ...copy, approvedAt } } };
+  const hash = approvalHash(scope);
+  const approved = { ...form, scope: { ...scope, copy: { ...copy, approvedAt, approvalHash: hash } } };
+  const save = deps.save ?? saveQuoteDraft;
   let saved: SavedDraft;
   try {
-    saved = await (deps.save ?? saveQuoteDraft)(approved, jobId);
+    saved = await save(approved, jobId, { trustApproval: true });
   } catch (e) {
     if (e instanceof QuoteError) return { ok: false, code: 'save', message: e.message };
     return { ok: false, code: 'failed', message: 'We could not save that. Please try again.' };
@@ -99,15 +122,45 @@ export async function approveScopeWith(who: Who, form: QuoteFormValues, jobId: s
     action: 'scope.approve',
     entity: 'job',
     entityId: compactId(saved.jobId),
-    meta: { engine: copy.engine, sections: copy.sections.length, steps: countSteps(scope.items) },
+    meta: { engine: copy.engine, sections: copy.sections.length, steps: countSteps(scope.items), hash },
   };
   try {
     if (deps.audit) await deps.audit(null, entry);
     else if (!isDemo()) await withServiceConnection((db) => writeAudit(db, entry));
   } catch {
     // No record, no approval: put the draft back to unapproved.
-    await (deps.save ?? saveQuoteDraft)({ ...form, scope: { ...scope, copy: { ...copy, approvedAt: null } } }, saved.jobId).catch(() => undefined);
+    await save({ ...form, scope: { ...scope, copy: { ...copy, approvedAt: null, approvalHash: null } } }, saved.jobId, { trustApproval: true }).catch(() => undefined);
     return { ok: false, code: 'failed', message: 'We could not record the approval. Please try again.' };
   }
-  return { ok: true, approvedAt, saved };
+  return { ok: true, approvedAt, approvalHash: hash, saved };
 }
+
+export interface ApprovalCheckDeps {
+  load?: (jobId: string) => Promise<ScopeFormValues | null>;
+  /** Is there an audit row for this approval? */
+  audited?: (tenantId: string, jobId: string, hash: string) => Promise<boolean>;
+}
+
+/**
+ * Before a quote is finished: the approval on the STORED draft must be real. The stored steps, wording and note must
+ * still hash to the approved fingerprint, and the audit trail must hold the approval of that very fingerprint.
+ */
+export async function requireApprovedScope(tenantId: string, jobId: string, deps: ApprovalCheckDeps = {}): Promise<void> {
+  const refuse = (): never => {
+    throw new QuoteError('invalid', 'The wording has not been approved. Go back to the scope step.', { 'scope.approval': 'Check the wording and approve it before the price.' });
+  };
+  const stored = await (deps.load ?? (async (id) => (isDemo() ? ((await getQuoteDraft(id))?.values.scope ?? null) : storedScopeWith(await ownerClient(), id))))(jobId);
+  if (!stored || !isApproved(stored) || !stored.copy?.approvalHash) return refuse();
+  if (isDemo() && !deps.audited) return;
+  const hash = stored.copy.approvalHash;
+  const ok = await (deps.audited ?? auditedApproval)(tenantId, jobId, hash).catch(() => false);
+  if (!ok) refuse();
+}
+
+/** Is there an audit row for exactly this approval (this business, this job, this fingerprint)? */
+export async function auditedApprovalWith(db: Db, tenantId: string, jobId: string, hash: string): Promise<boolean> {
+  const r = await db.query(`select 1 from public.audit_log where tenant_id = $1 and action = 'scope.approve' and entity = 'job' and entity_id = $2 and meta->>'hash' = $3 limit 1`, [tenantId, compactId(jobId), hash]);
+  return r.rows.length > 0;
+}
+
+const auditedApproval = (tenantId: string, jobId: string, hash: string) => withServiceConnection((db) => auditedApprovalWith(db, tenantId, jobId, hash));

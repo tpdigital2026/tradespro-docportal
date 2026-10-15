@@ -15,6 +15,13 @@ interface Props {
   errors: Record<string, string>;
 }
 
+/** The time of approval for the screen. A value that is not a real date shows nothing rather than breaking the page. */
+export function approvedTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : clock.format(d);
+}
+
 export function engineLine(copy: ScopeCopy): string {
   return copy.engine === 'ai'
     ? 'Tidied by the AI assistant. It was told to keep your meaning and add nothing.'
@@ -31,7 +38,7 @@ export function ScopeReview({ items, copy, notice, approved, editCopy, errors }:
       {notice ? <p className="sc-notice" role="status">{notice}</p> : null}
       {approved && copy.approvedAt ? (
         <p className="sc-approved" role="status">
-          Approved at {clock.format(new Date(copy.approvedAt))}. This is the wording the customer will read.
+          {approvedTime(copy.approvedAt) ? `Approved at ${approvedTime(copy.approvedAt)}.` : 'Approved.'} This is the wording the customer will read.
         </p>
       ) : null}
 

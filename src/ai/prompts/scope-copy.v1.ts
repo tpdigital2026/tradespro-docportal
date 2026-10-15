@@ -10,7 +10,7 @@ You are given JSON: the type of job, and the work as groups. Each group has a he
 
 Your job:
 - Keep the tradesperson's meaning exactly.
-- Fix spelling, punctuation and obvious speech-to-text mistakes (for example "fasher" for "fascia" only when the context makes it certain).
+- Fix punctuation, capital letters and the spelling of ordinary words. Never "correct" a word into a different material, product, part or brand name: if a word might be a mistake, keep it exactly as written and list it in "uncertain".
 - Turn each step into one clear, professional sentence in UK English, in the future tense or as a plain statement of the work, for a customer to read.
 - Keep the same groups, the same headings and the same order. For a group with a null heading, use the heading "The works". You may merge two steps that say the same thing. You may not split a step into several.
 

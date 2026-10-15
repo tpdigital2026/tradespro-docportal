@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sha256Hex } from './hash';
 
 /**
  * The scope of works, as the owner builds it: ordered one-sentence steps (optionally grouped under headings),
@@ -48,9 +49,14 @@ export interface ScopeCopy {
   uncertain: string[];
   engine: ScopeEngine;
   generatedAt: string;
-  /** Which steps this copy was made from. Approval holds only while this still matches. */
+  /** Which steps this copy was made from. Checked by the server's proof. */
   sourceKey: string;
+  /** Server proof that engine, sourceKey and generatedAt came from the server (an HMAC; the browser cannot make one). */
+  proof: string;
+  /** Written only by the server when the wording is approved. */
   approvedAt: string | null;
+  /** Fingerprint of the exact steps, wording and note that were approved. Approval holds only while it still matches. */
+  approvalHash: string | null;
 }
 export interface ScopeFormValues {
   coverTitle: string;
@@ -93,7 +99,9 @@ export const scopeCopySchema = z.object({
   engine: z.enum(['ai', 'fallback']),
   generatedAt: z.string().max(40),
   sourceKey: z.string().max(60),
+  proof: z.string().max(100).default(''),
   approvedAt: z.string().max(40).nullable(),
+  approvalHash: z.string().max(80).nullable().default(null),
 });
 
 export const scopeFormSchema = z.object({
@@ -169,12 +177,27 @@ function cyrb53(str: string): number {
   return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
-/** The copy counts as approved only while it was made from exactly the steps now in the form. */
+/**
+ * Fingerprint of what is approved: the exact steps, the exact wording (groups and lines) and the note (the box the
+ * customer also reads). Anything that changes any of them changes this.
+ */
+export function approvalHash(scope: ScopeFormValues): string {
+  const steps = meaningfulItems(scope.items).map((i) => [i.kind === 'heading' ? 'h' : 's', i.text]);
+  const sections = scope.copy ? cleanCopySections(scope.copy.sections).map((s) => [s.heading, s.steps]) : [];
+  return `h${sha256Hex(JSON.stringify({ v: 1, steps, sections, note: scope.note.replace(/\r\n?/g, '\n').trim() }))}`;
+}
+
+/** Approved only while the steps, wording and note are exactly what was approved. */
 export function isApproved(scope: ScopeFormValues): boolean {
   const c = scope.copy;
-  if (!c || c.approvedAt === null) return false;
-  if (c.sourceKey !== scopeKey(scope.items)) return false;
-  return c.sections.some((s) => s.steps.some((b) => b.trim() !== ''));
+  if (!c || c.approvedAt === null || c.approvalHash === null) return false;
+  if (!c.sections.some((s) => s.steps.some((b) => b.trim() !== ''))) return false;
+  return c.approvalHash === approvalHash(scope);
+}
+
+/** The approval fields cleared. Used whenever the content no longer matches what was approved. */
+export function withoutApproval(scope: ScopeFormValues): ScopeFormValues {
+  return scope.copy && (scope.copy.approvedAt !== null || scope.copy.approvalHash !== null) ? { ...scope, copy: { ...scope.copy, approvedAt: null, approvalHash: null } } : scope;
 }
 
 /** The copy has gone stale: it exists but was made from different steps. */
@@ -220,7 +243,11 @@ export function scopeErrors(scope: ScopeFormValues, mode: 'draft' | 'final'): Sc
   if (mode === 'final') {
     if (countSteps(scope.items) === 0) e['scope.items'] = 'Add at least one step';
     else if (!e['scope.items'] && !isApproved(scope)) {
-      e['scope.approval'] = isStale(scope) ? 'You changed the steps after the wording was made. Generate the copy again and approve it.' : 'Generate the copy and approve it before the price.';
+      e['scope.approval'] = isStale(scope)
+        ? 'You changed the steps after the wording was made. Generate the copy again and approve it.'
+        : scope.copy
+          ? 'Check the wording and approve it before the price.'
+          : 'Generate the copy and approve it before the price.';
     }
   }
   return e;

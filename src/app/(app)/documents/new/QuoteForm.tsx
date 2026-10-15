@@ -13,7 +13,7 @@ import type { StepProps } from '../../../../components/quote/types';
 import type { QuoteContext } from '../../../../lib/data/quotes';
 import { formatPct } from '../../../../lib/money';
 import { applyJobTypeDefaults } from '../../../../lib/scope/defaults';
-import { isApproved } from '../../../../lib/scope/model';
+import { isApproved, withoutApproval } from '../../../../lib/scope/model';
 import { computeQuoteTotals } from '../../../../lib/quote-totals';
 import {
   normaliseQuote,
@@ -81,6 +81,9 @@ export function QuoteForm({
       const next = { ...v, ...p };
       // A new kind of job brings its own suggested title and introduction, unless the owner has written their own.
       if (p.jobTypeId !== undefined && p.jobTypeId !== v.jobTypeId) next.scope = applyJobTypeDefaults(next.scope, ctx.jobTypes, v.jobTypeId, p.jobTypeId);
+      // Approval holds only while the steps, wording and note are exactly what was approved. Otherwise it is gone here too,
+      // so the screen never shows an approval the server has already dropped.
+      if (next.scope.copy?.approvedAt && !isApproved(next.scope)) next.scope = withoutApproval(next.scope);
       return next;
     });
     setServerErrors((e) => (Object.keys(e).length ? {} : e));

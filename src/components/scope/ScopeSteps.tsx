@@ -47,6 +47,15 @@ export function ScopeSteps({ items, update, errors }: Props) {
     const stepsOnly = after.filter((x) => x.kind === 'step');
     const label = it.kind === 'heading' ? `Moved the heading ${dir === -1 ? 'up' : 'down'}.` : `Moved to step ${stepsOnly.findIndex((x) => x.id === it.id) + 1} of ${stepsOnly.length}.`;
     setAnnounce(label);
+    // A step that lands under a folded heading would vanish with the focus on it: open that group.
+    if (it.kind === 'step') {
+      let owner: string | null = null;
+      for (const x of after) {
+        if (x.kind === 'heading') owner = x.id;
+        if (x.id === it.id) break;
+      }
+      if (owner) setCollapsed((c) => (c.has(owner!) ? new Set([...c].filter((id) => id !== owner)) : c));
+    }
     pending.current = { id: it.id, part: dir === -1 ? 'up' : 'down' };
     update((cur) => move(cur, it.id, dir));
   };

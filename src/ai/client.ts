@@ -1,3 +1,5 @@
+import 'server-only';
+
 /**
  * The only place that talks to a model. Server side only. It never logs what it is sent or what comes back.
  */

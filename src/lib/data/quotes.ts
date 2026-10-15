@@ -12,7 +12,10 @@ import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
 import { suggestNextNumber } from '../quote-number';
 import { requireSession } from '../session';
-import { emptyScope } from '../scope/model';
+import { sanitiseIncomingScope } from '../scope/approval';
+import { itemsFromLegacyNotes } from '../scope/items';
+import { emptyScope, scopeFormSchema, type ScopeFormValues } from '../scope/model';
+import { verifyGenerated } from '../scope/proof';
 import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
 import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
 import { ownerClient, type DataClient } from './customers';
@@ -188,7 +191,12 @@ export async function getDraftWith(client: DataClient, jobId: string): Promise<Q
     if (ver.error) throw new QuoteError('failed', 'Could not load that quote');
     const stored = (ver.data as { input?: { form?: unknown } } | null)?.input?.form;
     const parsed = quoteFormSchema.safeParse(stored);
-    if (parsed.success) values = parsed.data as QuoteFormValues;
+    if (parsed.success) {
+      values = parsed.data as QuoteFormValues;
+      // Drafts made before the scope builder kept their words in one box. Never lose them: each line becomes a step.
+      const legacy = (stored as { scopeNotes?: unknown } | null)?.scopeNotes;
+      if (typeof legacy === 'string' && legacy.trim() !== '' && values.scope.items.length === 0) values = { ...values, scope: { ...values.scope, items: itemsFromLegacyNotes(legacy) } };
+    }
   }
   const cust = await client.from('customers').select('name').eq('id', j.customer_id).maybeSingle();
   const customerName = (cust.data as { name?: string } | null)?.name ?? 'Customer';
@@ -225,6 +233,22 @@ interface Found {
   id: string;
   reference: string;
   customer_id: string;
+}
+
+/** The scope as last saved for this job, or null. The approval on it is the only approval there is. */
+export async function storedScopeWith(client: DataClient, jobId: string): Promise<ScopeFormValues | null> {
+  const doc = await client.from('documents').select('id').eq('job_id', jobId).eq('type', 'quotation').maybeSingle();
+  const id = (doc.data as { id?: string } | null)?.id;
+  if (doc.error || !id) return null;
+  const ver = await client.from('document_versions').select('input').eq('document_id', id).eq('version', 1).maybeSingle();
+  const stored = (ver.data as { input?: { form?: { scope?: unknown } } } | null)?.input?.form?.scope;
+  const parsed = scopeFormSchema.safeParse(stored);
+  return parsed.success ? (parsed.data as ScopeFormValues) : null;
+}
+
+export interface SaveOptions {
+  /** Only the server's approval step sets this: the approval fields in the form were written by the server just now. */
+  trustApproval?: boolean;
 }
 
 async function ensureDocument(
@@ -275,7 +299,11 @@ async function ensureDocument(
  * jobId is the draft the browser already holds, or null for the first save. Never trusts the browser's totals:
  * the plan is re-checked against the figures worked out here.
  */
-export async function saveDraftWith(client: DataClient, tenantId: string, form: QuoteFormValues, jobId: string | null, vatRateBp: number, today: string): Promise<SavedDraft> {
+export async function saveDraftWith(client: DataClient, tenantId: string, rawForm: QuoteFormValues, jobId: string | null, vatRateBp: number, today: string, opts: SaveOptions = {}): Promise<SavedDraft> {
+  // Whatever the browser says about approval is ignored: approval is kept only if it is already stored and the content still matches.
+  const form = opts.trustApproval
+    ? rawForm
+    : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, jobId && isRealId(jobId) ? await storedScopeWith(client, jobId) : null, (c) => verifyGenerated(tenantId, c)) };
   const { input, errors } = normaliseQuote(form, 'draft', vatRateBp);
   if (Object.keys(errors).length > 0) throw new QuoteError('invalid', 'Check the highlighted fields', errors);
   if (!UUID.test(input.customerId)) throw new QuoteError('invalid', 'Choose who this quote is for', { customerId: 'Choose who this quote is for' });
@@ -342,7 +370,9 @@ function demoCustomerName(id: string): string {
   return demoCustomers.find((c) => c.id === id)?.name ?? 'Customer';
 }
 
-function demoSave(form: QuoteFormValues, jobId: string | null, vatRateBp: number): SavedDraft {
+function demoSave(rawForm: QuoteFormValues, jobId: string | null, vatRateBp: number, opts: SaveOptions = {}): SavedDraft {
+  const prior = jobId ? demoStore().find((r) => r.jobId === jobId)?.values.scope ?? null : null;
+  const form = opts.trustApproval ? rawForm : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, prior, (c) => verifyGenerated('demo-tenant', c)) };
   const { input, errors } = normaliseQuote(form, 'draft', vatRateBp);
   if (Object.keys(errors).length > 0) throw new QuoteError('invalid', 'Check the highlighted fields', errors);
   const rows = demoStore();
@@ -425,12 +455,12 @@ export async function checkQuoteNumber(quoteNumber: string): Promise<boolean> {
   return numberIsFreeWith(await ownerClient(), n);
 }
 
-export async function saveQuoteDraft(form: QuoteFormValues, jobId: string | null): Promise<SavedDraft> {
+export async function saveQuoteDraft(form: QuoteFormValues, jobId: string | null, opts: SaveOptions = {}): Promise<SavedDraft> {
   const s = await requireSession();
-  if (isDemo()) return demoSave(form, jobId, demoQuoteDefaults.vatRateBp);
+  if (isDemo()) return demoSave(form, jobId, demoQuoteDefaults.vatRateBp, opts);
   const client = await ownerClient();
   const defaults = await getQuoteDefaultsWith(client);
-  return saveDraftWith(client, s.tenantId, form, jobId, defaults.vatRateBp, todayIso());
+  return saveDraftWith(client, s.tenantId, form, jobId, defaults.vatRateBp, todayIso(), opts);
 }
 
 export async function getQuoteDraft(jobId: string): Promise<QuoteDraft | null> {

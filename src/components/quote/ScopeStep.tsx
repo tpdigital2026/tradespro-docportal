@@ -89,7 +89,7 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
   const editCopy = (fn: (c: ScopeCopy) => ScopeCopy) => {
     const c = scopeRef.current.copy;
     if (!c) return;
-    patchScope({ copy: { ...fn(c), approvedAt: null } });
+    patchScope({ copy: fn(c) });
   };
 
   const approve = async () => {
@@ -119,7 +119,7 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
       return;
     }
     const now = scopeRef.current.copy;
-    if (now) patchScope({ copy: { ...now, approvedAt: res.approvedAt } });
+    if (now) patchScope({ copy: { ...now, approvedAt: res.approvedAt, approvalHash: res.approvalHash } });
   };
 
   const preview = scope.copy && !stale ? scope.copy.sections : tidyItems(scope.items).sections;

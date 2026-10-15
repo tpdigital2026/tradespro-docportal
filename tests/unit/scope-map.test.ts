@@ -5,7 +5,7 @@ import { applyJobTypeDefaults, autoTitle, isPristine } from '../../src/lib/scope
 import { FJC_SCOPE_EXAMPLES } from '../../src/lib/scope/fjc-examples';
 import { emptyScope, NOTE_LABEL } from '../../src/lib/scope/model';
 import { toQuotationScope } from '../../src/lib/scope/to-quotation';
-import { approvedScope, STEPS } from '../fixtures/scope';
+import { approvedScope, reapprove, STEPS } from '../fixtures/scope';
 
 describe('toQuotationScope', () => {
   it('maps the approved copy, cover, key figures and note onto the quotation', () => {
@@ -43,7 +43,7 @@ describe('toQuotationScope', () => {
   });
   it('no note means no callout; drops blank bullets and empty groups', () => {
     const s = approvedScope();
-    const r = toQuotationScope({ ...s, note: '  ', copy: { ...s.copy!, sections: [...s.copy!.sections, { heading: 'Empty', steps: [' '] }, { heading: ' Fit ', steps: ['', ' Fit it. '] }] } });
+    const r = toQuotationScope(reapprove({ ...s, note: '  ', copy: { ...s.copy!, sections: [...s.copy!.sections, { heading: 'Empty', steps: [' '] }, { heading: ' Fit ', steps: ['', ' Fit it. '] }] } }));
     if (!r.ok) throw new Error('expected ok');
     expect(r.value.callout).toBeNull();
     expect(r.value.scope.map((x) => x.heading)).toEqual(['Preparation', 'Fit']);
