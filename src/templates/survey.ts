@@ -67,6 +67,7 @@ const SAFETY_MM = 4;
  */
 const PHOTO_MAX_MM: Record<number, number> = { 1: 140, 2: 170, 3: 170, 4: 170 };
 const MIN_PHOTO_MM = 62;
+export const SINGLE_PHOTO_SHARE = 0.6;
 const PHOTO_GAP_MM = 3;
 
 /** Small additions to the shared stylesheet, for this document only. */
@@ -130,8 +131,8 @@ function arrange(photos: SurveyPhoto[], perRows: number[], roomMm: number, width
   const rows: Layout['rows'] = [];
   let k = 0;
   for (const per of perRows) {
-    // A photo alone on its row is held to 70% of the width so a wide shot does not swamp the page.
-    const cellW = per === 1 ? widthMm * 0.7 : (widthMm - PHOTO_GAP_MM * (per - 1)) / per;
+    // A photo alone on its row is held to 60% of the width, as planned (the reference), so it never swamps the page.
+    const cellW = per === 1 ? widthMm * SINGLE_PHOTO_SHARE : (widthMm - PHOTO_GAP_MM * (per - 1)) / per;
     const cells = photos.slice(k, k + per).map((p) => fit(p, { w: cellW, h: rowCap }));
     k += per;
     rows.push({ cells, heightMm: Math.max(...cells.map((c) => c.h)) });

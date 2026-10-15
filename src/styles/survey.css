@@ -113,3 +113,6 @@
 @media (min-width: 760px) { .sv-fold { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-5); } }
 .sv-form .qt-nav { flex-wrap: wrap; }
 @media (max-width: 519px) { .sv-form .qt-nav { flex-direction: column-reverse; align-items: stretch; } }
+
+.sv-label { font-weight: 600; }
+.sv-fixed { margin: 0; font-family: var(--font-head); font-size: var(--fs-title); font-weight: 600; overflow-wrap: anywhere; } /* shown, not typed: it is the profile name */

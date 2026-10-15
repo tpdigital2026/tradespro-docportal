@@ -34,5 +34,16 @@ export async function surveyApprovalProblemsWith(db: Db, tenantId: string, docum
     if (f.approvalHash && isFindingApproved(f) && !audited.has(f.approvalHash)) out.push(`Finding ${i + 1}: the approval is not on record. Approve it again.`);
   });
   if (v.opinionHash && isOpinionApproved(v) && !audited.has(v.opinionHash)) out.push('Your professional opinion: the approval is not on record. Approve it again.');
+  // The opinion is signed by the person who approved it, in their own profile name, and by nobody else.
+  if (v.opinionHash && isOpinionApproved(v) && audited.has(v.opinionHash)) {
+    const r = await db.query(
+      `select p.full_name from public.audit_log a join public.profiles p on p.id = a.user_id and p.tenant_id = a.tenant_id
+        where a.tenant_id = $1 and a.action = $2 and a.entity = 'document' and a.entity_id = $3 and a.meta->>'hash' = $4 and a.meta->>'part' = 'opinion'`,
+      [tenantId, SURVEY_APPROVE_ACTION, compactId(documentId), v.opinionHash],
+    );
+    const names = new Set(r.rows.map((x) => String(x.full_name ?? '').replace(/\s+/g, ' ').trim()));
+    const signer = v.signName.replace(/\s+/g, ' ').trim();
+    if (!names.has(signer) || v.preparedBy.replace(/\s+/g, ' ').trim() !== signer) out.push('Your professional opinion must be approved by the person who signs it. Open the report and approve it as yourself.');
+  }
   return out;
 }

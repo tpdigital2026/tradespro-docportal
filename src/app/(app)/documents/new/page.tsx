@@ -45,7 +45,7 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
     );
   }
 
-  if (type === 'survey') return <SurveyNewView draft={first(sp.draft)} step={first(sp.step)} job={first(sp.job)} />;
+  if (type === 'survey') return <SurveyNewView draft={first(sp.draft)} step={first(sp.step)} job={first(sp.job)} revised={first(sp.revised) === '1'} />;
 
   if (isDocType(type) && (type === 'receipt' || isInvoiceType(type))) {
     return <FollowOnView type={type} job={first(sp.job)} n={first(sp.n)} payment={first(sp.payment)} />;

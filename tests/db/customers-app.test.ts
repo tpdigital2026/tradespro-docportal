@@ -113,7 +113,7 @@ describe.skipIf(!dbAvailable)('customer erasure and keep', () => {
       [t.tenantId, job.rows[0].id, `${t.tenantId}/q.pdf`],
     );
     await c.query(`insert into public.document_versions (tenant_id, document_id, version, pdf_path) values ($1, $2, 1, $3)`, [t.tenantId, doc.rows[0].id, `${t.tenantId}/v1.pdf`]);
-    await c.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [t.tenantId, job.rows[0].id, `${t.tenantId}/photo.jpg`]);
+    await c.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [t.tenantId, job.rows[0].id, cust.rows[0].id]);
     return { ...t, customerId: cust.rows[0].id as string };
   }
   const nested = { nested: true } as const;
@@ -124,7 +124,7 @@ describe.skipIf(!dbAvailable)('customer erasure and keep', () => {
       const storage = new InMemoryStorage();
       const r = await eraseCustomerWith(c, storage, { tenantId: t.tenantId, userId: t.userId }, t.customerId, nested);
       expect(r).toBe('erased');
-      expect([...storage.deleted].sort()).toEqual([`${t.tenantId}/photo.jpg`, `${t.tenantId}/q.pdf`, `${t.tenantId}/v1.pdf`]);
+      expect([...storage.deleted].sort()).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.jpg$/), `${t.tenantId}/q.pdf`, `${t.tenantId}/v1.pdf`]);
       expect(storage.deletedPrefixes).toEqual([`${t.tenantId}/${t.customerId}/`]);
       const left = await c.query(`select (select count(*) from public.customers where tenant_id = $1)::int c, (select count(*) from public.jobs where tenant_id = $1)::int j, (select count(*) from public.documents where tenant_id = $1)::int d`, [t.tenantId]);
       expect(left.rows[0]).toEqual({ c: 0, j: 0, d: 0 });

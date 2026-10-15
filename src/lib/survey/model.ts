@@ -134,9 +134,17 @@ export function findingHash(f: Pick<Finding, 'id' | 'photoIds' | 'title' | 'obse
   return `h${sha256Hex(JSON.stringify({ v: 1, id: f.id, photos: f.photoIds, title: tidyLine(f.title), observation: tidyPara(f.observation), assessment: tidyPara(f.assessment) }))}`;
 }
 
-/** The professional opinion and the remedial works line, both signed by the person preparing the report. */
-export function opinionHash(v: Pick<SurveyFormValues, 'opinion' | 'remedial' | 'signName'>): string {
-  return `h${sha256Hex(JSON.stringify({ v: 1, opinion: tidyPara(v.opinion), remedial: tidyLine(v.remedial), signer: tidyLine(v.signName) }))}`;
+/**
+ * The professional opinion, the remedial works line, who signs it, who prepared the report and the date it is signed.
+ * Changing any of them means approving it again.
+ */
+export function opinionHash(v: Pick<SurveyFormValues, 'opinion' | 'remedial' | 'signName' | 'signDate' | 'preparedBy'>): string {
+  return `h${sha256Hex(JSON.stringify({ v: 2, opinion: tidyPara(v.opinion), remedial: tidyLine(v.remedial), signer: tidyLine(v.signName), signDate: v.signDate, preparedBy: tidyLine(v.preparedBy) }))}`;
+}
+
+/** Every approval taken off (a correction to an issued report must be approved, read and ticked again). */
+export function withoutApprovals(v: SurveyFormValues): SurveyFormValues {
+  return { ...v, findings: v.findings.map(withoutFindingApproval), opinionApprovedAt: null, opinionHash: null };
 }
 
 const realTime = (t: string | null): boolean => typeof t === 'string' && !Number.isNaN(Date.parse(t));

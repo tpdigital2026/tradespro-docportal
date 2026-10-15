@@ -23,7 +23,7 @@ import { requireSession, type Session } from '../session';
 import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
 import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
-import { demoSurveyAudited, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRows } from './surveys';
+import { demoSurveyAudited, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRevise, demoSurveyRows } from './surveys';
 import { surveyEditHref, surveyEditStep, surveyNotes, surveySummary } from '../survey/page';
 import { isFindingApproved, isOpinionApproved } from '../survey/model';
 import { withServiceConnection } from './customer-admin';
@@ -201,11 +201,11 @@ function surveyPageFrom(l: Loaded, quote: { id: string; status: 'draft' | 'final
     summary: surveySummary(form, l.survey?.customerName || 'Customer', h.number),
     earlier: h.versions.filter((v) => v.finalisedAt && v.id !== shown?.id).map((v) => ({ versionId: v.id, version: v.version, finalisedAt: v.finalisedAt as string })),
     editHref: status === 'draft' ? surveyEditHref(h.id, surveyEditStep(form)) : null,
-    revise: null,
+    revise: status === 'final' ? { allowed: true, reason: null } : null,
     email: null,
     corrections: notes.corrections,
     uncertain: notes.uncertain,
-    isRevision: false,
+    isRevision: status === 'draft' && h.versions.some((v) => v.finalisedAt !== null),
     survey: { quote },
   };
 }
@@ -552,7 +552,7 @@ function demoSurveyLoad(id: string): Loaded | null {
   const st = docState(id);
   const versions = [
     ...(r.status === 'draft' ? [{ id: `demo-ver-${id}-v${st.draftVersion}`, version: st.draftVersion, finalisedAt: null, pdfPath: null, input: { schema: 1, survey: r.values }, finalContent: null, bankAccountId: null }] : []),
-    ...[...st.finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: { schema: 1, survey: r.values }, finalContent: { pages: f.pages }, bankAccountId: null })),
+    ...[...st.finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: { schema: 1, survey: r.issued ?? r.values }, finalContent: { pages: f.pages }, bankAccountId: null })),
   ];
   const last = st.finals[st.finals.length - 1];
   const head: DocumentHead = {
@@ -726,6 +726,13 @@ async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promis
 function demoRevise(id: string): { jobId: string } {
   const l = demoLoad(id);
   if (!l) throw new DocumentError('not_found', 'That document could not be found.');
+  if (l.head.type === 'survey') {
+    if (l.head.status === 'draft') return { jobId: l.head.jobId };
+    const st = docState(id);
+    if (!demoSurveyRevise(id)) throw new DocumentError('locked', 'This document cannot be changed.');
+    st.draftVersion = (st.finals[st.finals.length - 1]?.version ?? 1) + 1;
+    return { jobId: l.head.jobId };
+  }
   if (l.head.type !== 'quotation') throw new DocumentError('not_allowed', 'Only a quotation can be changed after it is finalised. Invoices and receipts follow the quote and the payments.');
   if (l.head.status === 'draft') return { jobId: l.head.jobId };
   if (!demoUnissueQuote(l.head.jobId)) throw new DocumentError('not_allowed', 'This quote already has invoices or receipts made from it, so it cannot be changed now.');

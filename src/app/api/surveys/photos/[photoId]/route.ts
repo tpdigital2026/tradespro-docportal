@@ -13,5 +13,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ photoId: strin
   if (!PHOTO_ID.test(photoId)) return NextResponse.json({ ok: false, message: 'That photo is not available.' }, { status: 404 });
   const bytes = await readSurveyPhoto(photoId).catch(() => null);
   if (!bytes) return NextResponse.json({ ok: false, message: 'That photo is not available.' }, { status: 404 });
-  return new Response(new Uint8Array(bytes), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' } });
+  return new Response(new Uint8Array(bytes), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' } });
 }

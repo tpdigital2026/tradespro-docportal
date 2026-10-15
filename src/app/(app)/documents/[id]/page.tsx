@@ -12,6 +12,7 @@ import { DownloadButton } from './DownloadButton';
 import { EmailPanel } from './EmailPanel';
 import { ReviseForm } from './ReviseForm';
 import { SurveyNext } from './SurveyNext';
+import { SurveyReviseForm } from './SurveyReviseForm';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -50,7 +51,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
       <PageHeader eyebrow={`Draft ${name.toLowerCase()}`} title={doc.type === 'quotation' ? `Quote ${doc.number}` : doc.number} lede={`For ${doc.customerName}. Check what was entered, then preview every page before it becomes final.`} />
       {saved ? <p className="flash" role="status">Saved. Preview it when you are ready.</p> : null}
       {doc.isRevision ? (
-        <p className="doc-note" role="note">This is version {doc.version}, a change to a quote you had already finalised. The earlier version stays exactly as it was.</p>
+        <p className="doc-note" role="note">This is version {doc.version}, a change to a {doc.type === 'survey' ? 'report' : 'quote'} you had already finalised. The earlier version stays exactly as it was.</p>
       ) : null}
       <div className="doc-layout">
         <div className="doc-main">
@@ -127,7 +128,7 @@ function Final({ doc, justFinalised, quoteFailed }: { doc: DocumentPage; justFin
           </div>
           {doc.revise ? (
             doc.revise.allowed ? (
-              <ReviseForm id={doc.id} />
+              doc.type === 'survey' ? <SurveyReviseForm id={doc.id} /> : <ReviseForm id={doc.id} />
             ) : (
               <p className="hint doc-revise-no">{doc.revise.reason}</p>
             )

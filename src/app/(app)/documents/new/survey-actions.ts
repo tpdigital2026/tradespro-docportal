@@ -14,6 +14,7 @@ import {
   type SavedSurvey,
 } from '../../../../lib/data/surveys';
 import { isKnownId } from '../../../../lib/data/quotes';
+import { DocumentError, reviseDocument } from '../../../../lib/data/documents';
 import { PHOTO_ID, FINDING_ID, surveyFormSchema, type SurveyFormValues } from '../../../../lib/survey/model';
 import { requireSession } from '../../../../lib/session';
 
@@ -114,4 +115,19 @@ export async function startQuoteFromSurveyAction(formData: FormData): Promise<vo
     redirect(`/documents/${id}?quote=failed`);
   }
   redirect(href);
+}
+
+export type SurveyReviseState = { message: string } | null;
+
+/** "Correct this report": a new draft version of an issued survey report, every approval taken off, then the form. */
+export async function reviseSurveyAction(_prev: SurveyReviseState, form: FormData): Promise<SurveyReviseState> {
+  await requireSession();
+  const id = docId(form.get('id'));
+  if (!id) return { message: GENERIC };
+  try {
+    await reviseDocument(id);
+  } catch (e) {
+    return { message: e instanceof DocumentError ? e.message : GENERIC };
+  }
+  redirect(`/documents/new?type=survey&draft=${encodeURIComponent(id)}&step=findings&revised=1`);
 }

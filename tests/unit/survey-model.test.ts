@@ -65,12 +65,15 @@ describe('survey form model', () => {
     const v = survey();
     expect(opinionHash({ ...v, remedial: 'To be quoted' })).not.toBe(opinionHash(v));
     expect(opinionHash({ ...v, signName: 'Someone Else' })).not.toBe(opinionHash(v));
+    expect(opinionHash({ ...v, signDate: '2026-10-15' })).not.toBe(opinionHash(v));
+    expect(opinionHash({ ...v, preparedBy: 'Someone Else' })).not.toBe(opinionHash(v));
   });
 
   it('approval holds only while the content matches; settleApprovals drops the rest', () => {
     const v = approved(survey());
     expect(isFindingApproved(v.findings[0])).toBe(true);
     expect(isOpinionApproved(v)).toBe(true);
+    expect(settleApprovals({ ...v, signDate: '2026-10-20' }).opinionHash).toBeNull();
     const edited = settleApprovals({ ...v, findings: [{ ...v.findings[0], title: 'Changed' }], opinion: 'Changed.' });
     expect(edited.findings[0].approvalHash).toBeNull();
     expect(edited.opinionHash).toBeNull();

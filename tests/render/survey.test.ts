@@ -31,11 +31,17 @@ describe('survey report', () => {
     const pdf = await renderPdf(page, doc);
     expect(pdfPages(pdf)).toBe(7);
     const t = await text();
-    for (const s of ['Roof Defect', 'Survey Report', 'SR-DEMO-4001', 'Mr John Smith', '123 Bromley Road', '4 defects recorded', '10 site photographs', 'Four findings recorded', 'Photo 4.4', 'Photo 3.3', 'Photo 1.1', 'Professional opinion', 'page 07', 'Typed signature', 'Jane Demo']) {
+    for (const s of ['Roof Defect', 'Survey Report', 'SR-DEMO-4001', 'Mr John Smith', '123 Bromley Road', '4 defects recorded', '10 site photographs', 'Four findings recorded', 'Photo 4.4', 'Photo 3.3', 'Photo 1.1', 'Professional opinion', 'page 07', 'Typed signature', fakeTenant.ownerName, `prepared by ${fakeTenant.name}`]) {
       expect(t, s).toContain(s);
     }
     expect(t).toContain('Finding 04 · Page 06');
     expect(t).toContain('Page 07 / 07');
+    // One business throughout: no other business name appears anywhere on the report.
+    expect(t).not.toMatch(/Demo Roofing/);
+    // A single photo sits at the planned width, 60% of the page body (178mm), centred.
+    const single = await page.$eval('.sv-photos figure', (e) => e.getBoundingClientRect().width / (178 * 96 / 25.4));
+    expect(single).toBeGreaterThan(0.45);
+    expect(single).toBeLessThanOrEqual(0.6 + 0.005);
     // The finding pages never crop a photo: every image keeps its own shape.
     const ratios = await page.$$eval('.sv-photos figure', (els) => els.map((e) => { const r = e.getBoundingClientRect(); const img = e.querySelector('img') as HTMLImageElement; return [r.width / r.height, img.naturalWidth / img.naturalHeight]; }));
     for (const [box, img] of ratios) expect(Math.abs(box - img)).toBeLessThan(0.03);

@@ -10,7 +10,7 @@ import { MicIcon, PlusIcon } from '../../../../components/scope/icons';
 import { useDictation } from '../../../../components/scope/useDictation';
 import type { SurveyContext, SurveyDraft } from '../../../../lib/data/surveys';
 import { initials } from '../../../../lib/initials';
-import { shrinkPhoto } from '../../../../lib/survey/shrink';
+import { shrinkPhoto, UNSUPPORTED_PHOTO, UnsupportedPhotoError } from '../../../../lib/survey/shrink';
 import {
   emptyFinding,
   emptySurvey,
@@ -52,7 +52,8 @@ function moveIn<T>(list: T[], i: number, dir: -1 | 1): T[] {
 export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: SurveyContext; draft: SurveyDraft | null; initialStep?: SurveyStep; presetJobId?: string | null }) {
   const presetJob = presetJobId ? ctx.jobs.find((j) => j.id === presetJobId) ?? null : null;
   const [values, setValues] = useState<SurveyFormValues>(
-    () => draft?.values ?? emptySurvey({ surveyDate: ctx.today, preparedBy: ctx.preparedBy, propertyAddress: presetJob?.propertyAddress ?? '' }),
+    // Prepared by and the signature are always the signed-in person's profile name (the server enforces it too).
+    () => settleApprovals({ ...(draft?.values ?? emptySurvey({ surveyDate: ctx.today, preparedBy: ctx.preparedBy, propertyAddress: presetJob?.propertyAddress ?? '' })), preparedBy: ctx.preparedBy, signName: ctx.preparedBy }),
   );
   const [docId, setDocId] = useState<string | null>(draft?.documentId ?? null);
   const [number, setNumber] = useState<string>(draft?.number ?? '');
@@ -121,6 +122,16 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     inFlight.current = p;
     return p;
   }, []);
+
+  /**
+   * Waits until everything typed so far is saved. A save that is just finishing can miss an edit made a moment ago,
+   * so this goes round again until nothing newer is waiting (or the save fails).
+   */
+  const flushSave = useCallback(async (): Promise<boolean> => {
+    // At most three rounds: a failed save leaves savedRev behind, and three failures in a row means give up.
+    for (let i = 0; i < 3 && docRef.current && savedRev.current !== rev.current; i++) await runSave();
+    return savedRev.current === rev.current;
+  }, [runSave]);
 
   useEffect(() => {
     if (!docId || savedRev.current === rev.current) return;
@@ -203,12 +214,23 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     const id = docRef.current;
     if (!id) return;
     setUiOf(findingId, (u) => ({ uploading: u.uploading + files.length, error: null }));
+    // The server takes photos only for a finding it already has: save first.
+    if (!(await flushSave())) {
+      setUiOf(findingId, (u) => ({ uploading: Math.max(0, u.uploading - files.length), error: 'The finding could not be saved, so the photo was not added. Check your connection and try again.' }));
+      return;
+    }
     for (const file of files) {
       try {
-        const blob = await shrinkPhoto(file);
+        let blob: Blob;
+        try {
+          blob = await shrinkPhoto(file);
+        } catch (e) {
+          setUiOf(findingId, { error: e instanceof UnsupportedPhotoError ? UNSUPPORTED_PHOTO : 'That photo could not be read. Please try another.' });
+          continue;
+        }
         const body = new FormData();
         body.append('photo', blob, 'photo.jpg');
-        const res = await fetch(`/api/surveys/${encodeURIComponent(id)}/photos`, { method: 'POST', body });
+        const res = await fetch(`/api/surveys/${encodeURIComponent(id)}/photos?finding=${encodeURIComponent(findingId)}`, { method: 'POST', body });
         const json = (await res.json().catch(() => null)) as { ok?: boolean; message?: string; photo?: { id: string; width: number; height: number } } | null;
         if (!res.ok || !json?.ok || !json.photo) {
           setUiOf(findingId, { error: json?.message ?? 'That photo could not be added. Please try again.' });
@@ -229,7 +251,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
   const removePhoto = async (findingId: string, photoId: string) => {
     patch((v) => ({ ...v, coverPhotoId: v.coverPhotoId === photoId ? '' : v.coverPhotoId, findings: v.findings.map((f) => (f.id === findingId ? { ...f, photoIds: f.photoIds.filter((p) => p !== photoId) } : f)) }));
     setAnnounce('Photo removed.');
-    await runSave();
+    await flushSave();
     const id = docRef.current;
     if (id) await deleteSurveyPhotoAction(id, photoId).catch(() => null);
   };
@@ -261,7 +283,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     if (!id) return;
     if (findingId) setUiOf(findingId, { approving: true, error: null });
     else setOpinionUi((o) => ({ ...o, approving: true, error: null }));
-    await runSave();
+    await flushSave();
     const sent = valuesRef.current;
     const res = await approveSurveyAction(id, sent, findingId ? { kind: 'finding', findingId } : { kind: 'opinion' }).catch(() => null);
     if (findingId) setUiOf(findingId, { approving: false, ...(res && res.ok ? { notice: null } : {}) });
@@ -289,7 +311,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     const id = docRef.current;
     if (!id) return;
     setOpinionUi((o) => ({ ...o, drafting: true, notice: null, error: null }));
-    await runSave();
+    await flushSave();
     const res = await draftOpinionAction(id, valuesRef.current).catch(() => null);
     setOpinionUi((o) => ({ ...o, drafting: false }));
     if (!res || !res.ok) return setOpinionUi((o) => ({ ...o, error: res && !res.ok ? res.message : 'We could not draft that just now. Please try again.' }));
@@ -466,7 +488,11 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
             />
             <div className="sv-stack">
               <Field id="sv-date" type="date" label="Survey date" value={values.surveyDate} max="2100-12-31" onChange={(e) => patch((v) => ({ ...v, surveyDate: e.target.value, signDate: v.signDate === v.surveyDate ? e.target.value : v.signDate }))} />
-              <Field id="sv-by" label="Prepared by" hint="Your name, as it goes on the report." value={values.preparedBy} maxLength={SURVEY_LIMITS.preparedBy} onChange={(e) => patch((v) => ({ ...v, preparedBy: e.target.value, signName: v.signName === v.preparedBy ? e.target.value : v.signName }))} />
+              <div className="field">
+                <span className="sv-label" id="sv-by-l">Prepared by</span>
+                <p className="sv-fixed">{ctx.preparedBy}</p>
+                <p className="hint">Your name from your profile. You prepare and sign the report as yourself.</p>
+              </div>
             </div>
           </div>
 
@@ -515,7 +541,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
                   patch((v) => ({ ...v, coverPhotoId: f.photoIds.includes(v.coverPhotoId) ? '' : v.coverPhotoId, findings: v.findings.filter((x) => x.id !== f.id) }));
                   setAnnounce(`Finding ${i + 1} deleted.`);
                   void (async () => {
-                    await runSave();
+                    await flushSave();
                     const id = docRef.current;
                     if (id) for (const pid of f.photoIds) await deleteSurveyPhotoAction(id, pid).catch(() => null);
                   })();
@@ -599,9 +625,12 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
 
           <fieldset className="sv-fieldset">
             <legend className="sv-legend">Signature</legend>
-            <p className="hint">The report is signed with your typed name and this date. No signature image is added.</p>
+            <p className="hint">The report is signed with your name, as it is on your profile, and this date. No signature image is added.</p>
             <div className="sv-two">
-              <Field id="sv-sign" label="Typed name" value={values.signName} maxLength={SURVEY_LIMITS.preparedBy} autoComplete="name" onChange={(e) => patch((v) => ({ ...v, signName: e.target.value }))} />
+              <div className="field">
+                <span className="sv-label" id="sv-sign-l">Signed by</span>
+                <p className="sv-fixed">{ctx.preparedBy}</p>
+              </div>
               <Field id="sv-signdate" type="date" label="Date" value={values.signDate} max="2100-12-31" onChange={(e) => patch((v) => ({ ...v, signDate: e.target.value }))} />
             </div>
           </fieldset>
@@ -614,8 +643,8 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
               </p>
             ) : (
               <>
-                <Button type="button" onClick={() => void approve(null)} disabled={opinionUi.approving || !values.opinion.trim() || !values.signName.trim()}>{opinionUi.approving ? 'Approving' : 'I approve this opinion'}</Button>
-                <p className="hint">You sign this opinion as {tidyLine(values.signName) || 'yourself'}. It goes on the report exactly as it reads here.</p>
+                <Button type="button" onClick={() => void approve(null)} disabled={opinionUi.approving || !values.opinion.trim() || !values.signDate}>{opinionUi.approving ? 'Approving' : 'I approve this opinion'}</Button>
+                <p className="hint">You sign this opinion as {ctx.preparedBy}. It goes on the report exactly as it reads here.</p>
               </>
             )}
             {opinionUi.error ? <p className="error" role="alert">{opinionUi.error}</p> : null}
@@ -655,7 +684,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
                   disabled={starting}
                   onClick={async () => {
                     setStarting(true);
-                    await runSave();
+                    await flushSave();
                     window.location.assign(`/documents/${docId}/preview`);
                   }}
                 >

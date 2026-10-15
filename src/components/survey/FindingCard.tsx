@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AutoTextarea, Counter } from '../scope/bits';
 import { DownIcon, MicIcon, TrashIcon, UpIcon } from '../scope/icons';
+import { PHOTO_ACCEPT } from '../../lib/survey/shrink';
 import { isFindingApproved, photoLabel, SURVEY_LIMITS, tidyLine, tidyPara, type Finding } from '../../lib/survey/model';
 
 export interface FindingUi {
@@ -183,8 +184,8 @@ export function FindingCard({ finding: f, index, count, ui, photos, aiOn, dictat
               <button type="button" className="btn btn-secondary sv-photo-btn" onClick={() => gallery.current?.click()} disabled={!canUpload}>
                 <GalleryIcon /> Choose photos
               </button>
-              <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => pick(e.currentTarget)} />
-              <input ref={gallery} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" multiple hidden onChange={(e) => pick(e.currentTarget)} />
+              <input ref={camera} type="file" accept={PHOTO_ACCEPT} capture="environment" hidden onChange={(e) => pick(e.currentTarget)} />
+              <input ref={gallery} type="file" accept={PHOTO_ACCEPT} multiple hidden onChange={(e) => pick(e.currentTarget)} />
             </div>
           ) : null}
         </div>

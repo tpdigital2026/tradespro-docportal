@@ -8,7 +8,7 @@ import { SurveyForm } from './SurveyForm';
 import { SURVEY_STEPS, type SurveyStep } from '../../../../lib/survey/page';
 
 /** New survey report, or carry on with a draft one. */
-export async function SurveyNewView({ draft: draftId, step, job }: { draft?: string; step?: string; job?: string }) {
+export async function SurveyNewView({ draft: draftId, step, job, revised }: { draft?: string; step?: string; job?: string; revised?: boolean }) {
   let ctx: SurveyContext;
   try {
     ctx = await getSurveyContext();
@@ -40,6 +40,7 @@ export async function SurveyNewView({ draft: draftId, step, job }: { draft?: str
         title={draft ? `Survey for ${draft.customerName}` : 'Record what you found'}
         lede="Photos and one line for each finding, then your professional opinion. Everything saves as you go."
       />
+      {revised && draft ? <p className="doc-note" role="note">This is a correction to a report you had already finalised. The earlier version stays as it was. Every finding and your opinion need approving again, then you read and tick the new version.</p> : null}
       <SurveyForm ctx={ctx} draft={draft} initialStep={initialStep} presetJobId={presetJobId} />
     </div>
   );

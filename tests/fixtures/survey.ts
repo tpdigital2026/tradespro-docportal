@@ -4,6 +4,10 @@
  */
 import sharp from 'sharp';
 import type { SurveyInput } from '../../src/templates/survey';
+import type { Tenant } from '../../src/themes/types';
+import { FJC_SURVEY_WORDING } from '../../src/db/wording';
+import { fillBusiness } from '../../src/lib/survey/map';
+import { fakeTenant } from './fake';
 
 const SCENES: [string, string, string][] = [
   ['#9fb7cc', '#5b4a3d', '#3c3f45'],
@@ -49,7 +53,12 @@ const ASSESS = [
 ];
 const TITLES = ['Fascias sit forward of the gutter', 'Box gutter unlined and blocked', 'Felt patched in a different material', 'Rotten timber behind new boards'];
 
-export async function surveyFixture(opts: { findings?: number; photoCounts?: number[]; cover?: boolean; remedial?: boolean } = {}): Promise<SurveyInput> {
+/**
+ * A dummy survey for one business: every line that names the business (introduction, prepared by, signature,
+ * remedial works) uses the tenant passed in, so the rendered sample never mixes two businesses.
+ */
+export async function surveyFixture(opts: { findings?: number; photoCounts?: number[]; cover?: boolean; remedial?: boolean; tenant?: Tenant } = {}): Promise<SurveyInput> {
+  const t = opts.tenant ?? fakeTenant;
   const n = opts.findings ?? 4;
   const counts = opts.photoCounts ?? [1, 2, 3, 4];
   let k = 0;
@@ -67,23 +76,21 @@ export async function surveyFixture(opts: { findings?: number; photoCounts?: num
     runningLabel: 'Pre-Contract Roof Defect Survey',
     coverSub: null,
     purpose: null,
-    intro: [
-      'This report has been prepared by Demo Roofing Ltd following an inspection of the roof at the above property, carried out prior to Demo Roofing Ltd undertaking any remedial works. The purpose of this survey is to record, by way of photographic evidence and professional commentary, the condition of the roof as found.',
-    ],
+    intro: [fillBusiness(FJC_SURVEY_WORDING.intro, t.name)],
     howToRead: 'Each finding is set out on its own page with site photographs, followed by what was observed on the roof and our professional assessment.',
     customerName: 'Mr John Smith',
     property: '123 Bromley Road, Bromley, BR1 1AA',
     dateLabel: '14 October 2026',
-    preparedBy: 'Jane Demo, Demo Roofing Ltd',
+    preparedBy: `${t.ownerName}, ${t.name}`,
     coverPhoto: opts.cover === false ? null : (await photoUri(9)).src,
     findings,
     opinion: [
       'Based on the inspection carried out and the defects recorded in this report, it is my professional opinion that the roof needs remedial work before it can be relied on to keep the building dry.',
       'The defects recorded would not be expected from work carried out to a competent standard.',
     ],
-    remedial: opts.remedial === false ? null : 'Demo Roofing Ltd instructed to carry out',
-    signName: 'Jane Demo',
-    signRole: 'Director · Demo Roofing Ltd',
+    remedial: opts.remedial === false ? null : `${t.name} instructed to carry out`,
+    signName: t.ownerName,
+    signRole: `${t.ownerTitle} · ${t.name}`,
     signDateLabel: '14 October 2026',
   };
 }

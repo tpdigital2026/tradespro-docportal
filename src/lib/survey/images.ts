@@ -10,13 +10,16 @@
 import { createHash } from 'node:crypto';
 import sharp, { type Metadata } from 'sharp';
 
+// Photos are one-off: a decoded image is never reused, so libvips keeps no cache of them.
+sharp.cache(false);
+
 export const PHOTO_LIMITS = {
   /** Bytes accepted from the browser. Phones resize before upload, so real uploads are far smaller. */
   maxUploadBytes: 12 * 1024 * 1024,
   /** Long edge of the stored photo. */
   maxEdge: 2000,
-  /** Refuse anything that would decode to more pixels than this (about a 100 megapixel image). */
-  maxInputPixels: 100_000_000,
+  /** Refuse anything that would decode to more pixels than this: 36 megapixels covers every phone camera. */
+  maxInputPixels: 36_000_000,
   minEdge: 64,
   quality: 82,
 } as const;
@@ -48,6 +51,7 @@ export interface CleanPhoto {
   sha256: string;
 }
 
+const TOO_MANY_PIXELS = 'That photo has too many pixels. Choose a smaller one, or take it with the camera button.';
 const NOT_IMAGE = 'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.';
 
 /** Validates and re-encodes one uploaded photo. Throws PhotoError with a message fit to show the owner. */
@@ -59,8 +63,10 @@ export async function cleanPhoto(input: Uint8Array): Promise<CleanPhoto> {
   const buf = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   let meta: Metadata;
   try {
+    // Header only: no pixels are decoded here.
     meta = await sharp(buf, { limitInputPixels: PHOTO_LIMITS.maxInputPixels, failOn: 'error', sequentialRead: true }).metadata();
-  } catch {
+  } catch (e) {
+    if (/pixel limit/i.test(String((e as Error)?.message))) throw new PhotoError('too_big', TOO_MANY_PIXELS);
     throw new PhotoError('unreadable', NOT_IMAGE);
   }
   // The container must agree with the first bytes (a PNG header on a WebP body is not a photo).
@@ -68,11 +74,13 @@ export async function cleanPhoto(input: Uint8Array): Promise<CleanPhoto> {
   const w = meta.width ?? 0;
   const h = meta.height ?? 0;
   if (!w || !h) throw new PhotoError('unreadable', NOT_IMAGE);
-  if (w * h > PHOTO_LIMITS.maxInputPixels) throw new PhotoError('too_big', 'That photo has too many pixels. Choose a smaller one.');
+  if (w * h > PHOTO_LIMITS.maxInputPixels) throw new PhotoError('too_big', TOO_MANY_PIXELS);
   if (Math.min(w, h) < PHOTO_LIMITS.minEdge) throw new PhotoError('too_small', 'That photo is too small to be useful in a report.');
   if ((meta.pages ?? 1) > 1) throw new PhotoError('not_image', 'Animated images cannot be used. Choose a photo.');
   try {
-    const { data, info } = await sharp(buf, { limitInputPixels: PHOTO_LIMITS.maxInputPixels, failOn: 'error' })
+    // ONE decode, streamed top to bottom (sequentialRead), straight into the shrink and the new JPEG: the full-size
+    // image is never held as a whole in memory more than libvips needs, and nothing is cached between photos.
+    const { data, info } = await sharp(buf, { limitInputPixels: PHOTO_LIMITS.maxInputPixels, failOn: 'error', sequentialRead: true })
       .rotate() // upright from the orientation flag, before the flag is dropped with everything else
       .resize({ width: PHOTO_LIMITS.maxEdge, height: PHOTO_LIMITS.maxEdge, fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
@@ -80,14 +88,15 @@ export async function cleanPhoto(input: Uint8Array): Promise<CleanPhoto> {
       .jpeg({ quality: PHOTO_LIMITS.quality, mozjpeg: true, chromaSubsampling: '4:2:0' })
       .toBuffer({ resolveWithObject: true });
     return { bytes: data, width: info.width, height: info.height, sha256: createHash('sha256').update(data).digest('hex') };
-  } catch {
+  } catch (e) {
+    if (/pixel limit/i.test(String((e as Error)?.message))) throw new PhotoError('too_big', TOO_MANY_PIXELS);
     throw new PhotoError('unreadable', NOT_IMAGE);
   }
 }
 
 /** A smaller copy for the PDF, sized to how large the photo is printed. Never stored. */
 export async function printCopy(bytes: Buffer, longEdge: number): Promise<{ src: string; width: number; height: number }> {
-  const { data, info } = await sharp(bytes, { limitInputPixels: PHOTO_LIMITS.maxInputPixels })
+  const { data, info } = await sharp(bytes, { limitInputPixels: PHOTO_LIMITS.maxInputPixels, sequentialRead: true })
     .resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 78, mozjpeg: true })
     .toBuffer({ resolveWithObject: true });

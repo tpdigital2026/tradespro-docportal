@@ -28,6 +28,14 @@ import { allPagesRead, contentKey } from './read-proof';
 import { confirmationFor } from './confirmation';
 import { mapSurvey } from '../survey/map';
 import { surveyApprovalProblemsWith } from '../survey/approval-sql';
+import { parseSurveyInput } from '../survey/facts-sql';
+import { withoutApprovals } from '../survey/model';
+
+/** The issued survey's input with every approval taken off, for its correction. */
+function surveyCorrectionInput(input: unknown): unknown {
+  const v = parseSurveyInput(input);
+  return v ? { schema: 1, survey: withoutApprovals(v) } : (input ?? {});
+}
 
 /** Bumped whenever the templates change what a document looks like, so old preview images are never reused. */
 export const TEMPLATE_VERSION = 't1';
@@ -251,23 +259,26 @@ export async function reviseWith(db: Db, actor: Actor, documentId: string, o: { 
     }
     const head = await loadHeadWith(db, actor.tenantId, documentId, true);
     if (!head) throw new DocumentError('not_found', 'That document could not be found.');
-    if (head.type !== 'quotation') throw new DocumentError('not_allowed', 'Only a quotation can be changed after it is finalised. Invoices and receipts follow the quote and the payments.');
+    if (head.type !== 'quotation' && head.type !== 'survey') throw new DocumentError('not_allowed', 'Only a quotation or a survey report can be changed after it is finalised. Invoices and receipts follow the quote and the payments.');
     if (head.status === 'draft') {
       await db.query(nested ? 'release savepoint revise_tx' : 'commit');
       return { jobId: head.jobId, versionId: head.versions[0]?.id ?? '' };
     }
-    if (head.status !== 'final') throw new DocumentError('locked', 'This quote cannot be changed.');
-    const others = await db.query(`select count(*)::int as n from public.documents where job_id = $1 and tenant_id = $2 and id <> $3`, [head.jobId, actor.tenantId, head.id]);
-    if (Number(others.rows[0]?.n) > 0) throw new DocumentError('not_allowed', 'This quote already has invoices or receipts made from it, so it cannot be changed now.');
+    if (head.status !== 'final') throw new DocumentError('locked', 'This document cannot be changed.');
+    if (head.type === 'quotation') {
+      const others = await db.query(`select count(*)::int as n from public.documents where job_id = $1 and tenant_id = $2 and id <> $3 and type <> 'survey_report'`, [head.jobId, actor.tenantId, head.id]);
+      if (Number(others.rows[0]?.n) > 0) throw new DocumentError('not_allowed', 'This quote already has invoices or receipts made from it, so it cannot be changed now.');
+    }
     const issued = head.versions[0];
     if (!issued?.finalisedAt) throw new DocumentError('failed', 'This quote could not be changed.');
     const v = await db.query(
       `insert into public.document_versions (tenant_id, document_id, version, input, bank_account_id, created_by) values ($1, $2, $3, $4::jsonb, $5, $6) returning id`,
-      [actor.tenantId, head.id, issued.version + 1, JSON.stringify(issued.input ?? {}), issued.bankAccountId, actor.userId],
+      // A survey correction starts with every approval taken off: each finding and the opinion are approved again.
+      [actor.tenantId, head.id, issued.version + 1, JSON.stringify(head.type === 'survey' ? surveyCorrectionInput(issued.input) : (issued.input ?? {})), issued.bankAccountId, actor.userId],
     );
     const versionId = String(v.rows[0].id);
     await db.query(`update public.documents set status = 'draft', current_version_id = $1, pdf_path = null, finalised_at = null, total_pence = null where id = $2 and tenant_id = $3`, [versionId, head.id, actor.tenantId]);
-    await db.query(`update public.jobs set status = 'open' where id = $1 and tenant_id = $2 and status = 'quoted'`, [head.jobId, actor.tenantId]);
+    if (head.type === 'quotation') await db.query(`update public.jobs set status = 'open' where id = $1 and tenant_id = $2 and status = 'quoted'`, [head.jobId, actor.tenantId]);
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.revise', entity: 'document', entityId: compactId(head.id), meta: { version: compactId(versionId), n: issued.version + 1 } });
     await db.query(nested ? 'release savepoint revise_tx' : 'commit');
     return { jobId: head.jobId, versionId };

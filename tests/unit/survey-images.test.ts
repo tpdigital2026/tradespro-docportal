@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { cleanPhoto, hasMetadataMarkers, PhotoError, PHOTO_LIMITS, printCopy, sniffImage } from '../../src/lib/survey/images';
 import { targetSize } from '../../src/lib/survey/shrink';
+import { greyPng } from '../fixtures/png';
 
 /** A little-endian TIFF block for an EXIF APP1 segment: orientation, a description and a GPS position. */
 function exifSegment(o: { orientation?: number; description?: string; lat?: [number, number, number] } = {}): Buffer {
@@ -180,15 +181,24 @@ describe('photo pipeline: what is refused', () => {
     }
   });
 
-  it('huge dimensions (a decompression bomb) are refused before decoding, by the pixel count in the header', async () => {
-    // A real, small PNG whose header is rewritten to claim 60000 x 60000 pixels.
-    const png = Buffer.from(await solid(10, 10, 'png'));
-    png.writeUInt32BE(60000, 16);
-    png.writeUInt32BE(60000, 20);
-    expect(await refusal(png)).not.toBe('ok');
-    // A genuine image just over the pixel limit.
-    expect(PHOTO_LIMITS.maxInputPixels).toBeLessThan(10_100 * 10_000);
-  });
+  it('a real 10001 x 10001 PNG (a tiny, CRC-valid file) is refused by the pixel limit; a real image just under it is accepted', async () => {
+    const bomb = greyPng(10001, 10001);
+    expect(bomb.length).toBeLessThan(400_000);
+    // It really is a valid PNG of that size (the decoder reads its header without complaint).
+    const meta = await sharp(bomb, { limitInputPixels: false }).metadata();
+    expect([meta.width, meta.height]).toEqual([10001, 10001]);
+    await expect(cleanPhoto(bomb)).rejects.toSatisfy((e: unknown) => e instanceof PhotoError && e.code === 'too_big');
+    // Just under 36 million pixels: decoded, shrunk and kept.
+    const under = greyPng(6000, 5999);
+    expect(6000 * 5999).toBeLessThan(PHOTO_LIMITS.maxInputPixels);
+    const out = await cleanPhoto(under);
+    expect(out.width).toBe(2000);
+    expect(out.height).toBeGreaterThanOrEqual(1999);
+    expect(out.height).toBeLessThanOrEqual(2000);
+    // Just over: refused.
+    await expect(cleanPhoto(greyPng(6001, 6000))).rejects.toSatisfy((e: unknown) => e instanceof PhotoError && e.code === 'too_big');
+    expect(PHOTO_LIMITS.maxInputPixels).toBe(36_000_000);
+  }, 120_000);
 
   it('too large a file, and too small an image', async () => {
     const big = Buffer.alloc(PHOTO_LIMITS.maxUploadBytes + 1, 0);
