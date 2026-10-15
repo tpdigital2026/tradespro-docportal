@@ -20,7 +20,7 @@ import { buildQuotation } from '../templates/quotation';
 import { buildReceipt } from '../templates/receipt';
 import type { Brand, Tenant } from '../themes/types';
 import type { Mapped } from './documents/map';
-import { outputSize, stripPng, type Reencoded, type Sniffed } from './signature-image';
+import { SIGNATURE_OUT_H, SIGNATURE_OUT_W, stripPng, type Reencoded, type Sniffed } from './signature-image';
 
 export interface RenderOutput {
   pdf: Buffer;
@@ -115,13 +115,20 @@ export async function reencodeSignature(bytes: Buffer, image: Sniffed, open: () 
   const b = await open();
   const page = await newLockedPage(b);
   try {
-    const size = outputSize(image.width, image.height);
     const src = `data:image/${image.kind};base64,${bytes.toString('base64')}`;
+    // The size is worked out in the page from naturalWidth/naturalHeight AFTER decoding, because a phone photo's EXIF
+    // orientation can turn a landscape-coded picture upright; the header's width and height would squash it.
     const out = await page.evaluate(
-      async ({ src, width, height }) => {
+      async ({ src, maxW, maxH }) => {
         const img = new Image();
         img.src = src;
         await img.decode();
+        const w0 = img.naturalWidth;
+        const h0 = img.naturalHeight;
+        if (!w0 || !h0) throw new Error('Empty picture');
+        const scale = Math.min(1, maxW / w0, maxH / h0);
+        const width = Math.max(1, Math.round(w0 * scale));
+        const height = Math.max(1, Math.round(h0 * scale));
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
@@ -137,12 +144,13 @@ export async function reencodeSignature(bytes: Buffer, image: Sniffed, open: () 
           px[i + 3] = Math.round(px[i + 3] * keep);
         }
         ctx.putImageData(data, 0, 0);
-        return canvas.toDataURL('image/png');
+        return { url: canvas.toDataURL('image/png'), width, height };
       },
-      { src, width: size.width, height: size.height },
+      { src, maxW: SIGNATURE_OUT_W, maxH: SIGNATURE_OUT_H },
     );
-    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(out);
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(out.url);
     if (!m) throw new Error('The picture could not be read');
+    const size = { width: out.width, height: out.height };
     return { png: stripPng(Buffer.from(m[1], 'base64')), ...size };
   } finally {
     await page.context().close().catch(() => undefined);

@@ -35,7 +35,48 @@ async function dirtyJpeg(): Promise<Buffer> {
   }
 }
 
+/** A landscape-coded JPEG (1200 x 400 pixels) whose EXIF says "rotate 90 degrees" (orientation 6): it shows upright. */
+async function rotatedJpeg(): Promise<Buffer> {
+  const b = await launchBrowser();
+  try {
+    const page = await newLockedPage(b);
+    const b64 = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 1200;
+      c.height = 400;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#ffffff';
+      x.fillRect(0, 0, 1200, 400);
+      x.fillStyle = '#102040';
+      x.fillRect(100, 150, 1000, 100);
+      return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+    });
+    const jpg = Buffer.from(b64, 'base64');
+    // TIFF, big-endian: one IFD entry, tag 0x0112 (Orientation), SHORT, count 1, value 6.
+    const tiff = Buffer.from([0x4d, 0x4d, 0x00, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+    const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+    const len = Buffer.alloc(2);
+    len.writeUInt16BE(payload.length + 2);
+    return Buffer.concat([jpg.subarray(0, 2), Buffer.from([0xff, 0xe1]), len, payload, jpg.subarray(2)]);
+  } finally {
+    await b.close();
+  }
+}
+
 describe('signature re-encoding (real Chrome)', () => {
+  it('a photo turned upright by its EXIF orientation keeps its shape (sized after decoding, not from the header)', async () => {
+    const input = await rotatedJpeg();
+    const check = checkSignatureUpload(input);
+    expect(check.ok).toBe(true);
+    if (!check.ok) return;
+    expect([check.image.width, check.image.height]).toEqual([1200, 400]);
+    const out = await reencodeSignature(input, check.image);
+    // Upright it is 400 wide and 1200 tall: fitted into 1200 x 400 that is 133 x 400, not a squashed 1200 x 400.
+    expect([out.width, out.height]).toEqual([133, 400]);
+    expect([out.png.readUInt32BE(16), out.png.readUInt32BE(20)]).toEqual([133, 400]);
+    expect(out.png.toString('latin1')).not.toMatch(/Exif/);
+  }, 30_000);
+
   it('returns a fresh PNG of only the pixels, scaled to fit 1200 by 400, with paper made transparent', async () => {
     const input = await dirtyJpeg();
     const check = checkSignatureUpload(input);

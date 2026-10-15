@@ -65,7 +65,11 @@ export function checkSignatureUpload(bytes: Buffer): UploadCheck {
   return { ok: true, image };
 }
 
-/** The size to draw at: never larger than the original, at most SIGNATURE_OUT_W by SIGNATURE_OUT_H. */
+/**
+ * The size to draw at: never larger than the original, at most SIGNATURE_OUT_W by SIGNATURE_OUT_H. Give it the size
+ * AFTER decoding (EXIF orientation applied); the header's width and height are only good for the pre-decode limits,
+ * which are the same either way round.
+ */
 export function outputSize(w: number, h: number): { width: number; height: number } {
   const scale = Math.min(1, SIGNATURE_OUT_W / w, SIGNATURE_OUT_H / h);
   return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };

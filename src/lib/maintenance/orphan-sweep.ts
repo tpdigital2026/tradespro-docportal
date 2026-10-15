@@ -31,6 +31,24 @@ const SIGNATURE_FILE = new RegExp(`^(${U})/brand/signature-(${U})\\.png$`);
 
 export const ORPHAN_MIN_AGE_HOURS = 24;
 
+/**
+ * MERGE HAZARD: every database column that can hold a storage path must be read by referencesWith, and every file
+ * shape the app writes must be in the shape list above, or the sweep would treat those files as unknown (kept) or, if
+ * the shape matches but the column is not read, as orphans (deleted). tests/db/maintenance.test.ts fails when a
+ * path-like column or a new table appears that is not listed here.
+ */
+export const SWEEP_REFERENCE_COLUMNS: readonly string[] = ['brand_assets.storage_path', 'document_versions.pdf_path', 'documents.pdf_path', 'job_photos.storage_path'];
+/**
+ * Every public table, reviewed for whether it stores files. A table added by another task must be added here after
+ * checking it (TODO at integration: 'appointments' from the business tabs task, and any survey table from the survey
+ * task; survey photos live in job_photos as {tenant}/{customer}/{job}/{photo}.jpg, which PHOTO_FILE covers).
+ */
+export const SWEEP_REVIEWED_TABLES: readonly string[] = [
+  '_migrations', 'ai_runs', 'audit_log', 'bank_accounts', 'brand_assets', 'brand_kits', 'customers', 'document_emails', 'document_versions',
+  'documents', 'job_photos', 'job_types', 'jobs', 'login_attempts', 'payments', 'profiles', 'purge_log', 'share_links', 'tenant_defaults',
+  'tenants', 'used_numbers',
+];
+
 export interface References {
   /** Exact stored paths. */
   paths: Set<string>;

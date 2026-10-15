@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { purgeExpiredWith } from '../../src/lib/data/customer-admin';
-import { sweepOrphansWith } from '../../src/lib/maintenance/orphan-sweep';
+import { SWEEP_REFERENCE_COLUMNS, SWEEP_REVIEWED_TABLES, sweepOrphansWith } from '../../src/lib/maintenance/orphan-sweep';
 import { InMemoryStorage } from '../../src/lib/storage';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
@@ -113,6 +113,24 @@ describe.skipIf(!dbAvailable)('scheduled customer purge (protocol, fake storage)
       expect(seen).toContain(`set local statement_timeout = '300s'`);
       expect(seen).toContain('reset role');
       expect(seen.some((s) => /set_config\('request\.jwt\.claims', ''/.test(s))).toBe(true);
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('orphan sweep coverage (merge hazard)', () => {
+  it('every column that can hold a storage path is one the sweep reads', async () => {
+    await withRollback(async (c) => {
+      const r = await c.query(`select table_name || '.' || column_name as col from information_schema.columns where table_schema = 'public' and column_name ~ '(path|file|storage|url|blob|object)' order by 1`);
+      expect(r.rows.map((x) => x.col)).toEqual([...SWEEP_REFERENCE_COLUMNS].sort());
+    });
+  });
+  // TODO(integration): fails loudly until each new table (appointments from the business tabs task, any survey table)
+  // has been checked for stored files and added to SWEEP_REVIEWED_TABLES (and its path column to the reference query).
+  it('every public table has been reviewed for stored files', async () => {
+    await withRollback(async (c) => {
+      const r = await c.query(`select tablename from pg_tables where schemaname = 'public' order by 1`);
+      const unreviewed = r.rows.map((x) => String(x.tablename)).filter((t) => !SWEEP_REVIEWED_TABLES.includes(t));
+      expect(unreviewed, 'review these tables for stored files, then add them to SWEEP_REVIEWED_TABLES').toEqual([]);
     });
   });
 });

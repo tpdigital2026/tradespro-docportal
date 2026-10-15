@@ -87,6 +87,10 @@ describe('orphan sweep', () => {
     expect(classify(`${T}/${C}/${J}/${P}.jpg`, T, r)).toBe('referenced');
     expect(classify(`${T}/${C}/${J}/${R}.jpg`, T, r)).toBe('orphan');
     expect(classify(`${T}/brand/signature-${S}.png`, T, r)).toBe('referenced');
+    // Survey photos (the survey task) are job_photos rows at {tenant}/{customer}/{job}/{photo id}.jpg: the same shape.
+    const survey = `${T}/${C}/${J}/${S}.jpg`;
+    expect(classify(survey, T, refs({ paths: new Set([survey]) }))).toBe('referenced');
+    expect(classify(survey, T, r)).toBe('orphan');
     expect(classify(`${T}/brand/signature-${R}.png`, T, r)).toBe('orphan');
     for (const p of [`${T}/logo.png`, `${T}/${C}/notes.txt`, `${T}/${C}/${J}/${V}/${R}/evil.pdf`, `${T}/survey/${R}.jpg`, `${C}/${C}/${J}/${P}.jpg`, `${T}/${C}/../x.jpg`]) {
       expect(classify(p, T, r), p).toBe('unknown');
