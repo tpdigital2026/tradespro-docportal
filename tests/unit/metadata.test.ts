@@ -46,7 +46,7 @@ describe('titles', () => {
     }
   });
   it('the not-found page has its own title', () => {
-    expect(readFileSync(path.join(APP, 'not-found.tsx'), 'utf8')).toContain("title: 'Page not found'");
+    for (const f of ['not-found.tsx', '(app)/not-found.tsx']) expect(readFileSync(path.join(APP, f), 'utf8'), f).toContain("title: 'Page not found'");
   });
   it('documents and jobs get titles from what they are', async () => {
     const t = async (sp: Record<string, string>) => (await newDocMetadata({ searchParams: Promise.resolve(sp) })).title;
@@ -80,7 +80,7 @@ describe('sign-in metadata', () => {
 describe('never indexed', () => {
   it('the root layout says noindex, nofollow, noarchive, and no page overrides robots', () => {
     expect(rootMetadata.robots).toMatchObject({ index: false, follow: false, noarchive: true });
-    const files = [...pages(APP), path.join(APP, 'not-found.tsx')];
+    const files = [...pages(APP), path.join(APP, 'not-found.tsx'), path.join(APP, '(app)/not-found.tsx')];
     for (const p of files) expect(readFileSync(p, 'utf8'), path.relative(ROOT, p)).not.toMatch(/robots\s*:|index:\s*true/);
   });
   it('every route sends X-Robots-Tag', async () => {
