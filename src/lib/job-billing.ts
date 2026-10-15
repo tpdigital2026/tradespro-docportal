@@ -5,13 +5,14 @@
  * The stored `instalments` on a job are never read here. The schedule is ALWAYS recomputed with
  * buildSchedule from the totals of the latest quote version and the plan's inputs (README, Payment plans).
  */
-import { buildSchedule, computeTotals, formatPct, type Instalment, type Pence, type PaymentPlan, type Totals } from './money';
+import { buildSchedule, computeTotals, formatPct, paymentShare, type Instalment, type Pence, type PaymentPlan, type Totals } from './money';
 import {
   deriveJobStage,
   documentNumberFor,
   instalmentFromNumber,
   invoiceTypeFor,
   isInvoiceType,
+  MAX_RECEIPTS_PER_INSTALMENT,
   type DocStatus,
   type DocType,
   type JobProgress,
@@ -102,7 +103,7 @@ export function buildJobBilling(args: {
     const progress = deriveJobStage(
       { kind },
       instalments.map((i) => ({ index: i.index, label: i.label, grossPence: i.grossPence })),
-      payments.map((p) => ({ instalment: p.instalment, amountPence: p.amountPence })),
+      payments.map((p) => ({ instalment: p.instalment, amountPence: p.amountPence, receiptLinked: p.receiptDocumentId !== null })),
       documents.map((d) => ({ type: d.type, instalment: d.instalment, status: d.status })),
     );
     return {
@@ -167,14 +168,31 @@ export function followOnFor(b: JobBilling, type: DocType, instalment: number | n
   const inst = b.instalments.find((i) => i.index === n);
   if (!inst) return { ok: false, message: MISMATCH };
   if (type !== 'receipt' && invoiceTypeFor(b.kind, n) !== type) return { ok: false, message: MISMATCH };
-  const number = documentNumberFor(type, b.quoteNumber, b.kind, n);
+  let number: string | null = documentNumberFor(type, b.quoteNumber, b.kind, n);
   if (!number) return { ok: false, message: MISMATCH };
 
   let payment: BillingPayment | null = null;
+  let money = { netPence: inst.netPence, vatPence: inst.vatPence, grossPence: inst.grossPence };
+  let linked: BillingDocument | undefined;
   if (type === 'receipt') {
+    // Each payment has its own receipt. A payment's place among the instalment's payments (in the order they were
+    // recorded) fixes its number, so a retry always lands on the same document.
     const here = b.payments.filter((p) => p.instalment === n);
-    payment = paymentId ? (here.find((p) => p.id === paymentId) ?? null) : (here.find((p) => p.receiptDocumentId === null) ?? here[0] ?? null);
-    if (!payment) return { ok: false, message: 'There is no recorded payment to make a receipt for. Mark the invoice as paid first.' };
+    payment = paymentId ? (here.find((p) => p.id === paymentId) ?? null) : (here.find((p) => p.receiptDocumentId === null) ?? null);
+    if (!payment) {
+      return { ok: false, message: here.length === 0 ? 'There is no recorded payment to make a receipt for. Mark the invoice as paid first.' : 'Every payment on this invoice already has a receipt.' };
+    }
+    const position = here.findIndex((p) => p.id === payment!.id);
+    number = documentNumberFor('receipt', b.quoteNumber, b.kind, n, position + 1);
+    if (!number) return { ok: false, message: `A receipt can be made for up to ${MAX_RECEIPTS_PER_INSTALMENT} payments on one invoice.` };
+    linked = payment.receiptDocumentId ? b.documents.find((d) => d.id === payment!.receiptDocumentId) : undefined;
+    if (linked) number = linked.number;
+    const prior = here.slice(0, position).reduce((s, p) => s + p.amountPence, 0);
+    try {
+      money = paymentShare(inst, prior, payment.amountPence);
+    } catch {
+      return { ok: false, message: 'That payment does not fit this invoice.' };
+    }
   }
   return {
     ok: true,
@@ -183,9 +201,7 @@ export function followOnFor(b: JobBilling, type: DocType, instalment: number | n
       instalment: n,
       number,
       heading: instalmentHeading(b, n),
-      netPence: inst.netPence,
-      vatPence: inst.vatPence,
-      grossPence: inst.grossPence,
+      ...money,
       receivedEarlier: type === 'receipt' ? [] : b.payments.filter((p) => p.instalment < n),
       payment,
       exists: b.documents.some((d) => d.number === number),
@@ -193,7 +209,7 @@ export function followOnFor(b: JobBilling, type: DocType, instalment: number | n
   };
 }
 
-/** The final invoice for an instalment, if one has been raised (a draft or void one cannot be paid). */
+/** The final invoice for an instalment, if one has been raised (a draft one cannot be paid). */
 export function payableInvoice(b: JobBilling, instalment: number): BillingDocument | null {
   return b.documents.find((d) => d.instalment === instalment && isInvoiceType(d.type) && (d.status === 'final' || d.status === 'sent')) ?? null;
 }

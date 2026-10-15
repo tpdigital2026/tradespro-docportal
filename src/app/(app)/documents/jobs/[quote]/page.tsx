@@ -8,14 +8,13 @@ import { getJobSummary } from '../../../../../lib/data/billing';
 import { instalmentHeading, paidOnInstalment, payableInvoice } from '../../../../../lib/job-billing';
 import { DOC_TYPE_NAMES, invoiceTypeFor, newDocumentHref } from '../../../../../lib/job-stage';
 import { formatGBP } from '../../../../../lib/money';
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../../../../../lib/payment';
+import { PAYMENT_METHOD_LABELS, todayLondon, type PaymentMethod } from '../../../../../lib/payment';
 import { requireSession } from '../../../../../lib/session';
 import { MarkAsPaid } from './MarkAsPaid';
 
 export const metadata: Metadata = { title: 'Job | TradesPro DocPortal' };
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export default async function JobPage({ params, searchParams }: { params: Promise<{ quote: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireSession();
@@ -23,7 +22,15 @@ export default async function JobPage({ params, searchParams }: { params: Promis
   const sp = await searchParams;
   const draftedRaw = sp.drafted;
   const drafted = typeof draftedRaw === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{1,63}$/.test(draftedRaw) ? draftedRaw : null;
-  const quote = decodeURIComponent(raw);
+  // Next hands over the segment already decoded; a stray % is not a valid quote number, so it is a plain 404, never an error.
+  let quote = raw;
+  if (raw.includes('%')) {
+    try {
+      quote = decodeURIComponent(raw);
+    } catch {
+      notFound();
+    }
+  }
   const job = await getJobSummary(quote);
   if (!job) notFound();
   const b = job.billing;
@@ -35,7 +42,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
       </div>
     );
   }
-  const today = todayIso();
+  const today = todayLondon();
   const nextIdx = b.progress.next?.instalment ?? null;
 
   return (

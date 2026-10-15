@@ -6,7 +6,7 @@ import { paymentFormSchema, type PaymentErrors } from '../../../../../lib/paymen
 import { requireSession } from '../../../../../lib/session';
 
 export type PayResult =
-  | { ok: true; paymentId: string; quoteNumber: string; instalment: number; remainingPence: number }
+  | { ok: true; paymentId: string; quoteNumber: string; instalment: number; remainingPence: number; repeat: boolean }
   | { ok: false; message: string; errors?: PaymentErrors };
 
 const GENERIC = 'We could not record that. Please try again.';
@@ -21,7 +21,7 @@ export async function markAsPaidAction(quoteRaw: unknown, instalmentRaw: unknown
   if (!args.success || !form.success) return { ok: false, message: GENERIC };
   try {
     const r = await markAsPaid(args.data.quote, args.data.instalment, form.data);
-    return { ok: true, paymentId: r.paymentId, quoteNumber: r.quoteNumber, instalment: r.instalment, remainingPence: r.remainingPence };
+    return { ok: true, paymentId: r.paymentId, quoteNumber: r.quoteNumber, instalment: r.instalment, remainingPence: r.remainingPence, repeat: r.repeat };
   } catch (e) {
     if (e instanceof BillingError) return { ok: false, message: e.message, errors: e.errors };
     return { ok: false, message: GENERIC };

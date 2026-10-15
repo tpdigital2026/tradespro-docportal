@@ -176,12 +176,69 @@ describe('headings and follow-on prefill', () => {
 
   it('a receipt is for a recorded payment and flags an existing number', () => {
     const b = demoBilling(2);
-    const r = followOnFor(b, 'receipt', 1, null);
-    expect(r.ok && r.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S1', grossPence: 600000, exists: true });
+    expect(followOnFor(b, 'receipt', 1, null).ok).toBe(false); // its only payment already has a receipt
+    const r = followOnFor(b, 'receipt', 1, 'demo-payment-3003-1');
+    expect(r.ok && r.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S1', grossPence: 600000, netPence: 500000, vatPence: 100000, exists: true });
     expect(r.ok && r.followOn.payment?.amountPence).toBe(600000);
     const byPayment = followOnFor(b, 'receipt', null, 'demo-payment-3003-3');
     expect(byPayment.ok && byPayment.followOn).toMatchObject({ instalment: 3, number: 'RCP-DEMO-3003-S3' });
+    expect(byPayment.ok && byPayment.followOn).toMatchObject({ grossPence: 300000, netPence: 250000, vatPence: 50000 });
     expect(followOnFor(b, 'receipt', 4, null).ok).toBe(false); // nothing paid on stage 4
     expect(followOnFor(b, 'receipt', null, 'someone-elses').ok).toBe(false);
+  });
+});
+
+describe('a receipt for each payment', () => {
+  /** Stage 3 of the demo job is 7,500.00 gross (6,250.00 net, 1,250.00 VAT). Pay it in three odd parts. */
+  function withParts(parts: number[]) {
+    const j = demoIssuedJobs[2];
+    const base = j.payments.filter((p) => p.documentId !== 'demo-doc-3003-s3');
+    const extra: RawPayment[] = parts.map((amountPence, i) => ({ id: `part-${i + 1}`, documentId: 'demo-doc-3003-s3', amountPence, paidOn: '2026-10-1' + (i + 1), method: 'cash', note: null, receiptDocumentId: null }));
+    const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: j.documents, payments: [...base, ...extra] });
+    if (!r.ok) throw new Error(r.message);
+    return r.billing;
+  }
+
+  it('two part payments on one stage give two distinct receipts with the right amounts', () => {
+    const b = withParts([333333, 416667]);
+    const one = followOnFor(b, 'receipt', 3, 'part-1');
+    const two = followOnFor(b, 'receipt', 3, 'part-2');
+    expect(one.ok && one.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3', grossPence: 333333 });
+    expect(two.ok && two.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3-2', grossPence: 416667 });
+    if (!one.ok || !two.ok) throw new Error('unreachable');
+    // Net and VAT of the parts add up to the stage's own net and VAT exactly.
+    expect(one.followOn.netPence + two.followOn.netPence).toBe(625000);
+    expect(one.followOn.vatPence + two.followOn.vatPence).toBe(125000);
+    expect(one.followOn.netPence + one.followOn.vatPence).toBe(333333);
+    expect(two.followOn.netPence + two.followOn.vatPence).toBe(416667);
+  });
+
+  it('with no payment named it takes the first one without a receipt, and its number stays put on a retry', () => {
+    const b = withParts([100000, 200000]);
+    const a = followOnFor(b, 'receipt', 3, null);
+    expect(a.ok && a.followOn.number).toBe('RCP-DEMO-3003-S3');
+    const again = followOnFor(b, 'receipt', 3, 'part-2');
+    expect(again.ok && again.followOn.number).toBe('RCP-DEMO-3003-S3-2');
+  });
+
+  it('a linked payment shows its existing receipt, and cannot be given a second', () => {
+    const b = withParts([100000]);
+    b.payments.find((p) => p.id === 'part-1')!.receiptDocumentId = 'r';
+    b.documents.push({ id: 'r', type: 'receipt', number: 'RCP-DEMO-3003-S3', status: 'draft', instalment: 3 });
+    expect(followOnFor(b, 'receipt', 3, null).ok).toBe(false);
+    const named = followOnFor(b, 'receipt', 3, 'part-1');
+    expect(named.ok && named.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3', exists: true });
+  });
+
+  it('refuses a 100th receipt on one instalment, cleanly', () => {
+    const j = demoIssuedJobs[1]; // full invoice, 2,220.00
+    const pays: RawPayment[] = Array.from({ length: 100 }, (_, i) => ({ id: `p${i + 1}`, documentId: 'demo-doc-3002-f', amountPence: 100, paidOn: '2026-10-01', method: 'cash', note: null, receiptDocumentId: null }));
+    const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: j.documents, payments: pays });
+    if (!r.ok) throw new Error(r.message);
+    const last99 = followOnFor(r.billing, 'receipt', 1, 'p99');
+    expect(last99.ok && last99.followOn.number).toBe('RCP-DEMO-3002-99');
+    const last = followOnFor(r.billing, 'receipt', 1, 'p100');
+    expect(last.ok).toBe(false);
+    expect(!last.ok && last.message).toMatch(/up to 99/);
   });
 });

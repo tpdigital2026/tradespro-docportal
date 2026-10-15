@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { assertNoPersonalData } from '../../src/security/audit';
+import { saveFollowOnWith } from '../../src/lib/data/billing';
 import { actAs, actAsServer, dbAvailable, withRollback } from './helpers';
 import { seedTenant, type SeededTenant } from './seed';
 
@@ -44,6 +45,10 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-B`],
         ['receipt', `RCP-${q}`],
         ['receipt', `RCP-${q}-S7`],
+        ['receipt', `RCP-${q}-S7-2`],
+        ['receipt', `RCP-${q}-D-3`],
+        ['receipt', `RCP-${q}-99`],
+        ['receipt', `RCP-${q}-S10-99`],
         ['guarantee', 'GUA-anything-1'],
         ['survey_report', 'SUR-anything-1'],
       ];
@@ -74,6 +79,11 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-X`],
         ['receipt', `INV-${q}-D`],
         ['receipt', `RCP-${q}-S11`],
+        ['receipt', `RCP-${q}-S7-1`],
+        ['receipt', `RCP-${q}-S7-100`],
+        ['receipt', `RCP-${q}-S7-02`],
+        ['receipt', `RCP-${q}-D-0`],
+        ['receipt', `RCP-${q}-X-2`],
         ['receipt', 'RCP-QT-Other-001'],
         ['invoice_full', `inv-${q}`],
       ];
@@ -304,6 +314,145 @@ describe.skipIf(!dbAvailable)('payments are immutable once a receipt is finalise
       const r = await c.query(`select enum_range(null::public.doc_type)::text as t`);
       expect(r.rows[0].t).toContain('invoice_full');
       expect(r.rows[0].t).toContain('invoice_stage');
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('receipt numbers when the quote number ends in digits', () => {
+  it('RCP-{q} for a job called Q-5 is a base number, and RCP-Q-5-2 is its second receipt', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const job = await c.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'Q-5') returning id`, [a.tenantId, a.customerId]);
+      for (const n of ['RCP-Q-5', 'RCP-Q-5-2']) {
+        await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', $3)`, [a.tenantId, job.rows[0].id, n]);
+      }
+      await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q')`, [a.tenantId, job.rows[0].id], /does not match/);
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('payments_immutable and the deleted user', () => {
+  it('created_by may become null (the person was deleted) and nothing else may change with it, even with a final receipt', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p = await pay(c, a, inv);
+      const rec = await doc(c, a, 'receipt', `RCP-${ref('Alpha')}`, 'final');
+      await c.query(`update public.payments set receipt_document_id = $1 where id = $2`, [rec, p]);
+      await expectFail(c, `update public.payments set created_by = null, amount_pence = 1 where id = $1`, [p], /cannot be changed/);
+      await c.query(`update public.payments set created_by = null where id = $1`, [p]);
+      expect((await c.query(`select created_by from public.payments where id = $1`, [p])).rows[0].created_by).toBeNull();
+      await expectFail(c, `update public.payments set amount_pence = 2 where id = $1`, [p], /cannot be changed/);
+    });
+  });
+
+  it('deleting the user nulls created_by on their payments', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p = await pay(c, a, inv);
+      await c.query(`update public.profiles set disabled_at = now() where id = $1`, [a.userId]);
+      await c.query(`delete from public.profiles where id = $1`, [a.userId]);
+      await c.query(`delete from auth.users where id = $1`, [a.userId]);
+      expect((await c.query(`select created_by from public.payments where id = $1`, [p])).rows[0].created_by).toBeNull();
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('saveFollowOnWith (atomic, repairable)', () => {
+  const write = (a: SeededTenant, over: Record<string, unknown> = {}) => ({
+    jobId: a.jobId,
+    type: 'receipt' as const,
+    number: `RCP-${ref('Alpha')}`,
+    instalment: 1,
+    heading: 'Invoice',
+    netPence: 4167,
+    vatPence: 833,
+    grossPence: 5000,
+    date: '2026-10-15',
+    paymentId: null as string | null,
+    ...over,
+  });
+  const actor = (a: SeededTenant) => ({ tenantId: a.tenantId, userId: a.userId });
+
+  async function counts(c: Client, a: SeededTenant, number: string) {
+    const d = await c.query(`select count(*)::int n from public.documents where tenant_id = $1 and number = $2`, [a.tenantId, number]);
+    const u = await c.query(`select count(*)::int n from public.used_numbers where tenant_id = $1 and number = $2`, [a.tenantId, number]);
+    return { docs: d.rows[0].n as number, used: u.rows[0].n as number };
+  }
+
+  it('creates the document, version, pointer and link together, once', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p = await pay(c, a, inv);
+      const w = write(a, { paymentId: p });
+      const r = await saveFollowOnWith(c, actor(a), w, { nested: true });
+      expect(r.created).toBe(true);
+      const d = await c.query(`select d.current_version_id, v.input, d.created_by from public.documents d join public.document_versions v on v.id = d.current_version_id where d.id = $1`, [r.documentId]);
+      expect(d.rows[0].input.followOn).toMatchObject({ grossPence: 5000, netPence: 4167, vatPence: 833, paymentId: p });
+      expect(d.rows[0].created_by).toBe(a.userId);
+      expect((await c.query(`select receipt_document_id from public.payments where id = $1`, [p])).rows[0].receipt_document_id).toBe(r.documentId);
+      const again = await saveFollowOnWith(c, actor(a), w, { nested: true });
+      expect(again).toMatchObject({ created: false, documentId: r.documentId });
+      expect((await c.query(`select count(*)::int n from public.document_versions where document_id = $1`, [r.documentId])).rows[0].n).toBe(1);
+    });
+  });
+
+  it('a failure burns no number and leaves no half-written draft', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const pa = await pay(c, a, inv);
+      // The payment already points at another receipt, so the link step fails after the document and version were written.
+      const other = await doc(c, a, 'receipt', `RCP-${ref('Alpha')}-7`.replace('-7', ''), 'draft');
+      await c.query(`update public.payments set receipt_document_id = $1 where id = $2`, [other, pa]);
+      const number = `RCP-${ref('Alpha')}-2`;
+      await expect(saveFollowOnWith(c, actor(a), write(a, { number, paymentId: pa }), { nested: true })).rejects.toMatchObject({ code: 'invalid' });
+      expect(await counts(c, a, number)).toEqual({ docs: 0, used: 0 });
+      // A number that does not fit the job fails cleanly too.
+      await expect(saveFollowOnWith(c, actor(a), write(a, { number: 'RCP-NOT-THIS-JOB' }), { nested: true })).rejects.toMatchObject({ code: 'invalid' });
+      expect(await counts(c, a, 'RCP-NOT-THIS-JOB')).toEqual({ docs: 0, used: 0 });
+    });
+  });
+
+  it('repairs a document that has no version, and a receipt draft whose payment was never linked', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p = await pay(c, a, inv);
+      const bare = await doc(c, a, 'receipt', `RCP-${ref('Alpha')}`, 'draft'); // an earlier save died here
+      const r = await saveFollowOnWith(c, actor(a), write(a, { paymentId: p }), { nested: true });
+      expect(r).toMatchObject({ created: false, documentId: bare });
+      expect((await c.query(`select count(*)::int n from public.document_versions where document_id = $1`, [bare])).rows[0].n).toBe(1);
+      expect((await c.query(`select current_version_id from public.documents where id = $1`, [bare])).rows[0].current_version_id).not.toBeNull();
+      expect((await c.query(`select receipt_document_id from public.payments where id = $1`, [p])).rows[0].receipt_document_id).toBe(bare);
+    });
+  });
+
+  it('two part payments get two receipts, each linked to its own payment', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p1 = await pay(c, a, inv, { amount: 3000 });
+      const p2 = await pay(c, a, inv, { amount: 2000 });
+      const r1 = await saveFollowOnWith(c, actor(a), write(a, { paymentId: p1, grossPence: 3000 }), { nested: true });
+      const r2 = await saveFollowOnWith(c, actor(a), write(a, { number: `RCP-${ref('Alpha')}-2`, paymentId: p2, grossPence: 2000 }), { nested: true });
+      expect(r1.documentId).not.toBe(r2.documentId);
+      const links = await c.query(`select id, receipt_document_id from public.payments order by amount_pence desc`);
+      expect(links.rows.map((x) => x.receipt_document_id)).toEqual([r1.documentId, r2.documentId]);
+    });
+  });
+
+  it('refuses another business\'s job and another job\'s payment', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const b = await seedTenant(c, 'Bravo');
+      await expect(saveFollowOnWith(c, actor(a), write(b), { nested: true })).rejects.toMatchObject({ code: 'not_found' });
+      const ib = await doc(c, b, 'invoice_full', `INV-${ref('Bravo')}`, 'final');
+      const pb = await pay(c, b, ib);
+      await expect(saveFollowOnWith(c, actor(a), write(a, { paymentId: pb }), { nested: true })).rejects.toMatchObject({ code: 'not_found' });
+      expect(await counts(c, a, `RCP-${ref('Alpha')}`)).toEqual({ docs: 0, used: 0 });
     });
   });
 });

@@ -371,3 +371,19 @@ export function buildSchedule(totals: Totals, plan: PaymentPlan): Instalment[] {
   if (!c.ok || !c.instalments) throw new PlanError(c.problems[0]?.message ?? 'The payment plan is not complete.', c.problems[0]?.stage ?? null);
   return c.instalments;
 }
+
+/**
+ * The net and VAT of one payment received against an instalment. The VAT of everything received so far is the
+ * instalment's VAT share of that amount (amount x instalment VAT / instalment gross, half away from zero, the same
+ * rule as a fixed stage amount); a payment is the difference between that after it and before it. So part payments
+ * always add up to the instalment's own net and VAT once it is paid in full. priorPence is what was received
+ * before this payment, in order.
+ */
+export function paymentShare(inst: { vatPence: Pence; grossPence: Pence }, priorPence: Pence, amountPence: Pence): { netPence: Pence; vatPence: Pence; grossPence: Pence } {
+  assertInt(priorPence, 'prior payments');
+  assertInt(amountPence, 'payment');
+  if (priorPence < 0 || amountPence < 1 || inst.grossPence < 1 || priorPence + amountPence > inst.grossPence) throw new RangeError('The payment does not fit the instalment');
+  const cum = (x: Pence) => mulDivRound(x, inst.vatPence, inst.grossPence);
+  const vatPence = cum(priorPence + amountPence) - cum(priorPence);
+  return { netPence: amountPence - vatPence, vatPence, grossPence: amountPence };
+}

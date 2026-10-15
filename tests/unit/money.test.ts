@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  paymentShare,
   balanceDue,
   balanceStatement,
   computeTotals,
@@ -157,5 +158,38 @@ describe('balanceStatement', () => {
 
   it('rejects a deposit larger than the total', () => {
     expect(() => balanceStatement([line(100000)], [line(-100000)], 2000, 3000)).toThrow(RangeError);
+  });
+});
+
+describe('paymentShare', () => {
+  it('part payments add up to the instalment net and VAT exactly', () => {
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+    for (let t = 0; t < 500; t += 1) {
+      const gross = 100 + Math.floor(rnd() * 5_000_000);
+      const vat = Math.floor((gross * rnd()) / 6);
+      const inst = { vatPence: vat, grossPence: gross };
+      const parts = 1 + Math.floor(rnd() * 5);
+      let left = gross;
+      let prior = 0;
+      let net = 0;
+      let v = 0;
+      for (let i = 0; i < parts; i += 1) {
+        const amount = i === parts - 1 ? left : 1 + Math.floor(rnd() * Math.max(1, left - (parts - 1 - i)));
+        const s = paymentShare(inst, prior, amount);
+        expect(s.netPence + s.vatPence).toBe(amount);
+        expect(s.vatPence).toBeGreaterThanOrEqual(0);
+        net += s.netPence;
+        v += s.vatPence;
+        prior += amount;
+        left -= amount;
+      }
+      expect(v).toBe(vat);
+      expect(net).toBe(gross - vat);
+    }
+  });
+  it('refuses a payment that does not fit', () => {
+    expect(() => paymentShare({ vatPence: 20, grossPence: 120 }, 100, 21)).toThrow();
+    expect(() => paymentShare({ vatPence: 20, grossPence: 120 }, 0, 0)).toThrow();
   });
 });

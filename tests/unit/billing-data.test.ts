@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BillingError, getJobSummary, linkReceiptWith, listJobSummaries, loadJobSummariesWith, markAsPaid, recordPaymentWith, resetDemoBilling, saveFollowOnDraft, saveFollowOnDraftWith } from '../../src/lib/data/billing';
+import { BillingError, getJobSummary, listJobSummaries, loadJobSummariesWith, markAsPaid, recordPaymentWith, resetDemoBilling, saveFollowOnDraft, saveFollowOnWith } from '../../src/lib/data/billing';
 import type { DataClient } from '../../src/lib/data/customers';
 import { planToJson } from '../../src/lib/payment-plan';
 import { emptyQuoteForm } from '../../src/lib/validation/quote';
@@ -119,23 +119,6 @@ describe('loadJobSummariesWith', () => {
   });
 });
 
-describe('saveFollowOnDraftWith', () => {
-  const content = { heading: 'Balance', netPence: 700000, vatPence: 140000, grossPence: 840000, date: '2026-10-15', paymentId: null };
-  const args = { reference: 'QT-9', type: 'balance-invoice' as const, instalment: 2, number: 'INV-QT-9-B', paymentId: null };
-
-  it('creates a draft document and version once, and is idempotent', async () => {
-    const { client, tables } = seed();
-    const a = await saveFollowOnDraftWith(client, 'tenant', { id: J1, quoteNumber: 'QT-9' }, args, content);
-    expect(a.created).toBe(true);
-    const doc = tables.documents.find((d) => d.number === 'INV-QT-9-B');
-    expect(doc).toMatchObject({ type: 'balance_invoice', job_id: J1, tenant_id: 'tenant', doc_date: '2026-10-15' });
-    expect(tables.document_versions.some((v) => v.document_id === doc?.id && v.version === 1)).toBe(true);
-    const b = await saveFollowOnDraftWith(client, 'tenant', { id: J1, quoteNumber: 'QT-9' }, args, content);
-    expect(b).toMatchObject({ created: false, documentId: a.documentId });
-    expect(tables.documents.filter((d) => d.number === 'INV-QT-9-B')).toHaveLength(1);
-  });
-});
-
 /** A scripted stand-in for the service connection. */
 function fakeDb(opts: { invoice?: { status: string } | null; paid?: number; dup?: boolean } = {}) {
   const sql: string[] = [];
@@ -162,7 +145,7 @@ describe('recordPaymentWith', () => {
   it('inserts inside a transaction with the tenant and user from the actor, and commits', async () => {
     const db = fakeDb();
     const r = await recordPaymentWith(db, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay });
-    expect(r).toEqual({ paymentId: 'new-payment', paidPence: 5000 });
+    expect(r).toEqual({ paymentId: 'new-payment', paidPence: 5000, repeat: false });
     expect(db.sql[0]).toBe('begin');
     expect(db.sql.at(-1)).toBe('commit');
     const ins = db.sql.findIndex((s) => s.startsWith('insert into public.payments'));
@@ -198,18 +181,51 @@ describe('recordPaymentWith', () => {
     const db = fakeDb({ dup: true, paid: 5000 });
     const r = await recordPaymentWith(db, actor, { jobId: 'J', invoiceId: 'I', grossPence: 10000, payment: pay });
     expect(r.paymentId).toBe('existing');
+    expect(r.repeat).toBe(true);
     expect(db.sql.some((s) => s.startsWith('insert into public.payments'))).toBe(false);
     expect(db.sql.at(-1)).toBe('commit');
   });
 });
 
-describe('linkReceiptWith', () => {
-  it('links once, inside the tenant', async () => {
-    const calls: unknown[][] = [];
-    const db = { query: async (_t: string, p: unknown[] = []) => (calls.push(p), { rows: [{ id: 'x' }] }) };
-    expect(await linkReceiptWith(db, actor, 'P', 'R')).toBe(true);
-    expect(calls[0]).toEqual(['R', 'P', 'T']);
-    expect(await linkReceiptWith({ query: async () => ({ rows: [] }) }, actor, 'P', 'R')).toBe(false);
+/** A scripted stand-in for the service connection that records statements and can fail on one. */
+function txDb(failOn?: RegExp) {
+  const sql: string[] = [];
+  return {
+    sql,
+    async query(text: string) {
+      const t = text.replace(/\s+/g, ' ').trim();
+      sql.push(t);
+      if (failOn?.test(t)) throw Object.assign(new Error('boom'), { code: '23505' });
+      if (/^select id from public\.jobs/.test(t)) return { rows: [{ id: 'J' }] };
+      if (/from public\.documents where job_id/.test(t)) return { rows: [] };
+      if (/insert into public\.documents/.test(t)) return { rows: [{ id: 'D', type: 'receipt' }] };
+      if (/from public\.document_versions/.test(t)) return { rows: [] };
+      if (/insert into public\.document_versions/.test(t)) return { rows: [{ id: 'V' }] };
+      if (/from public\.payments/.test(t)) return { rows: [{ receipt_document_id: null }] };
+      return { rows: [] };
+    },
+  };
+}
+const write = { jobId: 'J', type: 'receipt' as const, number: 'RCP-Q-D', instalment: 1, heading: 'Deposit', netPence: 100, vatPence: 20, grossPence: 120, date: '2026-10-15', paymentId: 'P' };
+
+describe('saveFollowOnWith', () => {
+  it('writes document, version, pointer and receipt link between one begin and one commit', async () => {
+    const db = txDb();
+    const r = await saveFollowOnWith(db, actor, write);
+    expect(r).toEqual({ documentId: 'D', number: 'RCP-Q-D', created: true });
+    expect(db.sql[0]).toBe('begin');
+    expect(db.sql.at(-1)).toBe('commit');
+    expect(db.sql.some((s) => s.startsWith('insert into public.documents'))).toBe(true);
+    expect(db.sql.some((s) => s.startsWith('insert into public.document_versions'))).toBe(true);
+    expect(db.sql.some((s) => s.startsWith('update public.documents set current_version_id'))).toBe(true);
+    expect(db.sql.some((s) => s.startsWith('update public.payments set receipt_document_id'))).toBe(true);
+  });
+
+  it('a failure part way rolls everything back and never commits', async () => {
+    const db = txDb(/insert into public\.document_versions/);
+    await expect(saveFollowOnWith(db, actor, write)).rejects.toBeInstanceOf(BillingError);
+    expect(db.sql.at(-1)).toBe('rollback');
+    expect(db.sql).not.toContain('commit');
   });
 });
 
@@ -249,10 +265,12 @@ describe('demo mode', () => {
     await expect(markAsPaid('DEMO-3002', 1, { amount: '10', paidOn: '2999-01-01', method: 'cash', note: '' })).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('a repeated identical payment is recorded once', async () => {
+  it('a repeated identical payment within 30 seconds is recorded once and flagged as a repeat', async () => {
     const f = { amount: '100', paidOn: today, method: 'cash', note: '' };
     const a = await markAsPaid('DEMO-3002', 1, f);
     const b = await markAsPaid('DEMO-3002', 1, f);
+    expect(a.repeat).toBe(false);
+    expect(b.repeat).toBe(true);
     expect(b.paymentId).toBe(a.paymentId);
     expect((await getJobSummary('DEMO-3002'))?.billing?.payments).toHaveLength(1);
   });
@@ -262,7 +280,22 @@ describe('demo mode', () => {
     const saved = await saveFollowOnDraft('DEMO-3003', 'receipt', 2, null);
     expect(saved).toMatchObject({ number: 'RCP-DEMO-3003-S2', created: true });
     expect((await getJobSummary('DEMO-3003'))?.billing?.progress.receiptsDue).toEqual([3]);
-    expect((await saveFollowOnDraft('DEMO-3003', 'receipt', 2, null)).created).toBe(false);
+    // Its payment is linked now, so there is no second receipt for it.
+    await expect(saveFollowOnDraft('DEMO-3003', 'receipt', 2, null)).rejects.toMatchObject({ code: 'invalid' });
+    expect((await saveFollowOnDraft('DEMO-3003', 'receipt', 2, 'demo-payment-3003-2')).created).toBe(false);
+  });
+
+  it('the same payment is a new one after the 30 second window', async () => {
+    const f = { amount: '100', paidOn: today, method: 'cash', note: '' };
+    const a = await markAsPaid('DEMO-3002', 1, f);
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 31_000 });
+    try {
+      const b = await markAsPaid('DEMO-3002', 1, f);
+      expect(b.repeat).toBe(false);
+      expect(b.paymentId).not.toBe(a.paymentId);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a stage invoice draft takes the number from the schedule', async () => {

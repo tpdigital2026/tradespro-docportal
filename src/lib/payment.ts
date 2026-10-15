@@ -91,3 +91,10 @@ export function checkPayment(raw: PaymentFormValues, outstanding: Pence, today: 
   if (Object.keys(errors).length > 0 || !method) return { ok: false, errors };
   return { ok: true, value: { amountPence, paidOn, method, note: note === '' ? null : note } };
 }
+
+const LONDON_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** Today's date in the UK (YYYY-MM-DD), not UTC, so a payment taken in the evening is not "tomorrow" or "yesterday". */
+export function todayLondon(now: Date = new Date()): string {
+  return LONDON_DAY.format(now);
+}

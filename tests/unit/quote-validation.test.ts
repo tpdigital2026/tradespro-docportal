@@ -146,6 +146,16 @@ describe('quoteInputSchema (strict)', () => {
       expect(normaliseQuote(ready({ quoteNumber: n }), 'final').errors.quoteNumber, JSON.stringify(n)).toBeDefined();
     }
   });
+  it('quote numbers cannot end the way invoice numbers do (-D, -B, -S and digits), in draft or final', () => {
+    for (const n of ['Q1-D', 'Q1-B', 'Q1-S2', 'FJC/2026/17-S10']) {
+      for (const mode of ['draft', 'final'] as const) {
+        expect(normaliseQuote(ready({ quoteNumber: n }), mode).errors.quoteNumber, `${mode} ${n}`).toMatch(/cannot end in -D, -B or -S/);
+      }
+    }
+    for (const n of ['Q1-DX', 'Q1-BS', 'Q1-S', 'Q1-s2', 'QT-0042', 'AB-5']) {
+      expect(normaliseQuote(ready({ quoteNumber: n }), 'final').errors.quoteNumber, n).toBeUndefined();
+    }
+  });
   it('rejects a price of zero, a malformed price and an over-large total', () => {
     expect(normaliseQuote(ready({ price: '0' }), 'final').errors.price).toMatch(/more than/);
     expect(normaliseQuote(ready({ price: '1e3' }), 'final').errors.price).toBeDefined();

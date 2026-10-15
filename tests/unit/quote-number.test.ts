@@ -20,4 +20,8 @@ describe('suggestNextNumber', () => {
   it('never suggests a number longer than the allowed 40 characters', () => {
     expect(suggestNextNumber(['x'.repeat(39) + '9']).length).toBeLessThanOrEqual(40);
   });
+  it('ignores invoice and receipt numbers in the registry when suggesting a quote number', () => {
+    expect(suggestNextNumber(['RCP-QT-0100-S2', 'INV-QT-0100-S2', 'QT-0100'])).toBe('QT-0101');
+    expect(suggestNextNumber(['INV-QT-0100-D'])).toBe('');
+  });
 });

@@ -65,9 +65,8 @@ describe('deposit job', () => {
     expect(p.next).toEqual({ label: 'Mark deposit as paid', type: 'deposit-invoice', action: 'mark-paid', instalment: 1, remainingPence: 3000 });
   });
 
-  it('a draft or void invoice does not count as invoiced', () => {
+  it('a draft invoice does not count as invoiced', () => {
     expect(deriveJobStage(plan, i2, [], [doc('deposit-invoice', 1, 'draft')]).currentIndex).toBe(0);
-    expect(deriveJobStage(plan, i2, [], [doc('deposit-invoice', 1, 'void')]).currentIndex).toBe(0);
   });
 
   it('a part payment is not paid and says what is left', () => {
@@ -152,11 +151,15 @@ describe('five stage job', () => {
 describe('receipts due', () => {
   const plan = { kind: 'deposit' as const };
   const i2 = [{ index: 1, label: 'Deposit', grossPence: 3000 }, { index: 2, label: 'Balance', grossPence: 7000 }];
-  it('lists instalments with a payment and no receipt', () => {
+  const linked = (instalment: number, amountPence: number): StagePayment => ({ instalment, amountPence, receiptLinked: true });
+  it('lists instalments with a payment that has no receipt started', () => {
     expect(deriveJobStage(plan, i2, [pay(1, 3000)], [doc('deposit-invoice', 1)]).receiptsDue).toEqual([1]);
-    expect(deriveJobStage(plan, i2, [pay(1, 3000)], [doc('deposit-invoice', 1), doc('receipt', 1, 'draft')]).receiptsDue).toEqual([]);
-    expect(deriveJobStage(plan, i2, [pay(1, 3000)], [doc('deposit-invoice', 1), doc('receipt', 1, 'void')]).receiptsDue).toEqual([1]);
+    expect(deriveJobStage(plan, i2, [linked(1, 3000)], [doc('deposit-invoice', 1)]).receiptsDue).toEqual([]);
     expect(deriveJobStage(plan, i2, [], [doc('deposit-invoice', 1)]).receiptsDue).toEqual([]);
+  });
+  it('is per payment: a second part payment without a receipt keeps the instalment due', () => {
+    expect(deriveJobStage(plan, i2, [linked(1, 1000), pay(1, 2000)], [doc('deposit-invoice', 1)]).receiptsDue).toEqual([1]);
+    expect(deriveJobStage(plan, i2, [linked(1, 1000), linked(1, 2000)], [doc('deposit-invoice', 1)]).receiptsDue).toEqual([]);
   });
 });
 
@@ -179,6 +182,18 @@ describe('document numbers', () => {
     expect(documentNumberFor('invoice-stage', 'Q1', 'staged', 11)).toBeNull();
     expect(documentNumberFor('receipt', 'Q1', 'full', 2)).toBeNull();
     expect(documentNumberFor('guarantee', 'Q1', 'full', 1)).toBeNull();
+  });
+
+  it('gives each further payment on an instalment its own receipt number', () => {
+    expect(documentNumberFor('receipt', 'Q1', 'staged', 3, 1)).toBe('RCP-Q1-S3');
+    expect(documentNumberFor('receipt', 'Q1', 'staged', 3, 2)).toBe('RCP-Q1-S3-2');
+    expect(documentNumberFor('receipt', 'Q1', 'deposit', 1, 3)).toBe('RCP-Q1-D-3');
+    expect(documentNumberFor('receipt', 'Q1', 'full', 1, 99)).toBe('RCP-Q1-99');
+    expect(documentNumberFor('receipt', 'Q1', 'full', 1, 100)).toBeNull();
+    expect(documentNumberFor('receipt', 'Q1', 'full', 1, 0)).toBeNull();
+    expect(documentNumberFor('invoice-stage', 'Q1', 'staged', 3, 2)).toBe('INV-Q1-S3');
+    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-2', 'Q1', 'staged', 5)).toBe(3);
+    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-100', 'Q1', 'staged', 5)).toBeNull();
   });
 
   it('maps a number back to its instalment', () => {

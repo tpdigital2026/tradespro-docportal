@@ -10,7 +10,7 @@ import { isDemo } from '../demo';
 import { buildJobBilling, followOnFor, payableInvoice, type JobBilling, type RawDocument, type RawPayment } from '../job-billing';
 import { docTypeFromDb, DB_DOC_TYPES, type DocStatus, type DocType } from '../job-stage';
 import { planFromJson } from '../payment-plan';
-import { checkPayment, outstandingPence, type PaymentFormValues, type PaymentErrors, type RecordablePayment } from '../payment';
+import { checkPayment, outstandingPence, todayLondon, type PaymentFormValues, type PaymentErrors, type RecordablePayment } from '../payment';
 import { requireSession } from '../session';
 import { normaliseQuote, quoteFormSchema, NUMBER_RE, type QuoteFormValues } from '../validation/quote';
 import { withServiceConnection, type Actor, type ServiceDb } from './customer-admin';
@@ -80,7 +80,7 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
     if (!latest.has(v.document_id)) latest.set(v.document_id, v.input?.form);
   }
 
-  const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).limit(2000);
+  const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000);
   if (payRes.error) throw new BillingError('failed', 'Could not load payments');
   const payRows = (payRes.data ?? []) as { id: string; job_id: string; document_id: string; amount_pence: number; paid_on: string; method: string; note: string | null; receipt_document_id: string | null }[];
 
@@ -119,11 +119,15 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
 interface DemoState {
   documents: Map<string, RawDocument[]>;
   payments: Map<string, RawPayment[]>;
+  /** When each demo payment was recorded in this session, for the duplicate window. */
+  recordedAt: Map<string, number>;
 }
+
+export const DUPLICATE_WINDOW_MS = 30_000;
 let demoState: DemoState | null = null;
 function demo(): DemoState {
   if (!demoState) {
-    demoState = { documents: new Map(), payments: new Map() };
+    demoState = { documents: new Map(), payments: new Map(), recordedAt: new Map() };
     for (const j of demoIssuedJobs) {
       demoState.documents.set(j.jobId, structuredClone(j.documents));
       demoState.payments.set(j.jobId, structuredClone(j.payments));
@@ -189,6 +193,8 @@ export interface PaymentRecorded {
   remainingPence: number;
   /** The "Create receipt" route is built from these. */
   quoteNumber: string;
+  /** True when this was the same payment as one recorded moments ago, so nothing new was written. */
+  repeat: boolean;
 }
 
 /**
@@ -201,7 +207,7 @@ export async function recordPaymentWith(
   db: ServiceDb | { query: ServiceDb['query'] },
   actor: Actor,
   args: { jobId: string; invoiceId: string; grossPence: number; payment: RecordablePayment },
-): Promise<{ paymentId: string; paidPence: number }> {
+): Promise<{ paymentId: string; paidPence: number; repeat: boolean }> {
   await db.query('begin');
   try {
     await db.query('reset role');
@@ -224,7 +230,7 @@ export async function recordPaymentWith(
     const paidPence = Number(paid.rows[0]?.paid ?? 0);
     if (dup.rows[0]) {
       await db.query('commit');
-      return { paymentId: String(dup.rows[0].id), paidPence };
+      return { paymentId: String(dup.rows[0].id), paidPence, repeat: true };
     }
     if (paidPence + args.payment.amountPence > args.grossPence) {
       throw new BillingError('invalid', 'That is more than is still owed on this invoice.', { amount: 'That is more than is still owed on this invoice' });
@@ -235,14 +241,14 @@ export async function recordPaymentWith(
       [actor.tenantId, args.jobId, args.invoiceId, args.payment.amountPence, args.payment.paidOn, args.payment.method, args.payment.note, actor.userId],
     );
     await db.query('commit');
-    return { paymentId: String(ins.rows[0].id), paidPence: paidPence + args.payment.amountPence };
+    return { paymentId: String(ins.rows[0].id), paidPence: paidPence + args.payment.amountPence, repeat: false };
   } catch (e) {
     await db.query('rollback').catch(() => undefined);
     throw e;
   }
 }
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLondon();
 
 /**
  * "Mark as paid". The caller is a server action: session, then this. Validates what the owner typed, recomputes the
@@ -267,80 +273,107 @@ export async function markAsPaid(reference: string, instalment: number, raw: Pay
   if (isDemo()) {
     const st = demo();
     const list = st.payments.get(job.jobId) ?? [];
-    const dup = list.find((p) => p.documentId === invoice.id && p.amountPence === checked.value.amountPence && p.paidOn === checked.value.paidOn && p.method === checked.value.method);
-    const id = dup?.id ?? `demo-payment-${job.jobId.replace(/^demo-job-/, '')}-${list.length + 1}-${Date.now() % 100000}`;
+    const now = Date.now();
+    const dup = list.find((p) => p.documentId === invoice.id && p.amountPence === checked.value.amountPence && p.paidOn === checked.value.paidOn && p.method === checked.value.method && now - (st.recordedAt.get(p.id) ?? 0) < DUPLICATE_WINDOW_MS);
+    const id = dup?.id ?? `demo-payment-${job.jobId.replace(/^demo-job-/, '')}-${list.length + 1}-${now % 100000}`;
+    if (!dup) st.recordedAt.set(id, now);
     if (!dup) list.push({ id, documentId: invoice.id, amountPence: checked.value.amountPence, paidOn: checked.value.paidOn, method: checked.value.method, note: checked.value.note, receiptDocumentId: null });
     st.payments.set(job.jobId, list);
-    return { paymentId: id, instalment, remainingPence: outstanding - (dup ? 0 : checked.value.amountPence), quoteNumber: reference };
+    return { paymentId: id, instalment, remainingPence: outstanding - (dup ? 0 : checked.value.amountPence), quoteNumber: reference, repeat: Boolean(dup) };
   }
   if (!isRealId(job.jobId) || !isRealId(invoice.id)) throw new BillingError('failed', 'Could not record that payment.');
   const result = await withServiceConnection((db) =>
     recordPaymentWith(db, { tenantId: s.tenantId, userId: s.userId }, { jobId: job.jobId, invoiceId: invoice.id, grossPence: inst.grossPence, payment: checked.value }),
   );
-  return { paymentId: result.paymentId, instalment, remainingPence: Math.max(0, inst.grossPence - result.paidPence), quoteNumber: reference };
+  return { paymentId: result.paymentId, instalment, remainingPence: Math.max(0, inst.grossPence - result.paidPence), quoteNumber: reference, repeat: result.repeat };
 }
 
 // ---------------------------------------------------------------- follow-on drafts (an invoice or receipt started from a job)
 
-export interface FollowOnDraftArgs {
-  reference: string;
-  type: DocType;
-  instalment: number;
-  number: string;
-  paymentId: string | null;
-}
-
-/** Test and demo seam: the draft document rows created from a follow-on form. */
 export interface FollowOnSaved {
   documentId: string;
   number: string;
+  /** True when the document was created now; false when it was already there (a retry, or a repair). */
   created: boolean;
 }
 
-/** Writes a draft invoice or receipt for a job. Idempotent: a second save of the same number returns the first. */
-export async function saveFollowOnDraftWith(
-  client: DataClient,
-  tenantId: string,
-  job: { id: string; quoteNumber: string },
-  args: FollowOnDraftArgs,
-  content: { heading: string; netPence: number; vatPence: number; grossPence: number; date: string; paymentId: string | null },
-): Promise<FollowOnSaved> {
-  const existing = await client.from('documents').select('id, status').eq('job_id', job.id).eq('number', args.number).maybeSingle();
-  if (existing.error) throw new BillingError('failed', 'Could not save');
-  const found = existing.data as { id: string } | null;
-  if (found) return { documentId: found.id, number: args.number, created: false };
-  const doc = await client
-    .from('documents')
-    .insert({ tenant_id: tenantId, job_id: job.id, type: DB_DOC_TYPES[args.type], number: args.number, doc_date: content.date })
-    .select('id')
-    .single();
-  if (doc.error || !doc.data) {
-    if (doc.error?.code === '23505') throw new BillingError('invalid', 'That document number has already been used.');
-    throw new BillingError('failed', 'Could not save');
-  }
-  const input = {
-    schema: 1,
-    followOn: { instalment: args.instalment, heading: content.heading, netPence: content.netPence, vatPence: content.vatPence, grossPence: content.grossPence, paymentId: content.paymentId },
-  };
-  const ver = await client.from('document_versions').insert({ tenant_id: tenantId, document_id: doc.data.id, version: 1, input }).select('id').single();
-  if (ver.error || !ver.data) throw new BillingError('failed', 'Could not save');
-  const cur = await client.from('documents').update({ current_version_id: ver.data.id }).eq('id', doc.data.id).select('id');
-  if (cur.error) throw new BillingError('failed', 'Could not save');
-  return { documentId: doc.data.id as string, number: args.number, created: true };
-}
-
-/** Server write: the payment now points at its receipt draft. The app role cannot write payments, so this runs on the service connection. */
-export async function linkReceiptWith(db: { query: ServiceDb['query'] }, actor: Actor, paymentId: string, receiptDocumentId: string): Promise<boolean> {
-  const r = await db.query(
-    `update public.payments set receipt_document_id = $1 where id = $2 and tenant_id = $3 and receipt_document_id is null returning id`,
-    [receiptDocumentId, paymentId, actor.tenantId],
-  );
-  return (r.rows?.length ?? 0) === 1;
+export interface FollowOnWrite {
+  jobId: string;
+  type: DocType;
+  number: string;
+  instalment: number;
+  heading: string;
+  netPence: number;
+  vatPence: number;
+  grossPence: number;
+  date: string;
+  /** For a receipt: the payment it confirms. */
+  paymentId: string | null;
 }
 
 /**
- * "Save as draft" on an invoice or receipt started from a job. The figures are recomputed here from the saved quote
- * and the recorded payments, never taken from the browser. Returns the saved document's number.
+ * Writes a draft invoice or receipt for a job in ONE transaction on the service connection: the document, its first
+ * version, the current-version pointer and, for a receipt, the link from the payment. A failure anywhere rolls the lot
+ * back, so a number is never burnt and a version-less draft never left behind. Idempotent and self-healing: a document
+ * that already has this number is completed rather than duplicated (missing version created, unlinked payment linked).
+ * Production owns begin/commit; tests pass nested: true inside their own rolled-back transaction.
+ */
+export async function saveFollowOnWith(db: { query: ServiceDb['query'] }, actor: Actor, w: FollowOnWrite, o: { nested?: boolean } = {}): Promise<FollowOnSaved> {
+  const nested = o.nested === true;
+  await db.query(nested ? 'savepoint followon_tx' : 'begin');
+  try {
+    if (!nested) {
+      await db.query('reset role');
+      await db.query(`select set_config('request.jwt.claims', '', true)`);
+    }
+    // The job row is locked so two saves of the same document queue up instead of racing.
+    const job = await db.query(`select id from public.jobs where id = $1 and tenant_id = $2 for update`, [w.jobId, actor.tenantId]);
+    if (!job.rows[0]) throw new BillingError('not_found', 'That job could not be found.');
+
+    let created = false;
+    let doc = await db.query(`select id, type::text as type from public.documents where job_id = $1 and tenant_id = $2 and number = $3 for update`, [w.jobId, actor.tenantId, w.number]);
+    if (!doc.rows[0]) {
+      doc = await db.query(
+        `insert into public.documents (tenant_id, job_id, type, number, doc_date, created_by) values ($1, $2, $3::public.doc_type, $4, $5, $6) returning id, type::text as type`,
+        [actor.tenantId, w.jobId, DB_DOC_TYPES[w.type], w.number, w.date, actor.userId],
+      );
+      created = true;
+    } else if (doc.rows[0].type !== DB_DOC_TYPES[w.type]) {
+      throw new BillingError('invalid', 'That document number is already used for something else.');
+    }
+    const documentId = String(doc.rows[0].id);
+
+    let ver = await db.query(`select id from public.document_versions where document_id = $1 and tenant_id = $2 and version = 1`, [documentId, actor.tenantId]);
+    if (!ver.rows[0]) {
+      const input = { schema: 1, followOn: { instalment: w.instalment, heading: w.heading, netPence: w.netPence, vatPence: w.vatPence, grossPence: w.grossPence, paymentId: w.paymentId } };
+      ver = await db.query(
+        `insert into public.document_versions (tenant_id, document_id, version, input, created_by) values ($1, $2, 1, $3::jsonb, $4) returning id`,
+        [actor.tenantId, documentId, JSON.stringify(input), actor.userId],
+      );
+    }
+    await db.query(`update public.documents set current_version_id = $1 where id = $2 and tenant_id = $3 and current_version_id is null`, [String(ver.rows[0].id), documentId, actor.tenantId]);
+
+    if (w.paymentId) {
+      const pay = await db.query(`select receipt_document_id from public.payments where id = $1 and tenant_id = $2 and job_id = $3 for update`, [w.paymentId, actor.tenantId, w.jobId]);
+      if (!pay.rows[0]) throw new BillingError('not_found', 'That payment could not be found.');
+      const linked = pay.rows[0].receipt_document_id as string | null;
+      if (linked === null) await db.query(`update public.payments set receipt_document_id = $1 where id = $2 and tenant_id = $3`, [documentId, w.paymentId, actor.tenantId]);
+      else if (linked !== documentId) throw new BillingError('invalid', 'That payment already has a different receipt.');
+    }
+    await db.query(nested ? 'release savepoint followon_tx' : 'commit');
+    return { documentId, number: w.number, created };
+  } catch (e) {
+    await db.query(nested ? 'rollback to savepoint followon_tx' : 'rollback').catch(() => undefined);
+    const code = (e as { code?: string }).code;
+    if (code === '23505') throw new BillingError('invalid', 'That document number has already been used.');
+    if (code === '23514') throw new BillingError('invalid', 'That document number does not fit this job.');
+    throw e;
+  }
+}
+
+/**
+ * "Save as draft" on an invoice or receipt started from a job. The figures and the number are recomputed here from
+ * the saved quote and the recorded payments, never taken from the browser.
  */
 export async function saveFollowOnDraft(reference: string, type: DocType, instalment: number | null, paymentId: string | null): Promise<FollowOnSaved> {
   const s = await requireSession();
@@ -349,33 +382,31 @@ export async function saveFollowOnDraft(reference: string, type: DocType, instal
   const r = followOnFor(job.billing, type, instalment, paymentId);
   if (!r.ok) throw new BillingError('invalid', r.message);
   const f = r.followOn;
-  const date = todayIso();
   if (isDemo()) {
     const st = demo();
     const docs = st.documents.get(job.jobId) ?? [];
     const found = docs.find((d) => d.number === f.number);
-    if (found) return { documentId: found.id, number: f.number, created: false };
-    const id = `demo-doc-${job.jobId.replace(/^demo-job-/, '')}-${f.number.toLowerCase()}`;
-    docs.push({ id, type, number: f.number, status: 'draft' });
+    const id = found?.id ?? `demo-doc-${job.jobId.replace(/^demo-job-/, '')}-${f.number.toLowerCase()}`;
+    if (!found) docs.push({ id, type, number: f.number, status: 'draft' });
     st.documents.set(job.jobId, docs);
     if (f.payment) {
-      const pays = st.payments.get(job.jobId) ?? [];
-      const p = pays.find((x) => x.id === f.payment?.id);
+      const p = (st.payments.get(job.jobId) ?? []).find((x) => x.id === f.payment?.id);
       if (p && !p.receiptDocumentId) p.receiptDocumentId = id;
     }
-    return { documentId: id, number: f.number, created: true };
+    return { documentId: id, number: f.number, created: !found };
   }
   if (!isRealId(job.jobId)) throw new BillingError('failed', 'Could not save');
-  const client = await ownerClient();
-  const saved = await saveFollowOnDraftWith(
-    client,
-    s.tenantId,
-    { id: job.jobId, quoteNumber: reference },
-    { reference, type, instalment: f.instalment, number: f.number, paymentId: f.payment?.id ?? null },
-    { heading: f.heading, netPence: f.netPence, vatPence: f.vatPence, grossPence: f.grossPence, date, paymentId: f.payment?.id ?? null },
-  );
-  if (f.payment && saved.created) {
-    await withServiceConnection((db) => linkReceiptWith(db, { tenantId: s.tenantId, userId: s.userId }, f.payment!.id, saved.documentId));
-  }
-  return saved;
+  const write: FollowOnWrite = {
+    jobId: job.jobId,
+    type,
+    number: f.number,
+    instalment: f.instalment,
+    heading: f.heading,
+    netPence: f.netPence,
+    vatPence: f.vatPence,
+    grossPence: f.grossPence,
+    date: todayIso(),
+    paymentId: f.payment?.id ?? null,
+  };
+  return withServiceConnection((db) => saveFollowOnWith(db, { tenantId: s.tenantId, userId: s.userId }, write));
 }

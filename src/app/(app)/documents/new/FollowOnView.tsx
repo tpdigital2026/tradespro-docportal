@@ -15,10 +15,10 @@ const Back = () => <p className="cust-back"><Link href="/">Back to Home</Link></
 /** The instalment a document of this type would be for next on this job, or null when none fits. */
 function candidate(b: JobBilling, type: DocType): number | null {
   if (type === 'receipt') {
-    const hit = b.instalments.find((i) => b.payments.some((p) => p.instalment === i.index && p.receiptDocumentId === null) && !b.documents.some((d) => d.type === 'receipt' && d.instalment === i.index && d.status !== 'void'));
+    const hit = b.instalments.find((i) => b.payments.some((p) => p.instalment === i.index && p.receiptDocumentId === null));
     return hit ? hit.index : null;
   }
-  const hit = b.instalments.find((i) => invoiceTypeFor(b.kind, i.index) === type && !b.documents.some((d) => d.instalment === i.index && d.type === type && d.status !== 'void'));
+  const hit = b.instalments.find((i) => invoiceTypeFor(b.kind, i.index) === type && !b.documents.some((d) => d.instalment === i.index && d.type === type ));
   return hit ? hit.index : null;
 }
 
@@ -103,14 +103,14 @@ export async function FollowOnView({ type, job, n, payment }: { type: DocType; j
           </>
         ) : null}
       </dl>
+      <h3 className="qt-h3">Money</h3>
+      <dl className="qt-sum">
+        <div><dt>Before VAT</dt><dd>{formatGBP(f.netPence)}</dd></div>
+        <div><dt>VAT</dt><dd>{f.vatPence > 0 ? formatGBP(f.vatPence) : 'None'}</dd></div>
+        <div className="is-total"><dt>{isReceipt ? 'Received' : 'To pay'}</dt><dd>{formatGBP(f.grossPence)}</dd></div>
+      </dl>
       {!isReceipt ? (
         <>
-          <h3 className="qt-h3">Money</h3>
-          <dl className="qt-sum">
-            <div><dt>Before VAT</dt><dd>{formatGBP(f.netPence)}</dd></div>
-            <div><dt>VAT</dt><dd>{f.vatPence > 0 ? formatGBP(f.vatPence) : 'None'}</dd></div>
-            <div className="is-total"><dt>To pay</dt><dd>{formatGBP(f.grossPence)}</dd></div>
-          </dl>
           {f.receivedEarlier.length > 0 ? (
             <p className="qt-note">Already received on this job: {formatGBP(received)}. It is listed on the invoice.</p>
           ) : null}

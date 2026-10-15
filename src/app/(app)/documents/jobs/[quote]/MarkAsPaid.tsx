@@ -82,7 +82,8 @@ export function MarkAsPaid({
       <dialog ref={dialog} className="pay-dialog" aria-labelledby={`${id}-h`} onClose={onClosed}>
         {done ? (
           <div className="pay-body" role="status">
-            <h2 id={`${id}-h`} className="pay-h">Payment recorded</h2>
+            <h2 id={`${id}-h`} className="pay-h">{done.repeat ? 'Already recorded' : 'Payment recorded'}</h2>
+            {done.repeat ? <p className="pay-lede">That payment was already recorded just now.</p> : null}
             <p className="pay-lede">
               {done.remainingPence > 0 ? `${formatGBP(done.remainingPence)} is still to come in on this invoice.` : `${heading} is paid in full.`}
             </p>

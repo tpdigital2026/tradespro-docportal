@@ -6,7 +6,7 @@
  * So a job paid in full has 4 steps, a deposit job 6, and a job in five stages 12 (up to 22 for ten stages).
  *
  * Facts in, progress out:
- *  - an instalment is Invoiced once a final or sent invoice exists for it (drafts and void invoices do not count);
+ *  - an instalment is Invoiced once a final or sent invoice exists for it (a draft does not count; corrections are new versions of the same numbered document, never a new number);
  *  - it is Paid once the recorded payments against it add up to at least its gross amount;
  *  - the guarantee step is done once a final or sent guarantee exists.
  * The current step is the last one reached without a gap. A step skipped over does not count.
@@ -74,6 +74,8 @@ export interface StagePayment {
   /** Which instalment the paid invoice belongs to (1-based). */
   instalment: number;
   amountPence: number;
+  /** Whether a receipt has been started for this payment. */
+  receiptLinked?: boolean;
 }
 export interface StageDocument {
   type: DocType;
@@ -103,7 +105,7 @@ export interface JobProgress {
   /** Index into steps of the last step reached. */
   currentIndex: number;
   next: NextStep | null;
-  /** Instalments that have a payment recorded but no receipt started. */
+  /** Instalments with at least one recorded payment that has no receipt started. */
   receiptsDue: number[];
 }
 
@@ -192,9 +194,7 @@ export function deriveJobStage(
     }
   }
 
-  const receiptsDue = list
-    .filter((inst) => paidSoFar(inst.index) > 0 && !documents.some((d) => d.type === 'receipt' && d.instalment === inst.index && d.status !== 'void'))
-    .map((inst) => inst.index);
+  const receiptsDue = list.filter((inst) => payments.some((p) => p.instalment === inst.index && !p.receiptLinked)).map((inst) => inst.index);
 
   return { steps, currentIndex, next, receiptsDue };
 }
@@ -224,15 +224,22 @@ export function nextStepHref(step: NextStep, job: string): string {
   return newDocumentHref(step.type, job, step.instalment ? { n: step.instalment } : {});
 }
 
+export const MAX_RECEIPTS_PER_INSTALMENT = 99;
+
 /**
  * Numbers follow the job's quote number: INV-{q}-D, INV-{q}-B, INV-{q}, INV-{q}-S{n}, and for receipts
- * RCP-{q}-D, RCP-{q}-B, RCP-{q}, RCP-{q}-S{n}. The database enforces the same patterns.
+ * RCP-{q}-D, RCP-{q}-B, RCP-{q}, RCP-{q}-S{n}. Each payment has its own receipt: the first one on an instalment has
+ * the plain number, the next ones add -2 to -99 (RCP-{q}-S3-2). seq is that 1-based position; it is ignored for invoices.
+ * The database enforces the same patterns.
  */
-export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, index: number): string | null {
+export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, index: number, seq = 1): string | null {
   if (type === 'receipt') {
-    if (kind === 'full') return index === 1 ? `RCP-${quote}` : null;
-    if (kind === 'deposit') return index === 1 ? `RCP-${quote}-D` : index === 2 ? `RCP-${quote}-B` : null;
-    return index >= 1 && index <= 10 ? `RCP-${quote}-S${index}` : null;
+    if (!Number.isInteger(seq) || seq < 1 || seq > MAX_RECEIPTS_PER_INSTALMENT) return null;
+    let base: string | null;
+    if (kind === 'full') base = index === 1 ? `RCP-${quote}` : null;
+    else if (kind === 'deposit') base = index === 1 ? `RCP-${quote}-D` : index === 2 ? `RCP-${quote}-B` : null;
+    else base = index >= 1 && index <= 10 ? `RCP-${quote}-S${index}` : null;
+    return base === null ? null : seq === 1 ? base : `${base}-${seq}`;
   }
   if (type === 'deposit-invoice') return kind === 'deposit' && index === 1 ? `INV-${quote}-D` : null;
   if (type === 'balance-invoice') return kind === 'deposit' && index === 2 ? `INV-${quote}-B` : null;
@@ -243,7 +250,8 @@ export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, 
 
 /** The instalment a stored invoice or receipt number refers to, or null when it does not match the job's patterns. */
 export function instalmentFromNumber(type: DocType, number: string, quote: string, kind: PlanKind, count: number): number | null {
-  for (let i = 1; i <= count; i += 1) if (documentNumberFor(type, quote, kind, i) === number) return i;
+  const seqs = type === 'receipt' ? MAX_RECEIPTS_PER_INSTALMENT : 1;
+  for (let i = 1; i <= count; i += 1) for (let k = 1; k <= seqs; k += 1) if (documentNumberFor(type, quote, kind, i, k) === number) return i;
   return null;
 }
 
