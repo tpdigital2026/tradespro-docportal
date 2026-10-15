@@ -205,7 +205,7 @@ describe('a receipt for each payment', () => {
     const one = followOnFor(b, 'receipt', 3, 'part-1');
     const two = followOnFor(b, 'receipt', 3, 'part-2');
     expect(one.ok && one.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3', grossPence: 333333 });
-    expect(two.ok && two.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3-2', grossPence: 416667 });
+    expect(two.ok && two.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3-P2', grossPence: 416667 });
     if (!one.ok || !two.ok) throw new Error('unreachable');
     // Net and VAT of the parts add up to the stage's own net and VAT exactly.
     expect(one.followOn.netPence + two.followOn.netPence).toBe(625000);
@@ -219,7 +219,7 @@ describe('a receipt for each payment', () => {
     const a = followOnFor(b, 'receipt', 3, null);
     expect(a.ok && a.followOn.number).toBe('RCP-DEMO-3003-S3');
     const again = followOnFor(b, 'receipt', 3, 'part-2');
-    expect(again.ok && again.followOn.number).toBe('RCP-DEMO-3003-S3-2');
+    expect(again.ok && again.followOn.number).toBe('RCP-DEMO-3003-S3-P2');
   });
 
   it('a linked payment shows its existing receipt, and cannot be given a second', () => {
@@ -237,7 +237,7 @@ describe('a receipt for each payment', () => {
     const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: j.documents, payments: pays });
     if (!r.ok) throw new Error(r.message);
     const last99 = followOnFor(r.billing, 'receipt', 1, 'p99');
-    expect(last99.ok && last99.followOn.number).toBe('RCP-DEMO-3002-99');
+    expect(last99.ok && last99.followOn.number).toBe('RCP-DEMO-3002-P99');
     const last = followOnFor(r.billing, 'receipt', 1, 'p100');
     expect(last.ok).toBe(false);
     expect(!last.ok && last.message).toMatch(/up to 99/);

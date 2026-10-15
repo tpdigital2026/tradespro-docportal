@@ -45,10 +45,10 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-B`],
         ['receipt', `RCP-${q}`],
         ['receipt', `RCP-${q}-S7`],
-        ['receipt', `RCP-${q}-S7-2`],
-        ['receipt', `RCP-${q}-D-3`],
-        ['receipt', `RCP-${q}-99`],
-        ['receipt', `RCP-${q}-S10-99`],
+        ['receipt', `RCP-${q}-S7-P2`],
+        ['receipt', `RCP-${q}-D-P3`],
+        ['receipt', `RCP-${q}-P99`],
+        ['receipt', `RCP-${q}-S10-P99`],
         ['guarantee', 'GUA-anything-1'],
         ['survey_report', 'SUR-anything-1'],
       ];
@@ -79,11 +79,13 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-X`],
         ['receipt', `INV-${q}-D`],
         ['receipt', `RCP-${q}-S11`],
-        ['receipt', `RCP-${q}-S7-1`],
-        ['receipt', `RCP-${q}-S7-100`],
-        ['receipt', `RCP-${q}-S7-02`],
-        ['receipt', `RCP-${q}-D-0`],
-        ['receipt', `RCP-${q}-X-2`],
+        ['receipt', `RCP-${q}-S7-2`],
+        ['receipt', `RCP-${q}-S7-P1`],
+        ['receipt', `RCP-${q}-S7-P100`],
+        ['receipt', `RCP-${q}-S7-P02`],
+        ['receipt', `RCP-${q}-D-P0`],
+        ['receipt', `RCP-${q}-X-P2`],
+        ['receipt', `RCP-${q}-99`],
         ['receipt', 'RCP-QT-Other-001'],
         ['invoice_full', `inv-${q}`],
       ];
@@ -319,11 +321,11 @@ describe.skipIf(!dbAvailable)('payments are immutable once a receipt is finalise
 });
 
 describe.skipIf(!dbAvailable)('receipt numbers when the quote number ends in digits', () => {
-  it('RCP-{q} for a job called Q-5 is a base number, and RCP-Q-5-2 is its second receipt', async () => {
+  it('RCP-{q} for a job called Q-5 is a base number, and RCP-Q-5-P2 is its second receipt', async () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');
       const job = await c.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'Q-5') returning id`, [a.tenantId, a.customerId]);
-      for (const n of ['RCP-Q-5', 'RCP-Q-5-2']) {
+      for (const n of ['RCP-Q-5', 'RCP-Q-5-P2']) {
         await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', $3)`, [a.tenantId, job.rows[0].id, n]);
       }
       await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q')`, [a.tenantId, job.rows[0].id], /does not match/);
@@ -407,7 +409,7 @@ describe.skipIf(!dbAvailable)('saveFollowOnWith (atomic, repairable)', () => {
       // The payment already points at another receipt, so the link step fails after the document and version were written.
       const other = await doc(c, a, 'receipt', `RCP-${ref('Alpha')}-7`.replace('-7', ''), 'draft');
       await c.query(`update public.payments set receipt_document_id = $1 where id = $2`, [other, pa]);
-      const number = `RCP-${ref('Alpha')}-2`;
+      const number = `RCP-${ref('Alpha')}-P2`;
       await expect(saveFollowOnWith(c, actor(a), write(a, { number, paymentId: pa }), { nested: true })).rejects.toMatchObject({ code: 'invalid' });
       expect(await counts(c, a, number)).toEqual({ docs: 0, used: 0 });
       // A number that does not fit the job fails cleanly too.
@@ -437,7 +439,7 @@ describe.skipIf(!dbAvailable)('saveFollowOnWith (atomic, repairable)', () => {
       const p1 = await pay(c, a, inv, { amount: 3000 });
       const p2 = await pay(c, a, inv, { amount: 2000 });
       const r1 = await saveFollowOnWith(c, actor(a), write(a, { paymentId: p1, grossPence: 3000 }), { nested: true });
-      const r2 = await saveFollowOnWith(c, actor(a), write(a, { number: `RCP-${ref('Alpha')}-2`, paymentId: p2, grossPence: 2000 }), { nested: true });
+      const r2 = await saveFollowOnWith(c, actor(a), write(a, { number: `RCP-${ref('Alpha')}-P2`, paymentId: p2, grossPence: 2000 }), { nested: true });
       expect(r1.documentId).not.toBe(r2.documentId);
       const links = await c.query(`select id, receipt_document_id from public.payments order by amount_pence desc`);
       expect(links.rows.map((x) => x.receipt_document_id)).toEqual([r1.documentId, r2.documentId]);
@@ -453,6 +455,73 @@ describe.skipIf(!dbAvailable)('saveFollowOnWith (atomic, repairable)', () => {
       const pb = await pay(c, b, ib);
       await expect(saveFollowOnWith(c, actor(a), write(a, { paymentId: pb }), { nested: true })).rejects.toMatchObject({ code: 'not_found' });
       expect(await counts(c, a, `RCP-${ref('Alpha')}`)).toEqual({ docs: 0, used: 0 });
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('job references cannot look like document numbers (migration 011)', () => {
+  it('the constraint exists and is validated', async () => {
+    await withRollback(async (c) => {
+      const r = await c.query(`select convalidated from pg_constraint where conname = 'jobs_reference_not_document_like'`);
+      expect(r.rows).toEqual([{ convalidated: true }]);
+    });
+  });
+
+  it('refuses endings -D, -B, -S{n}, -P{n} and prefixes INV-, RCP-, GC-, SR-, for the server and the app role', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const bad = ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-S10', 'Q1-P2', 'Q-5-P99', 'INV-100', 'RCP-100', 'GC-100', 'SR-100', 'A/B-D'];
+      const ins = `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3)`;
+      for (const ref of bad) await expectFail(c, ins, [a.tenantId, a.customerId, ref], /jobs_reference_not_document_like/);
+      await actAs(c, a.userId);
+      for (const ref of bad) await expectFail(c, ins, [a.tenantId, a.customerId, ref], /jobs_reference_not_document_like/);
+      await actAsServer(c);
+      for (const ref of ['Q1-DX', 'Q1-S', 'Q1-P', 'Q1-d', 'Q-5-2', 'INVOICE-1', 'GCSE-1', 'xRCP-1', 'QT-0042']) await c.query(ins, [a.tenantId, a.customerId, ref]);
+    });
+  });
+
+  it('the old cross-job collision cannot be built: Q-5-P2 is not a job, so RCP-Q-5-P2 belongs to Q-5 alone', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const mk = (ref: string) => c.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3) returning id`, [a.tenantId, a.customerId, ref]);
+      const j5 = await mk('Q-5');
+      const j52 = await mk('Q-5-2');
+      await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q-5-P2')`, [a.tenantId, j5.rows[0].id]);
+      // The second job's first receipt is RCP-Q-5-2 and its own second is RCP-Q-5-2-P2: neither touches Q-5's numbers.
+      await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q-5-2')`, [a.tenantId, j52.rows[0].id]);
+      await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q-5-2-P2')`, [a.tenantId, j52.rows[0].id]);
+      await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q-5-P2')`, [a.tenantId, j52.rows[0].id], /does not match its job/);
+      await expectFail(c, `insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', 'RCP-Q-5-2')`, [a.tenantId, j5.rows[0].id], /does not match its job/);
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('saveFollowOnWith repair never crosses payments', () => {
+  it('refuses to reuse a receipt number whose version belongs to another payment, and says why', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p1 = await pay(c, a, inv, { amount: 3000 });
+      const p2 = await pay(c, a, inv, { amount: 2000 });
+      const number = `RCP-${ref('Alpha')}`;
+      const w = { jobId: a.jobId, type: 'receipt' as const, number, instalment: 1, heading: 'Invoice', netPence: 2500, vatPence: 500, grossPence: 3000, date: '2026-10-15', paymentId: p1 };
+      const actor = { tenantId: a.tenantId, userId: a.userId };
+      const first = await saveFollowOnWith(c, actor, w, { nested: true });
+      // Positions shift: someone now asks for this same number for the other payment.
+      await expect(saveFollowOnWith(c, actor, { ...w, paymentId: p2 }, { nested: true })).rejects.toMatchObject({ code: 'invalid', message: expect.stringMatching(/different payment/) });
+      const links = await c.query(`select id, receipt_document_id from public.payments where id = any($1)`, [[p1, p2]]);
+      expect(links.rows.find((r) => r.id === p2).receipt_document_id).toBeNull();
+      expect(links.rows.find((r) => r.id === p1).receipt_document_id).toBe(first.documentId);
+      // The right payment still repairs and re-saves fine.
+      expect((await saveFollowOnWith(c, actor, w, { nested: true })).created).toBe(false);
+    });
+  });
+
+  it('gives a number that does not fit the job its own message', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const w = { jobId: a.jobId, type: 'receipt' as const, number: 'RCP-NOT-THIS-JOB', instalment: 1, heading: 'x', netPence: 1, vatPence: 0, grossPence: 1, date: '2026-10-15', paymentId: null };
+      await expect(saveFollowOnWith(c, { tenantId: a.tenantId, userId: a.userId }, w, { nested: true })).rejects.toMatchObject({ message: 'That document number does not fit this job.' });
     });
   });
 });

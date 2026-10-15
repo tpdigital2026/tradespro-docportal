@@ -14,7 +14,7 @@ import { suggestNextNumber } from '../quote-number';
 import { requireSession } from '../session';
 import { emptyScope } from '../scope/model';
 import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
-import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_RE, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
+import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
 import { ownerClient, type DataClient } from './customers';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -145,7 +145,7 @@ export async function recentNumbersWith(client: DataClient): Promise<string[]> {
 }
 
 export async function numberIsFreeWith(client: DataClient, quoteNumber: string): Promise<boolean> {
-  if (!NUMBER_RE.test(quoteNumber) || NUMBER_SUFFIX_RE.test(quoteNumber)) return false;
+  if (!NUMBER_RE.test(quoteNumber) || quoteNumberReserved(quoteNumber) !== null) return false;
   const { data, error } = await client.from('used_numbers').select('number').eq('number', quoteNumber).maybeSingle();
   if (error) throw new QuoteError('failed', 'Could not check that number');
   return !data;
@@ -320,6 +320,7 @@ export async function saveDraftWith(client: DataClient, tenantId: string, form: 
     }
     throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
   }
+  if (ins.error?.code === '23514') throw new QuoteError('invalid', NUMBER_SUFFIX_MESSAGE, { quoteNumber: NUMBER_SUFFIX_MESSAGE });
   throw new QuoteError('failed', 'Could not save');
 }
 
@@ -418,7 +419,7 @@ export async function getQuoteVatRateBp(): Promise<number> {
 
 export async function checkQuoteNumber(quoteNumber: string): Promise<boolean> {
   await requireSession();
-  if (typeof quoteNumber !== 'string' || !NUMBER_RE.test(quoteNumber.trim()) || NUMBER_SUFFIX_RE.test(quoteNumber.trim())) return false;
+  if (typeof quoteNumber !== 'string' || !NUMBER_RE.test(quoteNumber.trim()) || quoteNumberReserved(quoteNumber.trim()) !== null) return false;
   const n = quoteNumber.trim();
   if (isDemo()) return !demoUsedNumbers.includes(n) && !demoStore().some((d) => d.values.quoteNumber === n);
   return numberIsFreeWith(await ownerClient(), n);

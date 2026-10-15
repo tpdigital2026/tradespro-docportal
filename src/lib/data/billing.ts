@@ -343,8 +343,12 @@ export async function saveFollowOnWith(db: { query: ServiceDb['query'] }, actor:
     }
     const documentId = String(doc.rows[0].id);
 
-    let ver = await db.query(`select id from public.document_versions where document_id = $1 and tenant_id = $2 and version = 1`, [documentId, actor.tenantId]);
-    if (!ver.rows[0]) {
+    let ver = await db.query(`select id, input from public.document_versions where document_id = $1 and tenant_id = $2 and version = 1`, [documentId, actor.tenantId]);
+    if (ver.rows[0]) {
+      // Repairing: the receipt on record must be for this very payment. Positions can shift; a payment is never linked to another's receipt.
+      const theirs = (ver.rows[0].input as { followOn?: { paymentId?: string | null } } | null)?.followOn?.paymentId ?? null;
+      if (w.paymentId !== null && theirs !== w.paymentId) throw new BillingError('invalid', 'That receipt number already belongs to a different payment, so it cannot be used for this one.');
+    } else {
       const input = { schema: 1, followOn: { instalment: w.instalment, heading: w.heading, netPence: w.netPence, vatPence: w.vatPence, grossPence: w.grossPence, paymentId: w.paymentId } };
       ver = await db.query(
         `insert into public.document_versions (tenant_id, document_id, version, input, created_by) values ($1, $2, 1, $3::jsonb, $4) returning id`,
@@ -366,7 +370,10 @@ export async function saveFollowOnWith(db: { query: ServiceDb['query'] }, actor:
     await db.query(nested ? 'rollback to savepoint followon_tx' : 'rollback').catch(() => undefined);
     const code = (e as { code?: string }).code;
     if (code === '23505') throw new BillingError('invalid', 'That document number has already been used.');
-    if (code === '23514') throw new BillingError('invalid', 'That document number does not fit this job.');
+    if (code === '23514') {
+      const msg = String((e as { message?: string }).message ?? '');
+      throw new BillingError('invalid', /does not match its job/.test(msg) ? 'That document number does not fit this job.' : 'That could not be saved because it breaks a rule on the data.');
+    }
     throw e;
   }
 }

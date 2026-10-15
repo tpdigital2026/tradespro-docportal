@@ -239,7 +239,7 @@ export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, 
     if (kind === 'full') base = index === 1 ? `RCP-${quote}` : null;
     else if (kind === 'deposit') base = index === 1 ? `RCP-${quote}-D` : index === 2 ? `RCP-${quote}-B` : null;
     else base = index >= 1 && index <= 10 ? `RCP-${quote}-S${index}` : null;
-    return base === null ? null : seq === 1 ? base : `${base}-${seq}`;
+    return base === null ? null : seq === 1 ? base : `${base}-P${seq}`;
   }
   if (type === 'deposit-invoice') return kind === 'deposit' && index === 1 ? `INV-${quote}-D` : null;
   if (type === 'balance-invoice') return kind === 'deposit' && index === 2 ? `INV-${quote}-B` : null;

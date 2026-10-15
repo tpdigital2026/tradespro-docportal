@@ -186,14 +186,14 @@ describe('document numbers', () => {
 
   it('gives each further payment on an instalment its own receipt number', () => {
     expect(documentNumberFor('receipt', 'Q1', 'staged', 3, 1)).toBe('RCP-Q1-S3');
-    expect(documentNumberFor('receipt', 'Q1', 'staged', 3, 2)).toBe('RCP-Q1-S3-2');
-    expect(documentNumberFor('receipt', 'Q1', 'deposit', 1, 3)).toBe('RCP-Q1-D-3');
-    expect(documentNumberFor('receipt', 'Q1', 'full', 1, 99)).toBe('RCP-Q1-99');
+    expect(documentNumberFor('receipt', 'Q1', 'staged', 3, 2)).toBe('RCP-Q1-S3-P2');
+    expect(documentNumberFor('receipt', 'Q1', 'deposit', 1, 3)).toBe('RCP-Q1-D-P3');
+    expect(documentNumberFor('receipt', 'Q1', 'full', 1, 99)).toBe('RCP-Q1-P99');
     expect(documentNumberFor('receipt', 'Q1', 'full', 1, 100)).toBeNull();
     expect(documentNumberFor('receipt', 'Q1', 'full', 1, 0)).toBeNull();
     expect(documentNumberFor('invoice-stage', 'Q1', 'staged', 3, 2)).toBe('INV-Q1-S3');
-    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-2', 'Q1', 'staged', 5)).toBe(3);
-    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-100', 'Q1', 'staged', 5)).toBeNull();
+    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-P2', 'Q1', 'staged', 5)).toBe(3);
+    expect(instalmentFromNumber('receipt', 'RCP-Q1-S3-P100', 'Q1', 'staged', 5)).toBeNull();
   });
 
   it('maps a number back to its instalment', () => {

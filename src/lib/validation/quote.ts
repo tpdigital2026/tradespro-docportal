@@ -123,9 +123,18 @@ export interface QuoteFormValues {
 
 export const MAX_EXTRAS = 10;
 export const NUMBER_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{1,39}$/;
-/** Invoice numbers are the quote number plus -D, -B or -S{n}, so a quote number ending that way could collide with another job's invoice. */
-export const NUMBER_SUFFIX_RE = /-(?:D|B|S\d+)$/;
-export const NUMBER_SUFFIX_MESSAGE = 'A quote number cannot end in -D, -B or -S and a number, because invoice numbers use those endings';
+/**
+ * Document numbers are built from the quote number: INV-{q}-D, INV-{q}-B, INV-{q}, INV-{q}-S{n}, RCP-{q}..., with -P{k} on later
+ * receipts, and guarantees and survey reports use GC- and SR-. A quote number that ends like one of those endings, or starts like one
+ * of those prefixes, could make two jobs produce the same document number, so it is refused here and by the database.
+ */
+export const NUMBER_SUFFIX_RE = /-(?:D|B|S\d+|P\d+)$/;
+export const NUMBER_PREFIX_RE = /^(?:INV|RCP|GC|SR)-/;
+export const NUMBER_SUFFIX_MESSAGE = 'A quote number cannot start with INV-, RCP-, GC- or SR-, or end in -D, -B, -S or -P and a number, because document numbers use those';
+/** The reason a well-formed quote number cannot be used, or null. */
+export function quoteNumberReserved(n: string): string | null {
+  return NUMBER_SUFFIX_RE.test(n) || NUMBER_PREFIX_RE.test(n) ? NUMBER_SUFFIX_MESSAGE : null;
+}
 const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo-[a-z]+-[\w-]{1,40})$/i;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -288,7 +297,7 @@ function normaliseQuoteInner(
   const quoteNumber = v.quoteNumber.trim();
   if (quoteNumber === '') errors.quoteNumber = 'Enter a quote number';
   else if (!NUMBER_RE.test(quoteNumber)) errors.quoteNumber = 'Use 2 to 40 letters, numbers, dots, dashes or slashes, starting with a letter or number';
-  else if (NUMBER_SUFFIX_RE.test(quoteNumber)) errors.quoteNumber = NUMBER_SUFFIX_MESSAGE;
+  else if (quoteNumberReserved(quoteNumber)) errors.quoteNumber = NUMBER_SUFFIX_MESSAGE;
 
   const customerId = v.customerId.trim();
   if (customerId === '') errors.customerId = 'Choose who this quote is for';

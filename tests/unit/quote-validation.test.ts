@@ -148,13 +148,13 @@ describe('quoteInputSchema (strict)', () => {
       expect(normaliseQuote(ready({ quoteNumber: n }), 'final').errors.quoteNumber, JSON.stringify(n)).toBeDefined();
     }
   });
-  it('quote numbers cannot end the way invoice numbers do (-D, -B, -S and digits), in draft or final', () => {
-    for (const n of ['Q1-D', 'Q1-B', 'Q1-S2', 'FJC/2026/17-S10']) {
+  it('quote numbers cannot end like a document number (-D, -B, -S or -P and digits) or start like one (INV-, RCP-, GC-, SR-), in draft or final', () => {
+    for (const n of ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-P2', 'Q-5-P99', 'FJC/2026/17-S10', 'INV-100', 'RCP-100', 'GC-100', 'SR-100']) {
       for (const mode of ['draft', 'final'] as const) {
-        expect(normaliseQuote(ready({ quoteNumber: n }), mode).errors.quoteNumber, `${mode} ${n}`).toMatch(/cannot end in -D, -B or -S/);
+        expect(normaliseQuote(ready({ quoteNumber: n }), mode).errors.quoteNumber, `${mode} ${n}`).toMatch(/cannot start with INV-/);
       }
     }
-    for (const n of ['Q1-DX', 'Q1-BS', 'Q1-S', 'Q1-s2', 'QT-0042', 'AB-5']) {
+    for (const n of ['Q1-DX', 'Q1-BS', 'Q1-S', 'Q1-P', 'Q1-s2', 'Q1-p2', 'QT-0042', 'AB-5', 'Q-5-2', 'INVOICE-1', 'GCSE-1', 'xINV-1']) {
       expect(normaliseQuote(ready({ quoteNumber: n }), 'final').errors.quoteNumber, n).toBeUndefined();
     }
   });
