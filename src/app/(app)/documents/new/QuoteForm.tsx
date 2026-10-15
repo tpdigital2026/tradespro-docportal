@@ -38,14 +38,18 @@ export function QuoteForm({
   ctx,
   initial,
   initialJobId,
+  initialStep,
 }: {
   ctx: QuoteContext;
   initial: QuoteFormValues;
   initialJobId: string | null;
+  /** Where Edit on the draft page lands: the first step with something missing, else the review. */
+  initialStep?: QuoteStep;
 }) {
+  const startIx = initialStep && initialJobId ? Math.max(0, QUOTE_STEPS.indexOf(initialStep)) : 0;
   const [values, setValues] = useState<QuoteFormValues>(initial);
-  const [stepIx, setStepIx] = useState(0);
-  const [reached, setReached] = useState(0);
+  const [stepIx, setStepIx] = useState(startIx);
+  const [reached, setReached] = useState(startIx);
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
   const [attempted, setAttempted] = useState<ReadonlySet<QuoteStep>>(new Set());
   const [jobId, setJobId] = useState<string | null>(initialJobId);

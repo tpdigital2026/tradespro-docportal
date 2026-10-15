@@ -65,22 +65,6 @@ export const demoQuotes: DemoQuote[] = [
   },
 ];
 
-export type DemoRecentDoc = {
-  type: DocType;
-  number: string;
-  customerName: string;
-  date: string;
-  status: 'Draft' | 'Final';
-};
-
-export const demoRecentDocs: DemoRecentDoc[] = [
-  { type: 'receipt', number: 'RCP-DEMO-3003-S1', customerName: 'Mr John Smith', date: '2026-10-14', status: 'Final' },
-  { type: 'invoice-stage', number: 'INV-DEMO-3003-S3', customerName: 'Mr John Smith', date: '2026-10-13', status: 'Final' },
-  { type: 'invoice-full', number: 'INV-DEMO-3002', customerName: 'Mrs Jane Example', date: '2026-10-12', status: 'Final' },
-  { type: 'deposit-invoice', number: 'INV-DEMO-3001-D', customerName: 'Mr John Smith', date: '2026-10-10', status: 'Final' },
-  { type: 'quotation', number: 'DEMO-2001', customerName: 'Mr John Smith', date: '2026-10-12', status: 'Draft' },
-  { type: 'survey', number: 'SUR-DEMO-3007', customerName: 'Mr Ray Pretend', date: '2026-10-03', status: 'Draft' },
-];
 
 // ------------------------------------------------------------------ the business on demo documents
 

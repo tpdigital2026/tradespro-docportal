@@ -177,7 +177,7 @@ describe('reading drafts back', () => {
   it('lists draft quotations with the customer name', async () => {
     const { client } = fakeClient({ customers: [{ id: CUSTOMER, name: 'Mr John Smith' }] });
     await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
-    expect(await listDraftsWith(client)).toEqual([{ jobId: expect.any(String), quoteNumber: 'QT-0100', customerName: 'Mr John Smith', date: '2026-10-14' }]);
+    expect(await listDraftsWith(client)).toEqual([{ jobId: expect.any(String), documentId: expect.any(String), quoteNumber: 'QT-0100', customerName: 'Mr John Smith', date: '2026-10-14' }]);
   });
 });
 

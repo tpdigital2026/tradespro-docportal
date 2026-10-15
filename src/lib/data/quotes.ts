@@ -6,7 +6,7 @@ import {
   demoQuoteDrafts,
   demoUsedNumbers,
 } from '../demo-data';
-import { isDemo } from '../demo';
+import { demoSlot, isDemo } from '../demo';
 import { MAX_VAT_RATE_BP } from '../money';
 import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
@@ -78,6 +78,8 @@ export interface QuoteDraft {
 }
 export interface DraftListItem {
   jobId: string;
+  /** The quotation document, for the draft page. */
+  documentId: string | null;
   quoteNumber: string;
   customerName: string;
   date: string;
@@ -157,13 +159,13 @@ export async function numberIsFreeWith(client: DataClient, quoteNumber: string):
 export async function listDraftsWith(client: DataClient): Promise<DraftListItem[]> {
   const docs = await client
     .from('documents')
-    .select('job_id, number, doc_date, created_at')
+    .select('id, job_id, number, doc_date, created_at')
     .eq('type', 'quotation')
     .eq('status', 'draft')
     .order('created_at', { ascending: false })
     .limit(20);
   if (docs.error) throw new QuoteError('failed', 'Could not load drafts');
-  const rows = (docs.data ?? []) as { job_id: string; number: string; doc_date: string }[];
+  const rows = (docs.data ?? []) as { id: string; job_id: string; number: string; doc_date: string }[];
   if (rows.length === 0) return [];
   const jobs = await client.from('jobs').select('id, customer_id').in('id', rows.map((r) => r.job_id));
   if (jobs.error) throw new QuoteError('failed', 'Could not load drafts');
@@ -172,7 +174,7 @@ export async function listDraftsWith(client: DataClient): Promise<DraftListItem[
   if (custs.error) throw new QuoteError('failed', 'Could not load drafts');
   const names = new Map(((custs.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
   const customerOf = new Map(jobRows.map((j) => [j.id, j.customer_id]));
-  return rows.map((r) => ({ jobId: r.job_id, quoteNumber: r.number, customerName: names.get(customerOf.get(r.job_id) ?? '') ?? 'Customer', date: r.doc_date }));
+  return rows.map((r) => ({ jobId: r.job_id, documentId: r.id ?? null, quoteNumber: r.number, customerName: names.get(customerOf.get(r.job_id) ?? '') ?? 'Customer', date: r.doc_date }));
 }
 
 export async function getDraftWith(client: DataClient, jobId: string): Promise<QuoteDraft | null> {
@@ -374,12 +376,12 @@ interface DemoDraft {
   jobId: string;
   values: QuoteFormValues;
 }
-let demoDrafts: DemoDraft[] | null = null;
-const demoStore = () => (demoDrafts ??= demoQuoteDrafts.map((d) => ({ jobId: d.jobId, values: structuredClone(d.values) })));
+const demoDrafts = demoSlot<DemoDraft[]>('quote-drafts', () => demoQuoteDrafts.map((d) => ({ jobId: d.jobId, values: structuredClone(d.values) })));
+const demoStore = () => demoDrafts.get();
 
 /** Test hook: forget demo edits. */
 export function resetDemoQuotes(): void {
-  demoDrafts = null;
+  demoDrafts.set(null);
 }
 
 /** Demo mode only: the draft quotes held in memory. */
@@ -389,7 +391,7 @@ export function demoDraftRows(): readonly DemoDraft[] {
 
 /** Demo mode only: a finalised quote leaves the drafts; a revised one comes back. */
 export function demoRemoveDraft(jobId: string): void {
-  demoDrafts = demoStore().filter((r) => r.jobId !== jobId);
+  demoDrafts.set(demoStore().filter((r) => r.jobId !== jobId));
 }
 export function demoRestoreDraft(jobId: string, values: QuoteFormValues): void {
   if (!demoStore().some((r) => r.jobId === jobId)) demoStore().unshift({ jobId, values: structuredClone(values) });
@@ -504,7 +506,7 @@ export async function getQuoteDraft(jobId: string): Promise<QuoteDraft | null> {
 export async function listDraftQuotes(): Promise<DraftListItem[]> {
   await requireSession();
   if (isDemo()) {
-    return demoStore().map((r) => ({ jobId: r.jobId, quoteNumber: r.values.quoteNumber, customerName: demoCustomerName(r.values.customerId), date: r.values.date }));
+    return demoStore().map((r) => ({ jobId: r.jobId, documentId: `demo-doc-${r.jobId}`, quoteNumber: r.values.quoteNumber, customerName: demoCustomerName(r.values.customerId), date: r.values.date }));
   }
   return listDraftsWith(await ownerClient());
 }

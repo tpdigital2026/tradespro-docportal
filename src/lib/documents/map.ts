@@ -138,7 +138,7 @@ export function mapQuotation(f: DocumentFacts, b: BusinessFacts): MapResult {
   const missing: string[] = [];
   const { errors } = normaliseQuote(f.quoteForm, 'final', b.vatRateBp);
   const firstError = Object.values(errors).filter((m) => !/approve/i.test(m))[0];
-  if (firstError) missing.push(`The quote is not finished: ${firstError.replace(/\.$/, '')}.`);
+  if (firstError) missing.push(`The quote is not finished: ${firstError.charAt(0).toLowerCase()}${firstError.slice(1).replace(/\.$/, '')}.`);
   const scope = toQuotationScope(f.quoteForm.scope);
   if (!scope.ok) missing.push('The scope wording has not been approved. Open the quote, check the wording and approve it.');
   const m = quoteMoney(f, b.vatRateBp);

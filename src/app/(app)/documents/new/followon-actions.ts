@@ -31,12 +31,13 @@ export async function saveFollowOnAction(_prev: FollowOnState, form: FormData): 
     payment: (form.get('payment') as string | null) || undefined,
   });
   if (!parsed.success) return { message: GENERIC };
-  let number: string;
+  let documentId: string;
   try {
     const saved = await saveFollowOnDraft(parsed.data.job, parsed.data.type as Parameters<typeof saveFollowOnDraft>[1], parsed.data.n, parsed.data.payment ?? null);
-    number = saved.number;
+    documentId = saved.documentId;
   } catch (e) {
     return { message: e instanceof BillingError ? e.message : GENERIC };
   }
-  redirect(`/documents/jobs/${encodeURIComponent(parsed.data.job)}?drafted=${encodeURIComponent(number)}`);
+  // Straight to the draft page: check it, then preview and finalise.
+  redirect(`/documents/${encodeURIComponent(documentId)}?saved=1`);
 }

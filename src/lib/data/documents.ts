@@ -7,7 +7,7 @@
  */
 import 'server-only';
 import { demoBusiness, demoCustomers, demoQuoteDefaults } from '../demo-data';
-import { isDemo } from '../demo';
+import { demoSlot, isDemo } from '../demo';
 import type { CoveringEmailFacts, EmailDocKind } from '../covering-email';
 import { confirmationFor, type Confirmation } from '../documents/confirmation';
 import { loadHeadWith, loadWith, type DocumentHead, type Loaded } from '../documents/facts-sql';
@@ -194,7 +194,8 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
     if (mapped.ok) amount = mapped.money.grossPence;
     if (h.type !== 'quotation' && f.plan && f.followOn) {
       const bl = buildJobBilling({ quoteNumber: f.quoteNumber, plan: f.plan, form: f.quoteForm, vatRateBp: vat, documents: f.documents, payments: f.payments });
-      if (bl.ok && bl.billing.kind !== 'full') partLabel = instalmentHeading(bl.billing, f.followOn.instalment);
+      if (bl.ok && bl.billing.kind === 'deposit') partLabel = f.followOn.instalment === 1 ? 'the deposit' : 'the balance';
+      else if (bl.ok && bl.billing.kind === 'staged') partLabel = instalmentHeading(bl.billing, f.followOn.instalment);
       if (bl.ok && amount === null) {
         const r = followOnFor(bl.billing, h.type, f.followOn.instalment, f.followOn.paymentId);
         if (r.ok) amount = r.followOn.grossPence;
@@ -436,7 +437,7 @@ interface DemoDocState {
   /** The version number of the draft being worked on (after a change to an issued quote). */
   draftVersion: number;
 }
-const demoDocs = new Map<string, DemoDocState>();
+const demoDocs = demoSlot<Map<string, DemoDocState>>('documents', () => new Map()).get();
 const docState = (id: string): DemoDocState => {
   let st = demoDocs.get(id);
   if (!st) {

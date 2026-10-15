@@ -129,6 +129,15 @@
   --code-h: 64px;
   --preview-w: 26rem;
   --badge-h: 56px;
+  --a4-ratio: 210 / 297; /* every document page */
+  --doc-page-w: 46rem; /* a preview page at full width on desktop */
+  --pv-side-w: 23rem;
+  --thumb-w: 9.5rem;
+  --dl-gap: var(--space-3);
+  --lh-read: 1.55; /* long text boxes: the email, the confirmation */
+  --backdrop: rgb(7 22 38 / 0.7);
+  --dim: 0.55;
+  --nudge: -2px;
 }
 
 /* Derived from --accent and --accent-ink, so they are declared on every element that may override those

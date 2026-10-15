@@ -9,7 +9,7 @@
  * must throw.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { isDemo } from './demo';
+import { demoSlot, isDemo } from './demo';
 
 export const DOCUMENTS_BUCKET = 'documents';
 
@@ -154,10 +154,7 @@ let shared: DocumentStorage | null = null;
  */
 export function getStorage(): DocumentStorage {
   if (shared) return shared;
-  if (isDemo()) {
-    shared = new InMemoryStorage();
-    return shared;
-  }
+  if (isDemo()) return demoSlot<DocumentStorage>('storage', () => new InMemoryStorage()).get();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !key) throw new StorageNotConfiguredError();

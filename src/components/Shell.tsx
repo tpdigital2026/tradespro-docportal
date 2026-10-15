@@ -12,6 +12,7 @@ const icons = {
   home: <path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" />,
   customers: <path d="M16 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM21 20v-1a4 4 0 00-3-3.9M15.5 4.2a3.5 3.5 0 010 6.6" />,
   doc: <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5zM14 3v5h5M12 12v5M9.5 14.5h5" />,
+  docs: <path d="M8 7V5a2 2 0 012-2h6l4 4v10a2 2 0 01-2 2h-2M4 9a2 2 0 012-2h6l4 4v8a2 2 0 01-2 2H6a2 2 0 01-2-2V9zM12 7v4h4" />,
   out: <path d="M10 4H6a2 2 0 00-2 2v12a2 2 0 002 2h4M15 8l4 4-4 4M19 12H9" />,
 };
 
@@ -50,11 +51,15 @@ function TopBrand({ brand }: { brand: TenantBrand }) {
 const items = [
   { href: '/', label: 'Home', icon: 'home' },
   { href: '/customers', label: 'Customers', icon: 'customers' },
+  { href: '/documents', label: 'Documents', icon: 'docs' },
   { href: '/documents/new', label: 'New document', icon: 'doc' },
 ] as const;
 
-function isCurrent(path: string, href: string) {
-  return href === '/' ? path === '/' : path === href || path.startsWith(`${href}/`);
+export function isCurrent(path: string, href: string) {
+  if (href === '/') return path === '/';
+  // Documents covers the library, each document and each job, but not the "new document" screens.
+  if (href === '/documents') return path === href || (path.startsWith('/documents/') && !path.startsWith('/documents/new'));
+  return path === href || path.startsWith(`${href}/`);
 }
 
 function Nav({ path }: { path: string }) {

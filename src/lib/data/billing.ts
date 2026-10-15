@@ -6,7 +6,7 @@
  * Demo mode keeps everything in memory.
  */
 import { demoCustomers, demoIssuedJobs, demoQuoteDefaults, type DemoIssuedJob } from '../demo-data';
-import { isDemo } from '../demo';
+import { demoSlot, isDemo } from '../demo';
 import { buildJobBilling, followOnFor, payableInvoice, type JobBilling, type RawDocument, type RawPayment } from '../job-billing';
 import { docTypeFromDb, DB_DOC_TYPES, type DocStatus, type DocType } from '../job-stage';
 import { planFromJson } from '../payment-plan';
@@ -126,21 +126,19 @@ interface DemoState {
 }
 
 export const DUPLICATE_WINDOW_MS = 30_000;
-let demoState: DemoState | null = null;
-function demo(): DemoState {
-  if (!demoState) {
-    demoState = { jobs: demoIssuedJobs.map((j) => structuredClone(j)), documents: new Map(), payments: new Map(), recordedAt: new Map() };
-    for (const j of demoIssuedJobs) {
-      demoState.documents.set(j.jobId, structuredClone(j.documents));
-      demoState.payments.set(j.jobId, structuredClone(j.payments));
-    }
+const demoBox = demoSlot<DemoState>('billing', () => {
+  const st: DemoState = { jobs: demoIssuedJobs.map((j) => structuredClone(j)), documents: new Map(), payments: new Map(), recordedAt: new Map() };
+  for (const j of demoIssuedJobs) {
+    st.documents.set(j.jobId, structuredClone(j.documents));
+    st.payments.set(j.jobId, structuredClone(j.payments));
   }
-  return demoState;
-}
+  return st;
+});
+const demo = (): DemoState => demoBox.get();
 
 /** Test hook: forget demo edits. */
 export function resetDemoBilling(): void {
-  demoState = null;
+  demoBox.set(null);
 }
 
 /** Demo mode only: the in-memory issued jobs, their documents and payments (the Documents library reads these). */

@@ -6,12 +6,12 @@ import { EmptyState } from '../../components/EmptyState';
 import { HomeHero } from '../../components/HomeHero';
 import { JobRow, type Job } from '../../components/JobRow';
 import { getTenantBrand } from '../../lib/brand';
-import { demoRecentDocs, type DemoRecentDoc } from '../../lib/demo-data';
 import { isDemo } from '../../lib/demo';
 import { initials } from '../../lib/initials';
 import { byUrgency, DOC_TYPE_NAMES, isInvoiceType } from '../../lib/job-stage';
 import { listJobSummaries } from '../../lib/data/billing';
 import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
+import { listLibrary, quoteDocumentIdFor, type LibraryItem } from '../../lib/data/documents';
 import { requireSession } from '../../lib/session';
 
 export const metadata: Metadata = { title: 'Home', description: 'Start a document, pick up a draft and see what is next for each job.' };
@@ -41,7 +41,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   } catch {
     jobs = [];
   }
-  const recent: DemoRecentDoc[] = demo ? demoRecentDocs : [];
+  let recent: LibraryItem[] = [];
+  try {
+    recent = (await listLibrary()).slice(0, 6);
+  } catch {
+    recent = [];
+  }
+  const savedDoc = saved ? await quoteDocumentIdFor(saved).catch(() => null) : null;
   const brand = await getTenantBrand(session.tenantId);
   const firstName = session.fullName.split(' ')[0];
 
@@ -66,7 +72,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       <div className="home-body">
         {demo ? <p className="demo-chip">Demo mode. Everything here is dummy data.</p> : null}
         {saved ? (
-          <p className="flash" role="status">Quote {saved} is saved. You can carry on with it under Quotes to finish.</p>
+          <p className="flash" role="status">
+            <span>
+              Quote {saved} is saved.{' '}
+              {savedDoc ? <Link href={`/documents/${savedDoc}`} className="flash-link">Open it to preview and finalise</Link> : 'You can carry on with it under Quotes to finish.'}
+            </span>
+          </p>
         ) : null}
 
         <section aria-labelledby="docs-h" className="home-docs">
@@ -118,13 +129,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
                 <ul className="mini-list">
                   {drafts.map((d) => (
                     <li key={d.jobId}>
-                      <Link href={`/documents/new?type=quotation&draft=${d.jobId}`} className="mini-row">
+                      <Link href={d.documentId ? `/documents/${d.documentId}` : `/documents/new?type=quotation&draft=${d.jobId}`} className="mini-row">
                         <span className="avatar" aria-hidden="true">{initials(d.customerName)}</span>
                         <span className="mini-main">
                           <span className="mini-title">{d.customerName}</span>
                           <span className="mini-meta">Quote {d.quoteNumber}</span>
                         </span>
-                        <span className="mini-go">Continue</span>
+                        <span className="mini-go">Open</span>
                       </Link>
                     </li>
                   ))}
@@ -140,20 +151,23 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
               <div className="sec-head">
                 <h2 id="recent-h" className="section-title">Recent documents</h2>
                 <p className="section-sub">The newest first.</p>
+                <Link href="/documents" className="see-all">See all documents</Link>
               </div>
               {recent.length ? (
                 <ul className="mini-list">
                   {recent.map((d) => (
-                    <li key={d.number} className="mini-row is-static">
-                      <span className="doc-chip" aria-hidden="true"><DocTypeIcon type={d.type} /></span>
-                      <span className="mini-main">
-                        <span className="mini-title">{DOC_TYPE_NAMES[d.type]}</span>
-                        <span className="mini-meta">{d.number} for {d.customerName}</span>
-                      </span>
-                      <span className="mini-end">
-                        <span className={`status-chip ${d.status === 'Draft' ? 'is-draft' : 'is-final'}`}>{d.status}</span>
-                        <span className="mini-date">{dateFmt.format(new Date(d.date))}</span>
-                      </span>
+                    <li key={d.id}>
+                      <Link href={`/documents/${d.id}`} className="mini-row">
+                        <span className="doc-chip" aria-hidden="true"><DocTypeIcon type={d.type} /></span>
+                        <span className="mini-main">
+                          <span className="mini-title">{DOC_TYPE_NAMES[d.type]}</span>
+                          <span className="mini-meta">{d.number} for {d.customerName}</span>
+                        </span>
+                        <span className="mini-end">
+                          <span className={`status-chip ${d.status === 'draft' ? 'is-draft' : 'is-final'}`}>{d.status === 'draft' ? 'Draft' : 'Final'}</span>
+                          <span className="mini-date">{dateFmt.format(new Date(d.date))}</span>
+                        </span>
+                      </Link>
                     </li>
                   ))}
                 </ul>

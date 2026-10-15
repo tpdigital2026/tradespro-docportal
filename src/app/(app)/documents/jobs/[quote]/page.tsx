@@ -96,7 +96,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
                       <li key={p.id}>
                         <span>{formatGBP(p.amountPence)} by {PAYMENT_METHOD_LABELS[p.method as PaymentMethod]?.toLowerCase() ?? p.method}, {dateFmt.format(new Date(p.paidOn))}</span>
                         {p.receiptDocumentId ? (
-                          <span className="inst-receipt">Receipt started</span>
+                          <Link className="inst-receipt-link" href={`/documents/${p.receiptDocumentId}`}>{b.documents.find((d) => d.id === p.receiptDocumentId)?.status === 'draft' ? 'Finish the receipt' : 'Open the receipt'}</Link>
                         ) : (
                           <Link className="inst-receipt-link" href={newDocumentHref('receipt', b.quoteNumber, { n: inst.index, payment: p.id })}>Create receipt</Link>
                         )}
@@ -111,8 +111,9 @@ export default async function JobPage({ params, searchParams }: { params: Promis
                     </ButtonLink>
                   ) : null}
                   {!invoice && draft ? (
-                    <ButtonLink href={newDocumentHref(invoiceTypeFor(b.kind, inst.index), b.quoteNumber, { n: inst.index })} variant="secondary">Open the draft</ButtonLink>
+                    <ButtonLink href={`/documents/${draft.id}`} variant={isNext ? 'primary' : 'secondary'}>Preview and finalise</ButtonLink>
                   ) : null}
+                  {invoice ? <ButtonLink href={`/documents/${invoice.id}`} variant="secondary">Open {invoice.number}</ButtonLink> : null}
                   {invoice && outstanding > 0 ? (
                     <MarkAsPaid
                       quote={b.quoteNumber}

@@ -26,7 +26,7 @@ export interface SummarySection {
 export function planWords(kind: string, schedule: Instalment[] | null, depositPctBp: number | null): string {
   if (!schedule) return 'Not worked out yet';
   if (kind === 'full') return `Paid in full, ${formatGBP(schedule[0].grossPence)}`;
-  if (kind === 'deposit' && schedule.length === 2) return `${formatPct(depositPctBp ?? 0)}% deposit of ${formatGBP(schedule[0].grossPence)}, then ${formatGBP(schedule[1].grossPence)} on completion`;
+  if (kind === 'deposit' && schedule.length === 2) return `${formatPct(depositPctBp ?? 0)}% deposit of ${formatGBP(schedule[0].grossPence)}, then the balance of ${formatGBP(schedule[1].grossPence)}`;
   return `${schedule.length} stage payments`;
 }
 

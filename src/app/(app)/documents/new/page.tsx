@@ -5,7 +5,7 @@ import { DocTypeList } from '../../../../components/DocTypeList';
 import { PageHeader } from '../../../../components/PageHeader';
 import { getQuoteContext, getQuoteDraft, isKnownId, QuoteError, type QuoteContext } from '../../../../lib/data/quotes';
 import { requireSession } from '../../../../lib/session';
-import { emptyQuoteForm } from '../../../../lib/validation/quote';
+import { emptyQuoteForm, QUOTE_STEPS, type QuoteStep } from '../../../../lib/validation/quote';
 import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-stage';
 import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
@@ -79,6 +79,8 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
     );
   }
 
+  const stepRaw = first(sp.step);
+  const stepParam = (QUOTE_STEPS as readonly string[]).includes(stepRaw ?? '') ? (stepRaw as QuoteStep) : undefined;
   const preselect = first(sp.customer);
   const initial =
     draft?.values ??
@@ -103,7 +105,10 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
         title={draft ? `Quote ${draft.values.quoteNumber}` : 'Price a new job'}
         lede="Six short steps. Everything saves as you go, so you can stop and come back any time."
       />
-      <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} />
+      {first(sp.revised) === '1' && draft ? (
+        <p className="doc-note" role="note">This is a new version of a quote you had already finalised. Make your changes, save, then read and tick it again. The earlier version stays as it was.</p>
+      ) : null}
+      <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} initialStep={stepParam} />
     </div>
   );
 }

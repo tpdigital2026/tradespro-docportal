@@ -10,6 +10,7 @@
  * own statement that they did.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { demoSlot } from '../demo';
 
 export interface ReadScope {
   tenantId: string;
@@ -56,15 +57,11 @@ export function contentKey(secret: string, mappedJson: string, templateVersion: 
   return createHmac('sha256', secret).update(`docportal-content:${templateVersion}:${mappedJson}`).digest('hex').slice(0, 32);
 }
 
-let demoSecret: string | null = null;
 
 /** The server secret used for these proofs. Outside demo mode SESSION_SECRET must be set (it is required for sign-in anyway). */
 export function proofSecret(demo: boolean): string {
   const s = process.env.SESSION_SECRET;
   if (s && s.length >= 32) return `${s}:read-proof`;
-  if (demo) {
-    demoSecret ??= `demo-${randomBytes(24).toString('hex')}`;
-    return demoSecret;
-  }
+  if (demo) return demoSlot('read-secret', () => `demo-${randomBytes(24).toString('hex')}`).get();
   throw new Error('SESSION_SECRET is not set');
 }
