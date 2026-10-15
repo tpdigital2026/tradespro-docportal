@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sha256Hex } from './hash';
+import { stripInvisible } from './invisible';
 
 /**
  * The scope of works, as the owner builds it: ordered one-sentence steps (optionally grouped under headings),
@@ -51,8 +52,10 @@ export interface ScopeCopy {
   generatedAt: string;
   /** Which steps this copy was made from. Checked by the server's proof. */
   sourceKey: string;
-  /** Server proof that engine, sourceKey and generatedAt came from the server (an HMAC; the browser cannot make one). */
+  /** Server proof that engine, sourceKey, generatedAt and genKey came from the server for this business (an HMAC; the browser cannot make one). */
   proof: string;
+  /** Fingerprint of the wording exactly as it was generated. The proof covers it, so an engine label can only go with the wording it was made for. Editing the wording afterwards does not change it. */
+  genKey?: string;
   /** Written only by the server when the wording is approved. */
   approvedAt: string | null;
   /** Fingerprint of the exact steps, wording and note that were approved. Approval holds only while it still matches. */
@@ -66,6 +69,11 @@ export interface ScopeFormValues {
   note: string;
   items: ScopeItem[];
   copy: ScopeCopy | null;
+  /**
+   * Old-style notes that did not fit in the steps (a draft from before the builder, more text than the limits allow).
+   * Kept until the owner discards it on purpose (set to ''); the autosave never drops it.
+   */
+  legacyOverflow?: string;
 }
 
 export const emptyScope = (): ScopeFormValues => ({ coverTitle: '', coverSub: '', intro: '', specCards: [], note: '', items: [], copy: null });
@@ -100,6 +108,7 @@ export const scopeCopySchema = z.object({
   generatedAt: z.string().max(40),
   sourceKey: z.string().max(60),
   proof: z.string().max(100).default(''),
+  genKey: z.string().max(80).optional(),
   approvedAt: z.string().max(40).nullable(),
   approvalHash: z.string().max(80).nullable().default(null),
 });
@@ -112,6 +121,7 @@ export const scopeFormSchema = z.object({
   note: para(SCOPE_LIMITS.note),
   items: z.array(scopeItemSchema).max(SCOPE_LIMITS.items),
   copy: scopeCopySchema.nullable(),
+  legacyOverflow: para(200_000).optional(),
 });
 
 // ------------------------------------------------------------------ tidy text
@@ -120,7 +130,7 @@ const BULLET_PREFIX = /^(?:[-*•–—]+|\(?\d{1,3}[.)])\s+/;
 
 /** One line, single spaces, no list marker. Wording is untouched. */
 export function cleanLine(raw: string): string {
-  let s = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  let s = stripInvisible(raw).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
   while (BULLET_PREFIX.test(s)) s = s.replace(BULLET_PREFIX, '').trim();
   return s;
 }
@@ -184,7 +194,20 @@ function cyrb53(str: string): number {
 export function approvalHash(scope: ScopeFormValues): string {
   const steps = meaningfulItems(scope.items).map((i) => [i.kind === 'heading' ? 'h' : 's', i.text]);
   const sections = scope.copy ? cleanCopySections(scope.copy.sections).map((s) => [s.heading, s.steps]) : [];
-  return `h${sha256Hex(JSON.stringify({ v: 1, steps, sections, note: scope.note.replace(/\r\n?/g, '\n').trim() }))}`;
+  // Everything the customer reads: the cover, the introduction, the key figures and the note, as well as the steps and wording.
+  const cover = [cleanLine(scope.coverTitle), cleanLine(scope.coverSub), cleanPara(scope.intro)];
+  const cards = scope.specCards.map((c) => [cleanLine(c.value), cleanLine(c.label)]).filter((c) => c[0] !== '' || c[1] !== '');
+  return `h${sha256Hex(JSON.stringify({ v: 2, steps, sections, cover, cards, note: cleanPara(scope.note) }))}`;
+}
+
+/** A paragraph box: invisible characters out, line ends made plain, trimmed. */
+export function cleanPara(raw: string): string {
+  return stripInvisible(raw).replace(/\r\n?/g, '\n').trim();
+}
+
+/** Fingerprint of generated wording (groups and lines). */
+export function sectionsKey(sections: readonly CopySection[]): string {
+  return `g${sha256Hex(JSON.stringify(cleanCopySections(sections).map((s) => [s.heading, s.steps])))}`;
 }
 
 /** Approved only while the steps, wording and note are exactly what was approved. */

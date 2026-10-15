@@ -13,9 +13,9 @@ import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
 import { suggestNextNumber } from '../quote-number';
 import { requireSession } from '../session';
 import { sanitiseIncomingScope } from '../scope/approval';
-import { itemsFromLegacyNotes } from '../scope/items';
+import { convertLegacyNotes } from '../scope/items';
 import { emptyScope, scopeFormSchema, type ScopeFormValues } from '../scope/model';
-import { verifyGenerated } from '../scope/proof';
+import { sameGeneration, verifyGenerated } from '../scope/proof';
 import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
 import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
 import { ownerClient, type DataClient } from './customers';
@@ -195,7 +195,10 @@ export async function getDraftWith(client: DataClient, jobId: string): Promise<Q
       values = parsed.data as QuoteFormValues;
       // Drafts made before the scope builder kept their words in one box. Never lose them: each line becomes a step.
       const legacy = (stored as { scopeNotes?: unknown } | null)?.scopeNotes;
-      if (typeof legacy === 'string' && legacy.trim() !== '' && values.scope.items.length === 0) values = { ...values, scope: { ...values.scope, items: itemsFromLegacyNotes(legacy) } };
+      if (typeof legacy === 'string' && legacy.trim() !== '' && values.scope.items.length === 0) {
+        const { items, overflow } = convertLegacyNotes(legacy);
+        values = { ...values, scope: { ...values.scope, items, ...(overflow ? { legacyOverflow: overflow } : {}) } };
+      }
     }
   }
   const cust = await client.from('customers').select('name').eq('id', j.customer_id).maybeSingle();
@@ -303,7 +306,7 @@ export async function saveDraftWith(client: DataClient, tenantId: string, rawFor
   // Whatever the browser says about approval is ignored: approval is kept only if it is already stored and the content still matches.
   const form = opts.trustApproval
     ? rawForm
-    : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, jobId && isRealId(jobId) ? await storedScopeWith(client, jobId) : null, (c) => verifyGenerated(tenantId, c)) };
+    : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, jobId && isRealId(jobId) ? await storedScopeWith(client, jobId) : null, (c, prev) => verifyGenerated(tenantId, c, { allowExpired: sameGeneration(c, prev) })) };
   const { input, errors } = normaliseQuote(form, 'draft', vatRateBp);
   if (Object.keys(errors).length > 0) throw new QuoteError('invalid', 'Check the highlighted fields', errors);
   if (!UUID.test(input.customerId)) throw new QuoteError('invalid', 'Choose who this quote is for', { customerId: 'Choose who this quote is for' });
@@ -372,7 +375,7 @@ function demoCustomerName(id: string): string {
 
 function demoSave(rawForm: QuoteFormValues, jobId: string | null, vatRateBp: number, opts: SaveOptions = {}): SavedDraft {
   const prior = jobId ? demoStore().find((r) => r.jobId === jobId)?.values.scope ?? null : null;
-  const form = opts.trustApproval ? rawForm : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, prior, (c) => verifyGenerated('demo-tenant', c)) };
+  const form = opts.trustApproval ? rawForm : { ...rawForm, scope: sanitiseIncomingScope(rawForm.scope, prior, (c, prev) => verifyGenerated('demo-tenant', c, { allowExpired: sameGeneration(c, prev) })) };
   const { input, errors } = normaliseQuote(form, 'draft', vatRateBp);
   if (Object.keys(errors).length > 0) throw new QuoteError('invalid', 'Check the highlighted fields', errors);
   const rows = demoStore();

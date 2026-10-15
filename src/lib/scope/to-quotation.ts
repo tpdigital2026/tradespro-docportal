@@ -1,5 +1,5 @@
 import type { QuotationInput } from '../../templates/quotation';
-import { cleanCopySections, cleanLine, copyErrors, isApproved, NOTE_LABEL, type ScopeFormValues } from './model';
+import { cleanCopySections, cleanLine, cleanPara, copyErrors, isApproved, NOTE_LABEL, type ScopeFormValues } from './model';
 
 export type QuotationScope = Pick<QuotationInput, 'coverTitle' | 'coverSub' | 'introText' | 'specCards' | 'callout' | 'scope'>;
 
@@ -25,13 +25,13 @@ export function toQuotationScope(scope: ScopeFormValues): { ok: true; value: Quo
     specCards.push({ big, label });
   }
 
-  const note = scope.note.replace(/\r\n?/g, '\n').trim();
+  const note = cleanPara(scope.note);
   return {
     ok: true,
     value: {
       coverTitle,
       coverSub: cleanLine(scope.coverSub),
-      introText: scope.intro.replace(/\r\n?/g, '\n').trim(),
+      introText: cleanPara(scope.intro),
       specCards,
       callout: note === '' ? null : { label: NOTE_LABEL, text: note },
       scope: cleanCopySections(scope.copy.sections).map((s) => ({ heading: s.heading, bullets: s.steps })),
