@@ -89,7 +89,7 @@ export function groupLibrary(items: LibraryItem[], f: LibraryFilter = {}): Libra
     groups.set(i.jobId, g);
   }
   // Inside a job: the quote first, then by number, so invoices and receipts read in order.
-  const rank = (t: DocType) => ['quotation', 'survey', 'deposit-invoice', 'invoice-full', 'invoice-stage', 'balance-invoice', 'receipt', 'guarantee'].indexOf(t);
+  const rank = (t: DocType) => ['survey', 'quotation', 'deposit-invoice', 'invoice-full', 'invoice-stage', 'balance-invoice', 'receipt', 'guarantee'].indexOf(t);
   for (const g of groups.values()) g.items.sort((a, b) => rank(a.type) - rank(b.type) || a.number.localeCompare(b.number, 'en', { numeric: true }));
   return [...groups.values()];
 }

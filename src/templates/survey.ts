@@ -77,6 +77,7 @@ const SURVEY_CSS = `
 .sv-cover.no-photo .mark{position:absolute;right:16mm;top:52mm;width:84mm;height:84mm;border-radius:50%;border:.5mm solid rgba(127,166,220,.35)}
 .sv-cover.no-photo .mark::after{content:"";position:absolute;inset:11mm;border-radius:50%;border:.3mm solid rgba(127,166,220,.22)}
 .sv-cover.no-purpose .det{top:auto;bottom:17mm}
+.sv-cover.no-purpose .title{top:166mm}
 .sv-intro{display:grid;grid-template-columns:44mm 1fr;gap:8mm}
 .sv-intro .lede+.lede{margin-top:2.4mm}
 .findex-row{margin-bottom:3.5mm}

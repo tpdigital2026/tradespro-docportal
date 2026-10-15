@@ -10,7 +10,8 @@ import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-st
 import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
 import { SurveyNewView } from './SurveyNewView';
-import { jobIdForReference } from '../../../../lib/data/survey-links';
+import { jobIdForReference, surveyedJob, surveyQuoteNote } from '../../../../lib/data/survey-links';
+import { redirect } from 'next/navigation';
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -75,6 +76,17 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
   const jobRef = first(sp.job);
   const draftId = first(sp.draft) ?? (jobRef ? ((await jobIdForReference(jobRef)) ?? undefined) : undefined);
   const draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
+  // A surveyed job's first quote: the note says to read it alongside the survey report.
+  if (draft && !draft.documentId && !draft.values.scope.note.trim()) {
+    const note = await surveyQuoteNote(draft.jobId).catch(() => null);
+    if (note) draft.values = { ...draft.values, scope: { ...draft.values.scope, note } };
+  }
+
+  // A surveyed job whose quote cannot be opened here yet: the survey page has "Create quote from this survey".
+  if (jobRef && !draft) {
+    const surveyed = await surveyedJob(jobRef).catch(() => null);
+    if (surveyed) redirect(`/documents/${surveyed.surveyId}`);
+  }
 
   if (draftId && !draft) {
     return (

@@ -201,14 +201,14 @@ export function deriveJobStage(
 }
 
 /** A job with a final survey report and no issued quote yet: Surveyed, then the quote to write. */
-export function surveyedOnlyProgress(): JobProgress {
+export function surveyedOnlyProgress(quoteStarted = false): JobProgress {
   return {
     steps: [
       { key: 'surveyed', label: 'Surveyed' },
       { key: 'quoted', label: 'Quoted' },
     ],
     currentIndex: 0,
-    next: { label: 'Write the quote', type: 'quotation', action: 'create', instalment: null },
+    next: { label: quoteStarted ? 'Finish the quote' : 'Write the quote', type: 'quotation', action: 'create', instalment: null },
     receiptsDue: [],
   };
 }

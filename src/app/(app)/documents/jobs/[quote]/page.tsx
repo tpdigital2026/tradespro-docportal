@@ -11,6 +11,8 @@ import { formatGBP } from '../../../../../lib/money';
 import { PAYMENT_METHOD_LABELS, todayLondon, type PaymentMethod } from '../../../../../lib/payment';
 import { requireSession } from '../../../../../lib/session';
 import { MarkAsPaid } from './MarkAsPaid';
+import { SurveyedJob } from './SurveyedJob';
+import { surveyedJob } from '../../../../../lib/data/survey-links';
 
 export async function generateMetadata({ params }: { params: Promise<{ quote: string }> }): Promise<Metadata> {
   const { quote } = await params;
@@ -41,6 +43,10 @@ export default async function JobPage({ params, searchParams }: { params: Promis
     }
   }
   const job = await getJobSummary(quote);
+  if (!job?.billing) {
+    const surveyed = await surveyedJob(quote).catch(() => null);
+    if (surveyed) return <SurveyedJob s={surveyed} />;
+  }
   if (!job) notFound();
   const b = job.billing;
   if (!b) {

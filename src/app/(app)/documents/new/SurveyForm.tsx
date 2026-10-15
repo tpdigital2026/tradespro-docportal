@@ -168,12 +168,18 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
             kind: 'new' as const,
             customer: { name: newCust.name, addressLines: [newCust.address1, newCust.address2, newCust.town], postcode: newCust.postcode, email: newCust.email, phone: newCust.phone },
           };
-    if (!customer) return setDetailsError({ message: 'Choose who the survey is for, or add someone new.', field: 'customer' });
-    if (!tidyPara(values.propertyAddress)) return setDetailsError({ message: 'Enter the address of the property you surveyed.', field: 'propertyAddress' });
+    if (!customer) return setDetailsError({ message: 'Choose who the survey is for, or add a new customer.', field: 'customer' });
+    // A new customer's own address stands in for the property address when none was typed.
+    let v = values;
+    if (!tidyPara(v.propertyAddress) && custMode === 'new' && newCust.address1.trim()) {
+      v = { ...v, propertyAddress: [newCust.address1, newCust.address2, newCust.town, newCust.postcode.toUpperCase()].map((x) => x.trim()).filter(Boolean).join(', ') };
+      patch(() => v);
+    }
+    if (!tidyPara(v.propertyAddress)) return setDetailsError({ message: 'Enter the address of the property you surveyed.', field: 'propertyAddress' });
     const job = custMode === 'existing' && jobMode === 'existing' && jobId ? { kind: 'existing' as const, id: jobId } : { kind: 'new' as const, reference: jobRef };
     setSave({ kind: 'saving' });
     const mine = rev.current;
-    const res = await saveSurveyAction({ documentId: null, customer, job, values }).catch(() => null);
+    const res = await saveSurveyAction({ documentId: null, customer, job, values: v }).catch(() => null);
     if (!res || !res.ok) {
       setSave({ kind: 'idle' });
       return setDetailsError(res && !res.ok ? { message: res.message, field: res.field } : { message: 'We could not save that. Check your connection and try again.' });
@@ -187,7 +193,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
     setCustomerName(custMode === 'existing' ? (chosenCustomer?.name ?? '') : newCust.name.trim());
     setSave({ kind: 'saved', at: clock.format(new Date()) });
     window.history.replaceState(null, '', `/documents/new?type=survey&draft=${encodeURIComponent(res.value.documentId)}`);
-    if (values.findings.length === 0) patch((v) => ({ ...v, findings: [emptyFinding()] }));
+    if (v.findings.length === 0) patch((x) => ({ ...x, findings: [emptyFinding()] }));
     focusAfter.current = true;
     setStepIx(1);
   };
@@ -340,8 +346,8 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
               <>
                 {ctx.customers.length > 0 ? (
                   <div className="sv-seg" role="radiogroup" aria-label="Customer">
-                    <label className={`sv-seg-opt${custMode === 'existing' ? ' is-on' : ''}`}><input type="radio" name="custmode" checked={custMode === 'existing'} onChange={() => setCustMode('existing')} /> A customer you have</label>
-                    <label className={`sv-seg-opt${custMode === 'new' ? ' is-on' : ''}`}><input type="radio" name="custmode" checked={custMode === 'new'} onChange={() => setCustMode('new')} /> Someone new</label>
+                    <label className={`sv-seg-opt${custMode === 'existing' ? ' is-on' : ''}`}><input type="radio" name="custmode" checked={custMode === 'existing'} onChange={() => setCustMode('existing')} /> Existing customer</label>
+                    <label className={`sv-seg-opt${custMode === 'new' ? ' is-on' : ''}`}><input type="radio" name="custmode" checked={custMode === 'new'} onChange={() => setCustMode('new')} /> New customer</label>
                   </div>
                 ) : null}
                 {custMode === 'existing' ? (
@@ -366,7 +372,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
                           <span className="qt-opt-main"><span className="qt-opt-title">{c.name}</span><span className="qt-opt-meta">{[c.addressLine, c.postcode].filter(Boolean).join(', ')}</span></span>
                         </label>
                       ))}
-                      {list.length === 0 ? <p className="empty">No customer matches that. Check the spelling, or add them as someone new.</p> : null}
+                      {list.length === 0 ? <p className="empty">No customer matches that. Check the spelling, or add them as a new customer.</p> : null}
                     </div>
                   </>
                 ) : (
@@ -634,7 +640,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
           ) : null}
           <dl className="doc-facts sv-facts">
             <div><dt>Report</dt><dd>{number || 'Not saved yet'}</dd></div>
-            <div><dt>Findings</dt><dd>{values.findings.length}, {approvedCount} approved</dd></div>
+            <div><dt>Findings</dt><dd>{values.findings.length === 0 ? "None yet" : approvedCount === values.findings.length ? `${values.findings.length}, all approved` : `${approvedCount} of ${values.findings.length} approved`}</dd></div>
             <div><dt>Photographs</dt><dd>{usedPhotos.length}</dd></div>
             <div><dt>Opinion</dt><dd>{isOpinionApproved(values) ? 'Approved' : values.opinion.trim() ? 'Not approved yet' : 'Not written yet'}</dd></div>
           </dl>
