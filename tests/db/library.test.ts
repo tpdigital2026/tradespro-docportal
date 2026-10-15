@@ -22,6 +22,8 @@ describe.skipIf(!dbAvailable)('Documents library in the database', () => {
       // Another business's documents never appear, even when searched for.
       expect((await listLibrarySql(c, a.tenantId, { q: 'beta' })).items).toHaveLength(0);
       expect((await listLibrarySql(c, b.tenantId)).items.map((i) => i.number)).toEqual(['QT-Beta-001']);
+      // A NUL in the search is an empty result, never a database error.
+      expect(await listLibrarySql(c, a.tenantId, { q: 'QT\u0000' })).toEqual({ items: [], truncated: false });
       const capped = await listLibrarySql(c, a.tenantId, { limit: 1 });
       expect(capped.items).toHaveLength(1);
       expect(capped.truncated).toBe(true);

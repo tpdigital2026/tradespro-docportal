@@ -119,7 +119,10 @@ export async function listLibrarySql(db: Db, tenantId: string, f: LibraryFilter 
   const limit = Math.min(Math.max(f.limit ?? LIBRARY_LIMIT, 1), LIBRARY_LIMIT);
   const types = f.kind ? KIND_DB[f.kind] : null;
   const status = f.status === 'draft' || f.status === 'final' ? f.status : null;
-  const q = (f.q ?? '').trim().toLowerCase().slice(0, 60);
+  const raw = f.q ?? '';
+  // A NUL cannot be in any stored text and Postgres refuses it in a parameter: nothing can match, so say so plainly.
+  if (raw.includes('\u0000')) return { items: [], truncated: false };
+  const q = raw.replace(/[\u0001-\u001f\u007f]/g, ' ').trim().toLowerCase().slice(0, 60);
   const r = await db.query(
     `select d.id, d.job_id, d.type::text as type, d.number, d.status::text as status, d.doc_date, d.total_pence, d.created_at, j.reference, c.name as customer
        from public.documents d
@@ -351,8 +354,9 @@ export async function getPageImage(id: string, page: number, key: string | null)
   if (head.status === 'draft') return null;
   if (isDemo()) await demoEnsureFinalFiles(head);
   const v = head.versions.find((x) => x.id === head.currentVersionId) ?? head.versions[0];
-  if (!v?.finalisedAt) return null;
-  const bytes = await storage.get(`${versionFolder(tenantId, head, v.id)}/${pageFile(page)}`);
+  if (!v?.finalisedAt || !v.pdfPath) return null;
+  // The page images sit beside the PDF the committed row points at (each finalise writes its own folder).
+  const bytes = await storage.get(`${v.pdfPath.replace(/\/document\.pdf$/, '')}/${pageFile(page)}`);
   return bytes ? { bytes, token: null } : null;
 }
 

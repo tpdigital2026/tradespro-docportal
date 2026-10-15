@@ -50,6 +50,8 @@ Terms, due labels and guarantee wording belong to each business. They live in `t
 
 - Finalise must `select ... for update` the document row before checking its status and writing the version.
 - Every save that inserts a document version must also `select ... for update` the document row first, and the server retries once on deadlock (40P01). Without that, two saves of the same draft (a double submit) can deadlock against the draft check, which reads the document row with `for share`.
+- Lock order is the job row, then the document row, everywhere a job's documents change: finalise (phase B), revise of an issued quote, and saving a follow-on draft (`saveFollowOnWith`). Recording a payment locks only its invoice row. With one order no two of these can deadlock; callers still retry once on 40P01.
+- Finalise renders and uploads before taking any lock, into a folder unique to that request (`{tenant}/{customer}/{job}/{version}/{random}/`), never overwriting. The committed row records the exact PDF path (page images sit beside it). A request deletes only its own folder, only when it is certain the folder is unreferenced; when a commit's outcome is unknown nothing is deleted and the orphan sweep (still to build) must remove unreferenced request folders and `preview-{key}` folders.
 - Finalising and sending run on a service connection with no app JWT. Never run them through a `SECURITY DEFINER` function that carries a user JWT: the draft lock will refuse it, by design.
 - Server code that acts as a user on a pooled connection must reset `request.jwt.claims` afterwards, or the next borrower inherits that identity.
 - Archive bank accounts, never delete them, once a finalised version references them.

@@ -8,6 +8,7 @@
  * when the document was created and are never claimed again. A second submit finds the work done and returns it.
  * The caller retries once on deadlock (40P01).
  */
+import { createHash, randomUUID } from 'node:crypto';
 import { auditedApprovalWith } from '../data/scope';
 import { writeAudit } from '../../security/audit';
 import type { Db } from '../../security/login-guard';
@@ -60,7 +61,11 @@ export function prepareLoaded(l: Loaded, secret: string): Prepared {
   }
   if (missing.length > 0) return { ok: false, missing: [...new Set(missing)] };
   const mappedJson = JSON.stringify(r.mapped);
-  return { ok: true, mapped: r.mapped, money: r.money, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, mappedJson, TEMPLATE_VERSION), mappedJson };
+  // Everything that changes what the pages look like: the content (bank numbers included for invoices), the business
+  // details printed on every page and the brand kit (colours and images, by fingerprint).
+  const brandPrint = createHash('sha256').update(JSON.stringify(l.brand)).digest('hex');
+  const keyed = JSON.stringify({ mapped: r.mapped, tenant: l.business.tenant, brand: brandPrint });
+  return { ok: true, mapped: r.mapped, money: r.money, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, keyed, TEMPLATE_VERSION), mappedJson };
 }
 
 /** Where a version's files live: {tenant}/{customer}/{job}/{version}/... (ids only; numbers can hold any character). */
@@ -158,12 +163,13 @@ async function checkLoaded(db: Db, actor: Actor, a: FinaliseArgs, loaded: Loaded
 /**
  * Finalise in two phases, so the document row is locked for milliseconds, not for a render:
  *  A. no lock: load and check everything, verify a read token for every page of the preview the owner read (its page
- *     count comes from the stored preview, so junk tokens never start a render), render, and upload the files to their
- *     place for this version (deterministic paths: a retry reuses them; nothing points at them until commit);
- *  B. one short transaction with lock_timeout 5s and idle_in_transaction_session_timeout 30s: lock the document row,
- *     re-check it is still a draft and the version and content are unchanged, write the rows and the audit, commit.
- * On a refusal after the upload the files are deleted again, unless the version has been finalised (by a concurrent
- * request, whose files they then are).
+ *     count comes from the stored preview, so junk tokens never start a render), render, and upload the files into a
+ *     folder unique to this request ({version}/{random}/...), never overwriting anything;
+ *  B. one short transaction with lock_timeout 5s and idle_in_transaction_session_timeout 30s: lock the job row, then the
+ *     document row, re-check it is still a draft and the version and content are unchanged, write the rows (recording
+ *     this request's exact file paths) and the audit, commit.
+ * A request only ever deletes its own folder, and only when it is certain the folder is unreferenced (a refusal, or
+ * someone else finished first). If the commit's outcome is unknown nothing is deleted; the orphan sweep tidies up.
  */
 export async function finaliseWith(
   db: Db,
@@ -204,30 +210,39 @@ export async function finaliseWith(
 
   const out = await deps.render(p0.mapped, p0.tenant, p0.brand);
   if (out.pngPages.length !== pages) throw new DocumentError('changed', CHANGED);
-  const pdfPath = `${folder}/document.pdf`;
-  const staged = [pdfPath, ...out.pngPages.map((_, i) => `${folder}/${pageFile(i + 1)}`)];
-  const cleanUp = async () => {
-    const v = await db.query(`select finalised_at from public.document_versions where id = $1 and tenant_id = $2`, [newest0.id, actor.tenantId]).catch(() => ({ rows: [] as { finalised_at: unknown }[] }));
-    if (v.rows[0] && v.rows[0].finalised_at) return; // finalised by someone else: these are their files now
-    await storage.deleteStorageObjects(staged).catch(() => undefined);
+  // This request's own folder: nobody else ever writes or deletes here, and the committed row records it exactly.
+  const filesDir = `${folder}/${randomUUID()}`;
+  const pdfPath = `${filesDir}/document.pdf`;
+  const mine = [pdfPath, ...out.pngPages.map((_, i) => `${filesDir}/${pageFile(i + 1)}`)];
+  const uploaded: string[] = [];
+  /** Deletes only this request's files, and only when it is certain they are not referenced (the caller decides). */
+  const removeMine = async () => {
+    await storage.deleteStorageObjects(uploaded).catch(() => {
+      console.warn('finalise: could not remove staged files; left for the orphan sweep');
+    });
   };
   try {
-    await storage.put(pdfPath, out.pdf, 'application/pdf', { overwrite: true });
-    for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(staged[i + 1], out.pngPages[i], 'image/png', { overwrite: true });
+    await storage.put(pdfPath, out.pdf, 'application/pdf', { overwrite: false });
+    uploaded.push(pdfPath);
+    for (let i = 0; i < out.pngPages.length; i += 1) {
+      await storage.put(mine[i + 1], out.pngPages[i], 'image/png', { overwrite: false });
+      uploaded.push(mine[i + 1]);
+    }
   } catch (e) {
-    await cleanUp();
+    await removeMine();
     throw e;
   }
 
-  // ---- phase B: one short locked transaction
+  // ---- phase B: one short locked transaction (job row first, then the document: the same order as revise and follow-on saves)
   await db.query(nested ? 'savepoint finalise_tx' : 'begin');
-  let committed = false;
+  let committing = false;
   try {
     await db.query(`set local lock_timeout = '5s'`);
     await db.query(`set local idle_in_transaction_session_timeout = '30s'`);
     await db.query(`set local statement_timeout = '30s'`);
     let head: DocumentHead | null;
     try {
+      await db.query(`select id from public.jobs where id = $1 and tenant_id = $2 for update`, [head0.jobId, actor.tenantId]);
       head = await loadHeadWith(db, actor.tenantId, a.documentId, true);
     } catch (e) {
       if ((e as { code?: string }).code === '55P03') throw new DocumentError('busy', BUSY);
@@ -237,8 +252,9 @@ export async function finaliseWith(
     const newest = head.versions[0];
     if (head.status !== 'draft') {
       if (head.currentVersionId === a.versionId && newest?.id === a.versionId && newest.finalisedAt && newest.pdfPath) {
+        // Someone else finished it first. Their row points at their own files; ours are unused and go.
         await db.query(nested ? 'release savepoint finalise_tx' : 'commit');
-        committed = true;
+        await removeMine();
         return { documentId: head.id, versionId: newest.id, pdfPath: newest.pdfPath, pages: Number((newest.finalContent as { pages?: unknown } | null)?.pages) || 0, already: true };
       }
       throw new DocumentError('locked', 'This document has already been finalised.');
@@ -253,6 +269,8 @@ export async function finaliseWith(
       template: TEMPLATE_VERSION,
       key: p.key,
       pages: out.pngPages.length,
+      /** Where this version's page images are (the pdf sits beside them). */
+      files: filesDir,
       business: { name: p.tenant.name, ownerName: p.tenant.ownerName },
       content: redactMapped(p.mapped),
     };
@@ -271,13 +289,17 @@ export async function finaliseWith(
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.confirm', entity: 'document', entityId: ids.document, meta: { version: ids.version, pages: out.pngPages.length, wording: a.confirmationVersion, role: actor.role ?? 'unknown' } });
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'document.finalise', entity: 'document', entityId: ids.document, meta: { version: ids.version, type: head.type, n: newest.version } });
 
+    committing = true;
     await db.query(nested ? 'release savepoint finalise_tx' : 'commit');
-    committed = true;
     return { documentId: head.id, versionId: newest.id, pdfPath, pages: out.pngPages.length, already: false };
   } catch (e) {
-    if (!committed) {
+    if (committing) {
+      // The commit itself failed: whether it took effect is unknown, so nothing is deleted (left for the orphan sweep).
+      console.warn('finalise: commit outcome unknown; files kept for the orphan sweep');
       await db.query(nested ? 'rollback to savepoint finalise_tx' : 'rollback').catch(() => undefined);
-      await cleanUp();
+    } else {
+      await db.query(nested ? 'rollback to savepoint finalise_tx' : 'rollback').catch(() => undefined);
+      await removeMine();
     }
     if ((e as { code?: string }).code === '55P03') throw new DocumentError('busy', BUSY);
     throw e;

@@ -65,6 +65,10 @@ async function fixture(c: Client, o: { audited?: boolean } = {}): Promise<Fx> {
   return { ...t, customerId: cust.rows[0].id, jobId: job.rows[0].id, quoteId: doc.rows[0].id, versionId: ver.rows[0].id, reference };
 }
 
+const v_pdf = (r: { rows: { final_content: { files?: string } }[] }) => r.rows[0].final_content.files;
+const pdfOf = async (c: Client, id: string) => (await c.query(`select pdf_path from public.documents where id = $1`, [id])).rows[0].pdf_path as string | null;
+const under = (st: InMemoryStorage, prefix: string) => [...st.blobs.keys()].filter((k) => k.startsWith(prefix)).sort();
+
 const actor = (f: Fx) => ({ tenantId: f.tenantId, userId: f.userId, role: 'owner' });
 const tokens = (f: Fx, documentId: string, versionId: string, key: string, pages = 2) =>
   Array.from({ length: pages }, (_, i) => readToken(SECRET, { tenantId: f.tenantId, userId: f.userId, documentId, versionId, key }, i + 1));
@@ -100,9 +104,11 @@ describe.skipIf(!dbAvailable)('finalise', () => {
       expect(res.already).toBe(false);
       const d = (await c.query(`select status::text, total_pence, pdf_path, current_version_id from public.documents where id = $1`, [f.quoteId])).rows[0];
       expect(d).toMatchObject({ status: 'final', total_pence: '1008000', current_version_id: f.versionId });
-      expect(d.pdf_path).toBe(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/document.pdf`);
+      // Each finalise writes into its own folder under the version; the row records exactly where.
+      expect(d.pdf_path).toMatch(new RegExp(`^${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/[0-9a-f-]{36}/document\\.pdf$`));
       expect((await storage.get(d.pdf_path))?.toString()).toContain('%PDF');
-      expect(await storage.get(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/page-02.png`)).not.toBeNull();
+      expect(await storage.get(d.pdf_path.replace(/document\.pdf$/, 'page-02.png'))).not.toBeNull();
+      expect(v_pdf(await c.query(`select final_content from public.document_versions where id = $1`, [f.versionId]))).toBe(d.pdf_path.replace(/\/document\.pdf$/, ''));
       const v = (await c.query(`select money, final_content, finalised_at from public.document_versions where id = $1`, [f.versionId])).rows[0];
       expect(v.finalised_at).not.toBeNull();
       expect(v.money).toMatchObject({ netPence: 840000, vatPence: 168000, grossPence: 1008000 });
@@ -189,9 +195,8 @@ describe.skipIf(!dbAvailable)('finalise', () => {
         return render(...args);
       };
       await expectCode(finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render: sneaky, secret: SECRET }, nested), 'changed');
-      const folder = `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}`;
-      expect(await storage.get(`${folder}/document.pdf`)).toBeNull();
-      expect(await storage.get(`${folder}/page-01.png`)).toBeNull();
+      const folder = `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/`;
+      expect(under(storage, folder).filter((k) => !k.includes('/preview-'))).toEqual([]);
       expect((await c.query(`select status::text from public.documents where id = $1`, [f.quoteId])).rows[0].status).toBe('draft');
     });
   });
@@ -213,7 +218,87 @@ describe.skipIf(!dbAvailable)('finalise', () => {
       expect(err).toBeInstanceOf(DocumentError);
       expect(err.code).toBe('busy');
       expect(err.message).toMatch(/Someone else is finalising this document/);
-      expect(await storage.get(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/document.pdf`)).toBeNull();
+      expect(under(storage, `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/`).filter((k) => !k.includes('/preview-'))).toEqual([]);
+    });
+  });
+
+  it('B uploads, A finishes first: B removes only its own files, A\'s row points at files that exist', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const args = { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version };
+      let aResult: Awaited<ReturnType<typeof finaliseWith>> | null = null;
+      // B's render: while B is drawing (after its phase A checks), A runs to completion.
+      const bRender: RenderFn = async (...r) => {
+        aResult = await finaliseWith(c, storage, actor(f), args, { render, secret: SECRET }, nested);
+        return { pdf: Buffer.from('%PDF-1.7 B bytes'), pngPages: [Buffer.from('B1'), Buffer.from('B2')] };
+      };
+      const b = await finaliseWith(c, storage, actor(f), args, { render: bRender, secret: SECRET }, nested);
+      expect(aResult!.already).toBe(false);
+      expect(b.already).toBe(true);
+      const path = await pdfOf(c, f.quoteId);
+      expect(path).toBe(aResult!.pdfPath);
+      // A's files are intact and are A's bytes, never B's.
+      expect((await storage.get(path!))?.toString()).toBe('%PDF-1.7 test');
+      expect((await storage.get(path!.replace(/document\.pdf$/, 'page-01.png')))?.toString()).toBe('page one');
+      expect([...storage.blobs.values()].some((x) => x.bytes.toString().startsWith('%PDF-1.7 B'))).toBe(false);
+    });
+  });
+
+  it('an existing final document\'s files are never written again, and no upload ever overwrites', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const { p } = await previewAndFinalise(c, f, storage, f.quoteId);
+      const writes: { path: string; overwrite: boolean }[] = [];
+      const put = storage.put.bind(storage);
+      storage.put = async (path, bytes, type, o = {}) => {
+        writes.push({ path, overwrite: o.overwrite === true });
+        return put(path, bytes, type, o);
+      };
+      const again = await finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render, secret: SECRET }, nested);
+      expect(again.already).toBe(true);
+      expect(writes).toEqual([]);
+      // And a fresh finalise of another version only ever writes new paths, never with overwrite.
+      await reviseWith(c, actor(f), f.quoteId, nested);
+      const p2 = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p2.ok) throw new Error('blocked');
+      const v2 = p2.preview.versionId;
+      writes.length = 0;
+      await finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: v2, key: p2.preview.key, tokens: tokens(f, f.quoteId, v2, p2.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render, secret: SECRET }, nested);
+      expect(writes.length).toBe(3);
+      expect(writes.every((w) => !w.overwrite && w.path.includes(`/${v2}/`))).toBe(true);
+    });
+  });
+
+  it('when the commit\'s outcome is unknown, nothing is deleted', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const db = {
+        query: (sql: string, params?: unknown[]) => (sql === 'release savepoint finalise_tx' ? Promise.reject(new Error('connection lost')) : c.query(sql, params)),
+      };
+      await expect(finaliseWith(db, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render, secret: SECRET }, nested)).rejects.toThrow(/connection lost/);
+      expect(storage.deleted).toEqual([]);
+      expect(under(storage, `${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/`).filter((k) => k.endsWith('/document.pdf'))).toHaveLength(1);
+    });
+  });
+
+  it('a change to the business details while the document is drawn is refused as changed', async () => {
+    await withRollback(async (c) => {
+      const f = await fixture(c);
+      const storage = new InMemoryStorage();
+      const p = await previewWith(c, storage, actor(f), f.quoteId, { render, secret: SECRET });
+      if (!p.ok) throw new Error('blocked');
+      const sneaky: RenderFn = async (...r) => {
+        await c.query(`update public.tenants set phone = '01234 999999' where id = $1`, [f.tenantId]);
+        return render(...r);
+      };
+      await expectCode(finaliseWith(c, storage, actor(f), { documentId: f.quoteId, versionId: f.versionId, key: p.preview.key, tokens: tokens(f, f.quoteId, f.versionId, p.preview.key), confirmed: true, confirmationVersion: DEFAULT_CONFIRMATION.version }, { render: sneaky, secret: SECRET }, nested), 'changed');
     });
   });
 
@@ -250,7 +335,11 @@ describe.skipIf(!dbAvailable)('finalise', () => {
         expect(ok.filter((r) => !r.already)).toHaveLength(1);
         for (const e of bad) expect(e).toBeInstanceOf(DocumentError);
         expect((await setup.query(`select count(*)::int n from public.audit_log where tenant_id = $1 and action = 'document.finalise'`, [fx.tenantId])).rows[0].n).toBe(1);
-        expect(await storage.get(`${fx.tenantId}/${fx.customerId}/${fx.jobId}/${fx.versionId}/document.pdf`)).not.toBeNull();
+        // The final row points at files that exist, and only the winner's files are left.
+        const path = await pdfOf(setup, fx.quoteId);
+        expect(path && (await storage.get(path))).toBeTruthy();
+        const left = under(storage, `${fx.tenantId}/${fx.customerId}/${fx.jobId}/${fx.versionId}/`).filter((k) => !k.includes('/preview-'));
+        expect(left.every((k) => k.startsWith(path!.replace(/document\.pdf$/, '')))).toBe(true);
       } finally {
         await one.end();
         await two.end();
@@ -337,7 +426,7 @@ describe.skipIf(!dbAvailable)('finalise', () => {
       await c.query(`update public.customers set purge_at = now() - interval '1 day' where id = $1`, [f.customerId]);
       const n = await purgeExpiredWith(c, storage, nested);
       expect(n).toBeGreaterThanOrEqual(1);
-      expect(storage.deleted).toContain(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/document.pdf`);
+      expect(storage.deleted.some((p) => p.startsWith(`${f.tenantId}/${f.customerId}/${f.jobId}/${f.versionId}/`) && p.endsWith('/document.pdf'))).toBe(true);
       expect(storage.deletedPrefixes).toContain(`${f.tenantId}/${f.customerId}/`);
       expect([...storage.blobs.keys()].filter((k) => k.startsWith(`${f.tenantId}/${f.customerId}/`))).toEqual([]);
       expect((await c.query(`select count(*)::int n from public.customers where id = $1`, [f.customerId])).rows[0].n).toBe(0);

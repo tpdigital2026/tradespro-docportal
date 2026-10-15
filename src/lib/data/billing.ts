@@ -66,26 +66,26 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
   if (jobs.length === 0) return [];
   const jobIds = jobs.map((j) => j.id);
 
-  const docsRes = await client.from('documents').select('id, job_id, type, number, status').in('job_id', jobIds).limit(2000);
+  const docsRes = await client.from('documents').select('id, job_id, type, number, status, current_version_id').in('job_id', jobIds).limit(2000);
   if (docsRes.error) throw new BillingError('failed', 'Could not load documents');
-  const docRows = (docsRes.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string }[];
+  const docRows = (docsRes.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string; current_version_id?: string | null }[];
 
   const quoteDocs = docRows.filter((d) => d.type === DB_DOC_TYPES.quotation);
   const verRes = quoteDocs.length
-    ? await client.from('document_versions').select('document_id, version, input, final_content').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
+    ? await client.from('document_versions').select('id, document_id, version, input, final_content').in('document_id', quoteDocs.map((d) => d.id)).order('version', { ascending: false }).limit(500)
     : { data: [], error: null };
   if (verRes.error) throw new BillingError('failed', 'Could not load the quotes');
   const latest = new Map<string, unknown>();
-  // The VAT rate the issued quote was finalised at: the job's money stays at that rate whatever the setting is today.
+  // The VAT rate the issued quote was finalised at, read from the issued version (current_version_id), never from a
+  // newer draft: the job's money stays at that rate whatever the setting is today.
   const issuedRate = new Map<string, number>();
-  for (const v of (verRes.data ?? []) as { document_id: string; input: { form?: unknown } | null; final_content?: { content?: { input?: { vatRateBp?: unknown } } } | null }[]) {
-    if (!latest.has(v.document_id)) {
-      latest.set(v.document_id, v.input?.form);
-      const r = v.final_content?.content?.input?.vatRateBp;
-      if (typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(v.document_id, r);
-    }
+  const issuedVersion = new Map(quoteDocs.filter((d) => d.status !== 'draft' && d.current_version_id).map((d) => [d.current_version_id as string, d.id]));
+  for (const v of (verRes.data ?? []) as { id: string; document_id: string; input: { form?: unknown } | null; final_content?: { content?: { input?: { vatRateBp?: unknown } } } | null }[]) {
+    if (!latest.has(v.document_id)) latest.set(v.document_id, v.input?.form);
+    const docId = issuedVersion.get(v.id);
+    const r = v.final_content?.content?.input?.vatRateBp;
+    if (docId && typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(docId, r);
   }
-
   const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000);
   if (payRes.error) throw new BillingError('failed', 'Could not load payments');
   const payRows = (payRes.data ?? []) as { id: string; job_id: string; document_id: string; amount_pence: number; paid_on: string; method: string; note: string | null; receipt_document_id: string | null }[];

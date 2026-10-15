@@ -99,6 +99,24 @@ describe('loadJobSummariesWith', () => {
     expect(j.billing?.instalments.map((i) => i.grossPence)).toEqual([360000, 840000]);
   });
 
+  it('works at the VAT rate stored with the issued version (current_version_id), not today\'s setting or another row', async () => {
+    const V2 = '50000000-0000-4000-8000-000000000002';
+    const { client } = seed({
+      tenant_defaults: [{ vat_default: true, vat_rate_bp: 0, deposit_pct_bp: 3000 }],
+      documents: [
+        { id: Q1, job_id: J1, type: 'quotation', number: 'QT-9', status: 'final', current_version_id: V1 },
+        { id: D1, job_id: J1, type: 'deposit_invoice', number: 'INV-QT-9-D', status: 'final' },
+      ],
+      document_versions: [
+        // A newer row (listed first) carrying a different rate must not be the one used.
+        { id: V2, document_id: Q1, version: 2, input: { form }, final_content: { content: { input: { vatRateBp: 500 } } } },
+        { id: V1, document_id: Q1, version: 1, input: { form }, final_content: { content: { input: { vatRateBp: 2000 } } } },
+      ],
+    });
+    const [j] = await loadJobSummariesWith(client);
+    expect(j.billing?.totals.grossPence).toBe(1200000);
+  });
+
   it('a single job can be asked for by reference, whatever its quote status', async () => {
     const { client } = seed();
     const [j] = await loadJobSummariesWith(client, { reference: 'QT-10' });
