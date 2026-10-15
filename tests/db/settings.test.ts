@@ -54,7 +54,7 @@ describe.skipIf(!dbAvailable)('owner settings: bank accounts', () => {
       expect(JSON.stringify(audit.rows)).not.toMatch(/1234567|20-00-00|5671/);
       // The app role sees safe columns only and cannot write.
       await actAs(c, b.userId);
-      expect((await c.query(`select last4 from public.bank_accounts order by created_at`)).rows.map((r) => r.last4)).toEqual(['5671', '5672']);
+      expect((await c.query(`select last4 from public.bank_accounts order by last4`)).rows.map((r) => r.last4)).toEqual(['5671', '5672']);
       await expectFail(c, `select account_number_enc from public.bank_accounts`, [], /permission denied/);
       await expectFail(c, `update public.bank_accounts set account_name = 'x'`, [], /permission denied/);
     });
