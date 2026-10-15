@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { emptyScope } from '../../src/lib/scope/model';
 import {
   MAX_AMOUNT_PENCE,
   MAX_TOTAL_GROSS_PENCE,
@@ -13,13 +14,14 @@ import { computeQuoteTotals, quoteLines, type QuoteMoneyInput } from '../../src/
 import { getQuoteDefaultsWith } from '../../src/lib/data/quotes';
 import type { DataClient } from '../../src/lib/data/customers';
 import { emptyQuoteForm, normaliseQuote, quoteDraftSchema, quoteInputSchema, type QuoteFormValues } from '../../src/lib/validation/quote';
+import { approvedScope } from '../fixtures/scope';
 
 const CUSTOMER = '3f2c1b7e-5c1a-4a8e-9a55-0d6c3e9d1a11';
 const base = (over: Partial<QuoteFormValues> = {}): QuoteFormValues => ({
   ...emptyQuoteForm({ date: '2026-10-14', vatApplies: true }),
   quoteNumber: 'QT-1',
   customerId: CUSTOMER,
-  scopeNotes: 'Work',
+  scope: approvedScope(),
   price: '1000',
   ...over,
 });
@@ -150,7 +152,7 @@ describe('fuzz: nothing ever throws', () => {
         date: pick(['2026-10-14', '', '2026-02-30', 'x']),
         jobTypeId: pick(['', CUSTOMER, 'zz']),
         propertyAddress: pick(['', 'Here']),
-        scopeNotes: pick(['', 'Work']),
+        scope: pick([emptyScope(), approvedScope()]),
         price: pick(AMOUNTS),
         vatApplies: r() < 0.7,
         extras: Array.from({ length: Math.floor(r() * 15) }, () => ({ description: pick(['', 'E']), amount: pick(AMOUNTS) })),

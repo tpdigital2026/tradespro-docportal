@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { emptyScope } from '../../src/lib/scope/model';
 import {
   MAX_PENCE,
   bpToInput,
@@ -14,6 +15,7 @@ import {
 } from '../../src/lib/validation/quote';
 import { planFromJson, planToJson } from '../../src/lib/payment-plan';
 import { buildSchedule, computeTotals } from '../../src/lib/money';
+import { approvedScope } from '../fixtures/scope';
 
 const CUSTOMER = '3f2c1b7e-5c1a-4a8e-9a55-0d6c3e9d1a11';
 const JOBTYPE = '4f2c1b7e-5c1a-4a8e-9a55-0d6c3e9d1a22';
@@ -25,7 +27,7 @@ function ready(over: Partial<QuoteFormValues> = {}): QuoteFormValues {
     quoteNumber: 'QT-0042',
     customerId: CUSTOMER,
     jobTypeId: JOBTYPE,
-    scopeNotes: 'Strip and replace the flat roof.',
+    scope: approvedScope(),
     price: '10000',
     bankAccountId: BANK,
     ...over,
@@ -131,11 +133,11 @@ describe('quoteInputSchema (strict)', () => {
     }
   });
   it('rejects a missing quote number, customer, scope, price and date with messages on those fields', () => {
-    const r = quoteInputSchema.safeParse(ready({ quoteNumber: '', customerId: '', scopeNotes: '  ', price: '', date: '' }));
+    const r = quoteInputSchema.safeParse(ready({ quoteNumber: '', customerId: '', scope: emptyScope(), price: '', date: '' }));
     expect(r.success).toBe(false);
     if (!r.success) {
       const paths = r.error.issues.map((i) => i.path.join('.'));
-      expect(paths).toEqual(expect.arrayContaining(['quoteNumber', 'customerId', 'scopeNotes', 'price', 'date']));
+      expect(paths).toEqual(expect.arrayContaining(['quoteNumber', 'customerId', 'scope.coverTitle', 'scope.items', 'price', 'date']));
     }
   });
   it('quote numbers: 2 to 40 safe characters', () => {
@@ -176,10 +178,10 @@ describe('quoteInputSchema (strict)', () => {
   it('limits the number of extras and the size of text', () => {
     const many = Array.from({ length: 11 }, (_, i) => ({ description: `E${i}`, amount: '1' }));
     expect(quoteInputSchema.safeParse(ready({ extras: many })).success).toBe(false);
-    expect(quoteInputSchema.safeParse(ready({ scopeNotes: 'x'.repeat(4001) })).success).toBe(false);
+    expect(quoteInputSchema.safeParse(ready({ scope: approvedScope({ intro: 'x'.repeat(1201) }) })).success).toBe(false);
     expect(quoteInputSchema.safeParse(ready({ propertyAddress: 'x'.repeat(201) })).success).toBe(false);
-    expect(quoteInputSchema.safeParse(ready({ scopeNotes: 'a\u0000b' })).success).toBe(false);
-    expect(quoteInputSchema.safeParse(ready({ scopeNotes: 'line one\nline two' })).success).toBe(true);
+    expect(quoteInputSchema.safeParse(ready({ scope: approvedScope({ note: 'a\u0000b' }) })).success).toBe(false);
+    expect(quoteInputSchema.safeParse(ready({ scope: approvedScope({ note: 'line one\nline two' }) })).success).toBe(true);
   });
   it('rejects a real-looking but impossible date, and a non-id customer', () => {
     expect(normaliseQuote(ready({ date: '2026-02-30' }), 'final').errors.date).toBeDefined();
@@ -292,8 +294,8 @@ describe('quoteDraftSchema (lenient)', () => {
 
 describe('quoteBlockers', () => {
   it('lists blockers by step, earliest step first', () => {
-    const b = quoteBlockers(ready({ scopeNotes: '', price: '', bankAccountId: 'zzz' }));
-    expect(b.map((x) => x.step)).toEqual(['job', 'price', 'review']);
+    const b = quoteBlockers(ready({ scope: emptyScope(), price: '', bankAccountId: 'zzz' }));
+    expect(b.map((x) => x.step)).toEqual(['scope', 'scope', 'price', 'review']);
   });
   it('is empty for a ready quote', () => {
     expect(quoteBlockers(ready())).toEqual([]);

@@ -7,10 +7,13 @@ import { JobStep, type NumberStatus } from '../../../../components/quote/JobStep
 import { PlanStep } from '../../../../components/quote/PlanStep';
 import { PriceStep } from '../../../../components/quote/PriceStep';
 import { ReviewStep } from '../../../../components/quote/ReviewStep';
+import { ScopeStep } from '../../../../components/quote/ScopeStep';
 import { TotalsBar } from '../../../../components/quote/TotalsBar';
 import type { StepProps } from '../../../../components/quote/types';
 import type { QuoteContext } from '../../../../lib/data/quotes';
 import { formatPct } from '../../../../lib/money';
+import { applyJobTypeDefaults } from '../../../../lib/scope/defaults';
+import { isApproved } from '../../../../lib/scope/model';
 import { computeQuoteTotals } from '../../../../lib/quote-totals';
 import {
   normaliseQuote,
@@ -23,7 +26,7 @@ import {
 } from '../../../../lib/validation/quote';
 import { checkNumberAction, finishQuoteAction, saveDraftAction } from './actions';
 
-const STEP_LABEL: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', price: 'Price', plan: 'Plan', review: 'Review' };
+const STEP_LABEL: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', scope: 'Scope', price: 'Price', plan: 'Plan', review: 'Review' };
 const SAVE_DELAY_MS = 1200;
 const CHECK_DELAY_MS = 500;
 
@@ -74,9 +77,14 @@ export function QuoteForm({
 
   const patch = useCallback((p: Partial<QuoteFormValues>) => {
     rev.current += 1;
-    setValues((v) => ({ ...v, ...p }));
+    setValues((v) => {
+      const next = { ...v, ...p };
+      // A new kind of job brings its own suggested title and introduction, unless the owner has written their own.
+      if (p.jobTypeId !== undefined && p.jobTypeId !== v.jobTypeId) next.scope = applyJobTypeDefaults(next.scope, ctx.jobTypes, v.jobTypeId, p.jobTypeId);
+      return next;
+    });
     setServerErrors((e) => (Object.keys(e).length ? {} : e));
-  }, []);
+  }, [ctx.jobTypes]);
   const touch = useCallback((key: string) => setTouched((t) => (t.has(key) ? t : new Set(t).add(key))), []);
 
   const err = (key: string): string | undefined => {
@@ -233,6 +241,16 @@ export function QuoteForm({
     }
   };
 
+  // The price opens only once the wording is approved. Changing the steps afterwards closes it again.
+  const scopeIx = QUOTE_STEPS.indexOf('scope');
+  const scopeOk = isApproved(values.scope);
+  const reachable = scopeOk ? reached : Math.min(reached, scopeIx);
+
+  const ensureSaved = async (): Promise<string | null> => {
+    if (canSave) await runSave();
+    return jobRef.current;
+  };
+
   const stepProps: StepProps = { values, set: patch, err, touch, ctx, totals, locked };
   const last = stepIx === QUOTE_STEPS.length - 1;
   const saveText =
@@ -247,7 +265,7 @@ export function QuoteForm({
             : 'The draft starts saving once you have chosen a customer and a quote number.';
 
   return (
-    <div className="qt-form">
+    <div className={`qt-form${step === 'scope' ? ' is-scope' : ''}`}>
       <nav aria-label="Quote steps" className="qt-steps">
         <ol>
           {QUOTE_STEPS.map((s, i) => (
@@ -256,7 +274,7 @@ export function QuoteForm({
                 type="button"
                 className={`qt-stepbtn${i === stepIx ? ' is-now' : i < stepIx ? ' is-done' : ''}`}
                 aria-current={i === stepIx ? 'step' : undefined}
-                disabled={i > reached}
+                disabled={i > reachable}
                 onClick={() => goTo(i)}
               >
                 <span className="qt-stepbar" aria-hidden="true" />
@@ -276,6 +294,7 @@ export function QuoteForm({
       <div ref={headingBox} className="qt-body">
         {step === 'customer' ? <CustomerStep {...stepProps} /> : null}
         {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} /> : null}
+        {step === 'scope' ? <ScopeStep {...stepProps} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
         {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
         {step === 'plan' ? <PlanStep {...stepProps} /> : null}
         {step === 'review' ? <ReviewStep {...stepProps} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s))} vatRatePct={vatRatePct} /> : null}
@@ -283,6 +302,7 @@ export function QuoteForm({
 
       {finishError ? <p className="form-error" role="alert">{finishError}</p> : null}
 
+      {step === 'scope' ? null : (
       <div className="qt-nav">
         {stepIx > 0 ? (
           <Button type="button" variant="secondary" onClick={() => goTo(stepIx - 1)}>Back</Button>
@@ -297,6 +317,7 @@ export function QuoteForm({
           <Button type="button" onClick={next}>Continue</Button>
         )}
       </div>
+      )}
     </div>
   );
 }

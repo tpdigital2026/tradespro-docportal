@@ -13,6 +13,7 @@ import {
   type PlanStage,
 } from '../money';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
+import { emptyScope, scopeErrors, scopeFormSchema, type ScopeFormValues } from '../scope/model';
 
 // ------------------------------------------------------------------ money text to whole numbers (never floats)
 
@@ -111,7 +112,7 @@ export interface QuoteFormValues {
   date: string;
   jobTypeId: string;
   propertyAddress: string;
-  scopeNotes: string;
+  scope: ScopeFormValues;
   price: string;
   vatApplies: boolean;
   extras: ExtraFormValue[];
@@ -121,7 +122,6 @@ export interface QuoteFormValues {
 }
 
 export const MAX_EXTRAS = 10;
-export const SCOPE_MAX = 4000;
 export const NUMBER_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{1,39}$/;
 /** Invoice numbers are the quote number plus -D, -B or -S{n}, so a quote number ending that way could collide with another job's invoice. */
 export const NUMBER_SUFFIX_RE = /-(?:D|B|S\d+)$/;
@@ -129,7 +129,6 @@ export const NUMBER_SUFFIX_MESSAGE = 'A quote number cannot end in -D, -B or -S 
 const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo-[a-z]+-[\w-]{1,40})$/i;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
-const CONTROL_KEEP_NEWLINE = /[\u0000-\u0009\u000b-\u001f\u007f]/;
 
 export const EMPTY_PLAN: PlanFormValues = {
   kind: 'deposit',
@@ -148,7 +147,7 @@ export function emptyQuoteForm(defaults: { date: string; vatApplies: boolean; de
     date: defaults.date,
     jobTypeId: '',
     propertyAddress: '',
-    scopeNotes: '',
+    scope: emptyScope(),
     price: '',
     vatApplies: defaults.vatApplies,
     extras: [],
@@ -167,7 +166,7 @@ export const quoteFormSchema = z.object({
   date: short(10),
   jobTypeId: short(80),
   propertyAddress: short(200),
-  scopeNotes: z.string().max(SCOPE_MAX).refine((v) => !CONTROL_KEEP_NEWLINE.test(v), 'That has characters we cannot save'),
+  scope: scopeFormSchema.default(() => emptyScope()),
   price: short(MAX_AMOUNT_CHARS + 20),
   vatApplies: z.boolean(),
   extras: z.array(z.object({ description: short(120), amount: short(MAX_AMOUNT_CHARS + 20) })).max(MAX_EXTRAS),
@@ -188,7 +187,6 @@ export interface QuoteInput {
   date: string | null;
   jobTypeId: string | null;
   propertyAddress: string | null;
-  scopeNotes: string;
   priceNetPence: Pence | null;
   vatApplies: boolean;
   extras: { description: string; netPence: Pence }[];
@@ -197,16 +195,17 @@ export interface QuoteInput {
   bankAccountId: string | null;
 }
 
-/** Field key to message. Keys: customerId, quoteNumber, date, jobTypeId, propertyAddress, scopeNotes, price, discount,
+/** Field key to message. Keys: customerId, quoteNumber, date, jobTypeId, propertyAddress, scope.*, price, discount,
  *  extras.N.description, extras.N.amount, plan, plan.depositPct, plan.stages.N, plan.stages.N.label, plan.stages.N.value, bankAccountId. */
 export type QuoteErrors = Record<string, string>;
 
-export type QuoteStep = 'customer' | 'job' | 'price' | 'plan' | 'review';
-export const QUOTE_STEPS: readonly QuoteStep[] = ['customer', 'job', 'price', 'plan', 'review'];
+export type QuoteStep = 'customer' | 'job' | 'scope' | 'price' | 'plan' | 'review';
+export const QUOTE_STEPS: readonly QuoteStep[] = ['customer', 'job', 'scope', 'price', 'plan', 'review'];
 
 export function stepOfError(key: string): QuoteStep {
   if (key === 'customerId') return 'customer';
-  if (['quoteNumber', 'date', 'jobTypeId', 'propertyAddress', 'scopeNotes'].includes(key)) return 'job';
+  if (['quoteNumber', 'date', 'jobTypeId', 'propertyAddress'].includes(key)) return 'job';
+  if (key === 'scope' || key.startsWith('scope.')) return 'scope';
   if (key === 'price' || key === 'discount' || key.startsWith('extras')) return 'price';
   if (key === 'bankAccountId') return 'review';
   return 'plan';
@@ -305,8 +304,7 @@ function normaliseQuoteInner(
   const jobTypeId = v.jobTypeId.trim();
   if (jobTypeId !== '' && !ID_RE.test(jobTypeId)) errors.jobTypeId = 'Choose a job type from the list';
 
-  const scopeNotes = v.scopeNotes.replace(/\r\n?/g, '\n').trim();
-  if (strict && scopeNotes === '') errors.scopeNotes = 'Describe the work being quoted for';
+  Object.assign(errors, scopeErrors(v.scope, strict ? 'final' : 'draft'));
 
   let priceNetPence: Pence | null = null;
   if (v.price.trim() === '') {
@@ -349,7 +347,6 @@ function normaliseQuoteInner(
     date: dateOut,
     jobTypeId: jobTypeId === '' ? null : jobTypeId,
     propertyAddress: propertyAddress === '' ? null : propertyAddress,
-    scopeNotes,
     priceNetPence,
     vatApplies: v.vatApplies,
     extras,
@@ -394,7 +391,7 @@ export function normaliseQuote(
     return normaliseQuoteInner(v, mode, vatRateBp);
   } catch {
     const blank: QuoteInput = {
-      quoteNumber: '', customerId: '', date: null, jobTypeId: null, propertyAddress: null, scopeNotes: '',
+      quoteNumber: '', customerId: '', date: null, jobTypeId: null, propertyAddress: null,
       priceNetPence: null, vatApplies: true, extras: [], discountPence: 0, plan: null, bankAccountId: null,
     };
     return { input: blank, errors: { price: TOO_LARGE_MESSAGE } };

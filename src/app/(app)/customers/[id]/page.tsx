@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { CustomerForm } from '../../../../components/customers/CustomerForm';
 import { DeleteCustomer } from '../../../../components/customers/DeleteCustomer';
 import { KeepForm } from '../../../../components/customers/KeepForm';
+import { SavedNotice } from '../../../../components/customers/SavedNotice';
 import { PageHeader } from '../../../../components/PageHeader';
+import { savedKindFrom } from '../../../../lib/customer-flash';
 import { getCustomer, getRetentionDays, listCustomerDocuments } from '../../../../lib/data/customers';
 import { daysLeft, formatKeptUntil, isRunningOut } from '../../../../lib/retention';
 import { requireSession } from '../../../../lib/session';
@@ -27,13 +29,15 @@ export default async function CustomerPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; kept?: string }>;
+  searchParams: Promise<{ saved?: string | string[]; kept?: string }>;
 }) {
   const session = await requireSession();
   const [{ id }, flags] = await Promise.all([params, searchParams]);
   const customer = await getCustomer(id);
   if (!customer) notFound();
   const [docs, retentionDays] = await Promise.all([listCustomerDocuments(id), getRetentionDays()]);
+  const saved = savedKindFrom(flags.saved);
+  const stamp = Date.now(); // a new notice for every save, even two in a row
   const left = daysLeft(customer.purgeAt, new Date());
   const warn = isRunningOut(left);
   const initial: CustomerFormValues = {
@@ -49,7 +53,7 @@ export default async function CustomerPage({
   return (
     <div className="page">
       <PageHeader muted="Customer" title={customer.name} />
-      {flags.saved ? <p className="cust-flash" role="status">Saved.</p> : null}
+      {saved === 'created' ? <SavedNotice key={stamp} kind={saved} bringIntoView={false} /> : null}
       {flags.kept ? <p className="cust-flash" role="status">Done. This customer's details are kept for longer.</p> : null}
 
       <section className={`cust-retention${warn ? ' is-warn' : ''}`} aria-label="How long their details are kept">
@@ -86,6 +90,7 @@ export default async function CustomerPage({
 
       <section aria-labelledby="edit-h" className="cust-section">
         <h2 id="edit-h" className="section-title">Their details</h2>
+        {saved === 'updated' ? <SavedNotice key={stamp} kind={saved} /> : null}
         <CustomerForm action={updateCustomerAction.bind(null, customer.id)} initial={initial} submitLabel="Save changes" />
       </section>
 

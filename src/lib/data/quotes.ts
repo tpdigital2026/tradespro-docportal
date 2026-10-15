@@ -12,6 +12,8 @@ import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
 import { suggestNextNumber } from '../quote-number';
 import { requireSession } from '../session';
+import { emptyScope } from '../scope/model';
+import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
 import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_RE, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
 import { ownerClient, type DataClient } from './customers';
 
@@ -37,6 +39,8 @@ export interface JobTypeOption {
   id: string;
   label: string;
   guaranteeYears: number | null;
+  /** The business's own scope wording for this kind of job (labels, headings, starters, example sequences). */
+  scopeExamples: ScopeExamples | null;
 }
 export interface BankAccountOption {
   id: string;
@@ -89,12 +93,13 @@ const FALLBACK_DEFAULTS: QuoteDefaults = { vatDefault: true, vatRateBp: DEFAULT_
 // ---------------------------------------------------------------- reads (the owner's session; row level security scopes them)
 
 export async function listJobTypesWith(client: DataClient): Promise<JobTypeOption[]> {
-  const { data, error } = await client.from('job_types').select('id, label, guarantee_years').order('label', { ascending: true }).limit(100);
+  const { data, error } = await client.from('job_types').select('id, label, guarantee_years, scope_examples').order('label', { ascending: true }).limit(100);
   if (error) throw new QuoteError('failed', 'Could not load job types');
-  return ((data ?? []) as { id: string; label: string; guarantee_years: number | null }[]).map((r) => ({
+  return ((data ?? []) as { id: string; label: string; guarantee_years: number | null; scope_examples?: unknown }[]).map((r) => ({
     id: r.id,
     label: r.label,
     guaranteeYears: typeof r.guarantee_years === 'number' ? r.guarantee_years : null,
+    scopeExamples: parseScopeExamples(r.scope_examples),
   }));
 }
 
@@ -204,7 +209,7 @@ function blankForm(quoteNumber: string, customerId: string, date: string): Quote
     date,
     jobTypeId: '',
     propertyAddress: '',
-    scopeNotes: '',
+    scope: emptyScope(),
     price: '',
     vatApplies: true,
     extras: [],
@@ -393,6 +398,16 @@ export async function getQuoteContext(): Promise<QuoteContext> {
     suggestedNumber: suggestNextNumber(numbers),
     today: todayIso(),
   };
+}
+
+/** The label of one job type, for context given to the wording tool. Empty when the type is not listed or not found. */
+export async function getJobTypeLabel(id: string): Promise<string> {
+  await requireSession();
+  if (id === '') return '';
+  if (isDemo()) return demoJobTypes.find((t) => t.id === id)?.label ?? '';
+  if (!isRealId(id)) return '';
+  const { data } = await (await ownerClient()).from('job_types').select('label').eq('id', id).maybeSingle();
+  return (data as { label?: string } | null)?.label ?? '';
 }
 
 export async function getQuoteVatRateBp(): Promise<number> {

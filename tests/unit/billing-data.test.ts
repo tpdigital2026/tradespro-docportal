@@ -3,6 +3,7 @@ import { BillingError, getJobSummary, listJobSummaries, loadJobSummariesWith, ma
 import type { DataClient } from '../../src/lib/data/customers';
 import { planToJson } from '../../src/lib/payment-plan';
 import { emptyQuoteForm } from '../../src/lib/validation/quote';
+import { approvedScope } from '../fixtures/scope';
 
 type Row = Record<string, unknown>;
 
@@ -55,7 +56,7 @@ const D1 = '40000000-0000-4000-8000-000000000001';
 const Q2 = '30000000-0000-4000-8000-000000000002';
 const V1 = '50000000-0000-4000-8000-000000000001';
 
-const form = { ...emptyQuoteForm({ date: '2026-10-14', vatApplies: true }), quoteNumber: 'QT-9', customerId: C1, price: '10000', scopeNotes: 'x' };
+const form = { ...emptyQuoteForm({ date: '2026-10-14', vatApplies: true }), quoteNumber: 'QT-9', customerId: C1, price: '10000', scope: approvedScope() };
 
 function seed(over: Record<string, Row[]> = {}) {
   return fakeClient({

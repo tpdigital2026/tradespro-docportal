@@ -100,18 +100,6 @@ export function JobStep({
         maxLength={200}
       />
 
-      <Field announce={false}
-        id="scope"
-        multiline
-        label="What the work covers"
-        hint="Describe it in plain words. This is what the customer reads."
-        value={values.scopeNotes}
-        onChange={(e) => set({ scopeNotes: e.target.value })}
-        onBlur={() => touch('scopeNotes')}
-        error={err('scopeNotes')}
-        maxLength={4000}
-        rows={6}
-      />
     </section>
   );
 }

@@ -1,6 +1,8 @@
 /** Clearly dummy data for demo mode. Never shown outside it. */
 import type { DocType } from './job-stage';
 import type { RawDocument, RawPayment } from './job-billing';
+import { FJC_SCOPE_EXAMPLES } from './scope/fjc-examples';
+import { emptyScope } from './scope/model';
 import type { QuoteFormValues } from './validation/quote';
 
 export const demoSession = {
@@ -82,9 +84,9 @@ export const demoRecentDocs: DemoRecentDoc[] = [
 // ------------------------------------------------------------------ quote form (dummy data only)
 
 export const demoJobTypes = [
-  { id: 'demo-jobtype-flat', label: 'Flat roof (demo)', guaranteeYears: 20 },
-  { id: 'demo-jobtype-tiled', label: 'Tiled roof (demo)', guaranteeYears: 25 },
-  { id: 'demo-jobtype-fascia', label: 'Fascias and gutters (demo)', guaranteeYears: null },
+  { id: 'demo-jobtype-flat', label: 'Flat roof (demo)', guaranteeYears: 20, scopeExamples: FJC_SCOPE_EXAMPLES.flat_roof ?? null },
+  { id: 'demo-jobtype-tiled', label: 'Tiled roof (demo)', guaranteeYears: 25, scopeExamples: FJC_SCOPE_EXAMPLES.tiled_roof ?? null },
+  { id: 'demo-jobtype-fascia', label: 'Fascias and gutters (demo)', guaranteeYears: null, scopeExamples: FJC_SCOPE_EXAMPLES.fascia ?? null },
 ];
 
 /** Dummy account, last four digits only. */
@@ -104,7 +106,7 @@ const demoForm = (over: Partial<QuoteFormValues>): QuoteFormValues => ({
   date: '2026-10-12',
   jobTypeId: 'demo-jobtype-flat',
   propertyAddress: '',
-  scopeNotes: 'Demo scope text: remove the old covering and fit the new one. Dummy data for screenshots only.',
+  scope: emptyScope(),
   price: '',
   vatApplies: true,
   extras: [],

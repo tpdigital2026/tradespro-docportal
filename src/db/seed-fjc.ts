@@ -1,4 +1,6 @@
 import type { Db } from '../security/login-guard';
+import { scopeExamplesSchema } from '../lib/scope/examples';
+import { FJC_SCOPE_EXAMPLES } from '../lib/scope/fjc-examples';
 import { FJC_WORDING, tenantWordingSchema } from './wording';
 
 // Taken from tests/fixtures/fjc.ts (the approved FJC brand).
@@ -22,7 +24,11 @@ const JOB_TYPES: [string, string, number | null][] = [
 export async function seedFjc(db: Db): Promise<{ tenantId: string; created: boolean }> {
   const wording = tenantWordingSchema.parse(FJC_WORDING);
   const existing = await db.query(`select id from public.tenants where name = 'FJC Roofing Ltd'`);
-  if (existing.rows.length > 0) return { tenantId: existing.rows[0].id, created: false };
+  if (existing.rows.length > 0) {
+    // Wording added after the first seed: fill it in where it is still empty, never overwrite the business's own edits.
+    await seedScopeExamples(db, existing.rows[0].id);
+    return { tenantId: existing.rows[0].id, created: false };
+  }
 
   const t = await db.query(
     `insert into public.tenants (slug, name, trade_type, company_number, vat_registered, vat_number, address_lines, phone, email, website, tagline, owner_name, owner_title)
@@ -40,6 +46,7 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
   for (const [key, label, years] of JOB_TYPES) {
     await db.query(`insert into public.job_types (tenant_id, key, label, guarantee_years) values ($1, $2, $3, $4)`, [tenantId, key, label, years]);
   }
+  await seedScopeExamples(db, tenantId);
   const kit = await db.query(`insert into public.brand_kits (tenant_id, theme_key, colours, fonts) values ($1, 'fjc', $2, $3) returning id`, [
     tenantId,
     JSON.stringify(FJC_COLOURS),
@@ -53,4 +60,12 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
     );
   }
   return { tenantId, created: true };
+}
+
+/** Scope wording for the FJC job types, from src/lib/scope/fjc-examples.ts. Only fills rows that have none. */
+async function seedScopeExamples(db: Db, tenantId: string): Promise<void> {
+  for (const [key, examples] of Object.entries(FJC_SCOPE_EXAMPLES)) {
+    const valid = scopeExamplesSchema.parse(examples);
+    await db.query(`update public.job_types set scope_examples = $3 where tenant_id = $1 and key = $2 and scope_examples is null`, [tenantId, key, JSON.stringify(valid)]);
+  }
 }

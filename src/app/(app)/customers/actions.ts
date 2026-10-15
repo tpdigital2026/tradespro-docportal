@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { demoErase, demoExtend, createCustomer, updateCustomer } from '../../../lib/data/customers';
 import { eraseCustomerWith, extendRetentionWith, withServiceConnection } from '../../../lib/data/customer-admin';
+import { customerSavedUrl } from '../../../lib/customer-flash';
 import { isDemo } from '../../../lib/demo';
 import { requireSession } from '../../../lib/session';
 import { requireFreshStepUpForRequest, StepUpRequiredError } from '../../../lib/step-up-check';
@@ -30,7 +31,7 @@ export async function createCustomerAction(_prev: FormState, formData: FormData)
   } catch {
     return { values: readFormValues(formData), message: GENERIC };
   }
-  redirect(`/customers/${id}`);
+  redirect(customerSavedUrl(id, 'created'));
 }
 
 export async function updateCustomerAction(id: string, _prev: FormState, formData: FormData): Promise<FormState> {
@@ -44,7 +45,7 @@ export async function updateCustomerAction(id: string, _prev: FormState, formDat
   } catch {
     return { values: readFormValues(formData), message: GENERIC };
   }
-  redirect(`/customers/${id}?saved=1`);
+  redirect(customerSavedUrl(id, 'updated'));
 }
 
 export interface KeepState {

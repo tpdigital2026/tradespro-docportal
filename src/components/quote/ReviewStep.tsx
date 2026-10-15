@@ -1,6 +1,7 @@
 'use client';
 
 import { formatGBP } from '../../lib/money';
+import { isApproved } from '../../lib/scope/model';
 import type { QuoteStep } from '../../lib/validation/quote';
 import type { StepProps } from './types';
 
@@ -13,10 +14,11 @@ export function ReviewStep({
   goTo,
   vatRatePct,
 }: StepProps & { blockers: { step: QuoteStep; key: string; message: string }[]; goTo: (s: QuoteStep) => void; vatRatePct: string }) {
+  const approvedCopy = isApproved(values.scope) ? values.scope.copy : null;
   const customer = ctx.customers.find((c) => c.id === values.customerId);
   const type = ctx.jobTypes.find((t) => t.id === values.jobTypeId);
   const guarantee = type ? (type.guaranteeYears ? `${type.guaranteeYears} years` : 'No guarantee set') : 'No guarantee';
-  const stepName: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', price: 'Price', plan: 'Plan', review: 'Review' };
+  const stepName: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', scope: 'Scope', price: 'Price', plan: 'Plan', review: 'Review' };
   return (
     <section aria-labelledby="step-h" className="qt-step">
       <h2 id="step-h" className="qt-h" tabIndex={-1}>Check it over</h2>
@@ -43,7 +45,19 @@ export function ReviewStep({
         <div><dt>Job type</dt><dd>{type ? type.label : 'Not listed'}</dd></div>
         <div><dt>Guarantee</dt><dd>{guarantee}</dd></div>
         <div><dt>Address of the work</dt><dd>{values.propertyAddress || 'Not set'}</dd></div>
-        <div><dt>The work</dt><dd className="qt-scope">{values.scopeNotes || 'Not written yet'}</dd></div>
+        <div><dt>Quote title</dt><dd>{values.scope.coverTitle || 'Not set'}</dd></div>
+        <div>
+          <dt>The work</dt>
+          <dd>
+            {approvedCopy ? (
+              <button type="button" className="linklike" onClick={() => goTo('scope')}>
+                {approvedCopy.sections.length} {approvedCopy.sections.length === 1 ? 'group' : 'groups'}, {approvedCopy.sections.reduce((n, s) => n + s.steps.length, 0)} steps. Approved wording.
+              </button>
+            ) : (
+              <button type="button" className="linklike" onClick={() => goTo('scope')}>Not approved yet</button>
+            )}
+          </dd>
+        </div>
       </dl>
 
       <h3 className="qt-h3">Money</h3>

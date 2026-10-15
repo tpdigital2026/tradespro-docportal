@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getDraftWith, listBankAccountsWith, listDraftsWith, listJobTypesWith, numberIsFreeWith, QuoteError, saveDraftWith } from '../../src/lib/data/quotes';
 import { emptyQuoteForm, type QuoteFormValues } from '../../src/lib/validation/quote';
 import type { DataClient } from '../../src/lib/data/customers';
+import { approvedScope } from '../fixtures/scope';
 
 type Row = Record<string, unknown>;
 
@@ -64,7 +65,7 @@ const CUSTOMER = '22222222-2222-4222-8222-222222222222';
 const OTHER = '33333333-3333-4333-8333-333333333333';
 
 function form(over: Partial<QuoteFormValues> = {}): QuoteFormValues {
-  return { ...emptyQuoteForm({ date: '2026-10-14', vatApplies: true }), quoteNumber: 'QT-0100', customerId: CUSTOMER, price: '10000', scopeNotes: 'Re-roof', ...over };
+  return { ...emptyQuoteForm({ date: '2026-10-14', vatApplies: true }), quoteNumber: 'QT-0100', customerId: CUSTOMER, price: '10000', scope: approvedScope(), ...over };
 }
 
 describe('saveDraftWith', () => {
@@ -116,7 +117,7 @@ describe('saveDraftWith', () => {
   it('later saves update the same rows and never add new ones', async () => {
     const { client, tables } = fakeClient();
     const first = await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
-    const second = await saveDraftWith(client, TENANT, form({ price: '12000', scopeNotes: 'Changed', quoteNumber: 'IGNORED-2' }), first.jobId, 2000, '2026-10-15');
+    const second = await saveDraftWith(client, TENANT, form({ price: '12000', scope: approvedScope({ note: 'Changed' }), quoteNumber: 'IGNORED-2' }), first.jobId, 2000, '2026-10-15');
     expect(second.jobId).toBe(first.jobId);
     expect(tables.jobs).toHaveLength(1);
     expect(tables.documents).toHaveLength(1);
@@ -248,8 +249,8 @@ describe('lookups', () => {
       bank_accounts: [{ id: 'c', account_name: 'Business', bank_name: 'Demo Bank', last4: '0000', is_default: true, archived_at: null, sort_code_enc: 'SECRET' }],
     });
     expect(await listJobTypesWith(client)).toEqual([
-      { id: 'a', label: 'Flat roof', guaranteeYears: 20 },
-      { id: 'b', label: 'Fascia', guaranteeYears: null },
+      { id: 'a', label: 'Flat roof', guaranteeYears: 20, scopeExamples: null },
+      { id: 'b', label: 'Fascia', guaranteeYears: null, scopeExamples: null },
     ]);
     const banks = await listBankAccountsWith(client);
     expect(banks).toEqual([{ id: 'c', label: 'Business, Demo Bank, ending 0000', last4: '0000', isDefault: true }]);

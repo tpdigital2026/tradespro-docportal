@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { emptyScope } from '../../src/lib/scope/model';
 import { demoIssuedJobs, demoQuoteDefaults } from '../../src/lib/demo-data';
 import { buildJobBilling, followOnFor, instalmentHeading, payableInvoice, type RawDocument, type RawPayment } from '../../src/lib/job-billing';
 import type { Instalment, PaymentPlan } from '../../src/lib/money';
@@ -95,7 +96,7 @@ describe('the schedule is recomputed, never read from storage', () => {
         quoteNumber: 'P1',
         customerId: 'c',
         price: (pennies / 100).toFixed(2),
-        scopeNotes: 'x',
+        scope: emptyScope(),
       };
       const kind = ['full', 'deposit', 'staged'][Math.floor(rnd() * 3)] as 'full' | 'deposit' | 'staged';
       const n = 2 + Math.floor(rnd() * 9);
