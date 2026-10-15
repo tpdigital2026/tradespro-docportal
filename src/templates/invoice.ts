@@ -273,7 +273,7 @@ export async function buildStageInvoice(page: Page, input: StageInvoiceInput, te
   const inc = showVat ? ' (inc. VAT)' : '';
   const heading = `Stage ${st.index} of ${input.stageCount}`;
   const afterRows: [string, string][] = [[`Quote total${inc}`, formatGBP(quote.grossPence)]];
-  if (input.receivedPence > 0) afterRows.push(['Received so far', formatGBP(input.receivedPence)]);
+  if (input.receivedPence > 0) afterRows.push(['Received for earlier stages', formatGBP(input.receivedPence)]);
   afterRows.push(['Left to pay after this stage', formatGBP(balanceDue(quote.grossPence, [...(input.receivedPence > 0 ? [input.receivedPence] : []), st.grossPence]))]);
   return renderInvoice(page, tenant, brand, {
     title: 'Stage Invoice',
@@ -284,7 +284,7 @@ export async function buildStageInvoice(page: Page, input: StageInvoiceInput, te
     due: { label: 'Total due', amountPence: st.grossPence, note: input.dueNote },
     jobTitle: input.jobTitle,
     scope: input.scope,
-    note: `${heading}: ${st.label}.`,
+    note: null,
     rows: [
       {
         description: `${heading}: ${st.label} – ${input.jobDescription}`,
