@@ -3,6 +3,7 @@ import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, S
 import { isDemo } from './demo';
 import { isValidSlug } from './slug';
 import { isSameOrigin, SAFE_METHODS } from './same-origin';
+import { ACTIVITY_REFRESH_SECONDS, activityCookieName, checkSessionPolicy, readActivity, SESSION_EXPIRED_MESSAGE, signActivity, type Activity } from './session-policy';
 
 export interface Refreshed {
   access_token: string;
@@ -21,22 +22,24 @@ export interface GuardDeps {
 // A single lower-case segment that is not a reserved word is a business's public sign-in address (/fjc).
 // The page itself shows the plain sign-in for an unknown one, and sends a signed-in person home.
 const isSigninSlug = (path: string) => /^\/[^/]+$/.test(path) && isValidSlug(path.slice(1));
-const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/') || isSigninSlug(path);
+// The maintenance cron is called by the scheduler with its own bearer secret, never a session; the route checks it.
+const CRON = (path: string) => path === '/api/cron/maintenance';
+const PUBLIC = (path: string) => path === '/login' || path === '/api/auth' || path.startsWith('/api/auth/') || isSigninSlug(path) || CRON(path);
 const REFRESH_SKEW_SECONDS = 30;
 
 function clearCookies(res: NextResponse) {
-  for (const name of [accessCookieName(), refreshCookieName(), startCookieName()]) {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName(), activityCookieName()]) {
     res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
   }
   return res;
 }
 
-function deny(req: NextRequest, clear: boolean) {
+function deny(req: NextRequest, clear: boolean, signedOut = false) {
   const path = req.nextUrl.pathname;
   const res =
     path.startsWith('/api/')
-      ? NextResponse.json({ ok: false, message: 'Please sign in.' }, { status: 401 })
-      : NextResponse.redirect(new URL('/login', req.url));
+      ? NextResponse.json({ ok: false, message: signedOut ? `${SESSION_EXPIRED_MESSAGE} Please sign in again.` : 'Please sign in.' }, { status: 401 })
+      : NextResponse.redirect(new URL(signedOut ? '/login?notice=signed-out' : '/login', req.url));
   return clear ? clearCookies(res) : res;
 }
 
@@ -55,8 +58,10 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
   const access = req.cookies.get(accessCookieName())?.value;
   const refresh = req.cookies.get(refreshCookieName())?.value;
 
-  // The 30 day cap: the signed login-time cookie must be genuine and recent. Token refreshes never
-  // renew it, so a session ends 30 days after the email code was entered.
+  // The 30 day ceiling: the signed login-time cookie must be genuine and recent. Token refreshes never
+  // renew it. Then the business's session policy: idle time and its own (shorter) cap, from the signed
+  // activity cookie, which must belong to the same person and Supabase session.
+  let touched: string | null = null;
   if (access || refresh) {
     let secret: string;
     try {
@@ -64,10 +69,23 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
     } catch {
       return deny(req, false);
     }
-    if (!readSessionStart(secret, req.cookies.get(startCookieName())?.value, deps.nowSeconds())) return deny(req, true);
+    const now = deps.nowSeconds();
+    const start = readSessionStart(secret, req.cookies.get(startCookieName())?.value, now);
+    if (!start) return deny(req, true);
+    const activity = readActivity(secret, req.cookies.get(activityCookieName())?.value);
+    const verdict = checkSessionPolicy({ start, activity, nowSeconds: now, limits: activity ?? { idleMinutes: 0, maxDays: 0 } });
+    if (verdict !== 'ok') return deny(req, true, verdict === 'idle' || verdict === 'expired');
+    // Activity is recorded on the response only. The request keeps the time the browser sent, so getSession can
+    // check it against the limits in the database now.
+    const a = activity as Activity;
+    if (now - a.lastAt >= ACTIVITY_REFRESH_SECONDS) touched = signActivity(secret, { ...a, lastAt: now });
   }
+  const touch = (res: NextResponse) => {
+    if (touched) res.cookies.set(activityCookieName(), touched, cookieOptions(SESSION_MAX_AGE_SECONDS));
+    return res;
+  };
   const exp = tokenExpiresAt(access);
-  if (access && exp !== null && exp > deps.nowSeconds() + REFRESH_SKEW_SECONDS) return NextResponse.next();
+  if (access && exp !== null && exp > deps.nowSeconds() + REFRESH_SKEW_SECONDS) return touch(NextResponse.next());
   if (!refresh) return deny(req, Boolean(access));
 
   let fresh: Refreshed | null = null;
@@ -85,7 +103,7 @@ export async function guardRequest(req: NextRequest, deps: GuardDeps): Promise<N
   const res = NextResponse.next({ request: { headers: new Headers(req.headers) } });
   res.cookies.set(accessCookieName(), fresh.access_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   res.cookies.set(refreshCookieName(), fresh.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
-  return res;
+  return touch(res);
 }
 
 /**

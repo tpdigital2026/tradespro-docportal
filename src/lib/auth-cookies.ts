@@ -76,15 +76,17 @@ export function signSessionStart(secret: string, userId: string, sessionId: stri
 }
 
 /**
- * Returns who and which Supabase session the cookie was issued to if the signature is genuine and the
- * login is no more than 30 days old, else null. Refreshing tokens keeps session_id and never renews
- * this: only a fresh email code does. Callers with a verified token must compare sessionId with it.
+ * Returns who, which Supabase session and when, if the signature is genuine and the login is no more than 30 days
+ * old (or maxAgeSeconds, if shorter), else null. Refreshing tokens keeps session_id and never renews this, and a
+ * step-up code keeps the original login time (auth-handlers): only a new sign-in starts the clock again. Callers with a
+ * verified token must compare sessionId with it.
  */
 export function readSessionStart(
   secret: string,
   value: string | undefined | null,
   nowSeconds: number,
-): { userId: string; sessionId: string } | null {
+  maxAgeSeconds: number = SESSION_MAX_AGE_SECONDS,
+): { userId: string; sessionId: string; at: number } | null {
   if (!value) return null;
   const parts = value.split('.');
   if (parts.length !== 4) return null;
@@ -94,6 +96,7 @@ export function readSessionStart(
   const given = Buffer.from(macRaw, 'base64url');
   const want = mac(secret, userId, sessionId, at);
   if (given.length !== want.length || !timingSafeEqual(given, want)) return null;
-  if (at > nowSeconds + CLOCK_SKEW_SECONDS || nowSeconds - at > SESSION_MAX_AGE_SECONDS) return null;
-  return { userId, sessionId };
+  // 30 days is the ceiling whatever is asked; the business's own (shorter) cap is checked by the session policy.
+  if (at > nowSeconds + CLOCK_SKEW_SECONDS || nowSeconds - at > Math.min(maxAgeSeconds, SESSION_MAX_AGE_SECONDS)) return null;
+  return { userId, sessionId, at };
 }

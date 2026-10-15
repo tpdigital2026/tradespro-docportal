@@ -31,10 +31,19 @@ describe('reserved slugs', () => {
     const missing = topLevelSegments(APP).filter((s) => !RESERVED_SLUGS.includes(s));
     expect(missing).toEqual([]);
   });
-  it('matches the list in migration 005', () => {
-    const sql = readFileSync(path.join(__dirname, '../../supabase/migrations/005_tenant_slug.sql'), 'utf8');
-    const m = /tenants_slug_not_reserved[\s\S]*?array\[([^\]]+)\]/.exec(sql);
-    const fromSql = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
+  it('matches the words in the tenants_slug_not_reserved* constraints, as the latest migration defining each leaves them', () => {
+    // Each constraint name (tenants_slug_not_reserved, tenants_slug_not_reserved_040, ...) counts as its last definition
+    // in migration order, and the reserved words are the union of them all.
+    const dir = path.join(__dirname, '../../supabase/migrations');
+    const latest = new Map<string, string[]>();
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
+      const sql = readFileSync(path.join(dir, file), 'utf8');
+      for (const m of sql.matchAll(/add constraint (tenants_slug_not_reserved\w*)\s+check[^;]*?array\[([^\]]+)\]/g)) {
+        latest.set(m[1], [...m[2].matchAll(/'([^']+)'/g)].map((x) => x[1]));
+      }
+    }
+    expect(latest.has('tenants_slug_not_reserved')).toBe(true);
+    const fromSql = [...new Set([...latest.values()].flat())].sort();
     expect(fromSql).toEqual([...RESERVED_SLUGS].sort());
   });
 });

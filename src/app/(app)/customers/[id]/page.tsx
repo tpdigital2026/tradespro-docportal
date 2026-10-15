@@ -12,6 +12,7 @@ import { initials } from '../../../../lib/initials';
 import { savedKindFrom } from '../../../../lib/customer-flash';
 import { getCustomer, getRetentionDays, listCustomerDocuments } from '../../../../lib/data/customers';
 import { daysLeft, formatKeptUntil, isRunningOut } from '../../../../lib/retention';
+import { isDemo } from '../../../../lib/demo';
 import { requireSession } from '../../../../lib/session';
 import type { CustomerFormValues } from '../../../../lib/validation/customer';
 import { updateCustomerAction } from '../actions';
@@ -119,7 +120,7 @@ export default async function CustomerPage({
       </div>
 
       {session.role === 'owner' ? (
-        <DeleteCustomer customerId={customer.id} customerName={customer.name} ownerEmail={session.email} />
+        <DeleteCustomer customerId={customer.id} customerName={customer.name} ownerEmail={session.email} demo={isDemo()} />
       ) : null}
       <p className="cust-back"><Link href="/customers">Back to customers</Link></p>
     </div>

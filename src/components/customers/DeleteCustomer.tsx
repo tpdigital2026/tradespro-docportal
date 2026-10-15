@@ -1,35 +1,18 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { Button } from '../Button';
-import { Field } from '../Field';
+import { StepUp } from '../StepUp';
 import { deleteCustomerAction } from '../../app/(app)/customers/actions';
-import { OTP_LENGTH } from '../../lib/otp';
 
-type Phase = 'idle' | 'confirm' | 'code-email' | 'code-entry' | 'deleting';
-
-async function post(url: string, body: unknown): Promise<{ ok: boolean; message: string }> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      credentials: 'same-origin',
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
-    return { ok: res.ok && data.ok === true, message: data.message ?? 'Something went wrong. Please try again.' };
-  } catch {
-    return { ok: false, message: 'We could not reach the server. Check your connection and try again.' };
-  }
-}
+type Phase = 'idle' | 'confirm' | 'step-up';
 
 /**
  * Two steps before anything is deleted: an explicit confirmation, then (when the server asks for it)
  * a fresh emailed code. The server decides; this only follows its answer.
  */
-export function DeleteCustomer({ customerId, customerName, ownerEmail }: { customerId: string; customerName: string; ownerEmail: string }) {
+export function DeleteCustomer({ customerId, customerName, ownerEmail, demo = false }: { customerId: string; customerName: string; ownerEmail: string; demo?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
-  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -40,33 +23,15 @@ export function DeleteCustomer({ customerId, customerName, ownerEmail }: { custo
     const r = await deleteCustomerAction(customerId).catch(() => ({ status: 'error' as const, message: 'Something went wrong. Please try again.' }));
     setBusy(false);
     if (!r) return;
-    if (r.status === 'step-up') return setPhase('code-email');
+    if (r.status === 'step-up') return setPhase('step-up');
     setError(r.message);
     setPhase('confirm');
   }
 
-  async function sendCode() {
-    setBusy(true);
+  const keep = () => {
+    setPhase('idle');
     setError('');
-    const r = await post('/api/auth/request-code', { email: ownerEmail });
-    setBusy(false);
-    if (!r.ok) return setError(r.message);
-    setPhase('code-entry');
-  }
-
-  async function verify(e: FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    setError('');
-    const r = await post('/api/auth/verify', { email: ownerEmail, code });
-    if (!r.ok) {
-      setBusy(false);
-      return setError(r.message);
-    }
-    setCode('');
-    await attempt();
-  }
+  };
 
   if (phase === 'idle') {
     return (
@@ -82,44 +47,17 @@ export function DeleteCustomer({ customerId, customerName, ownerEmail }: { custo
       <p className="cust-warn-text">
         This permanently deletes {customerName} and every document, photo and file kept for them. It cannot be undone.
       </p>
-      {phase === 'confirm' || phase === 'deleting' ? (
+      {phase === 'confirm' ? (
         <div className="cust-actions">
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <Button type="button" variant="secondary" className="btn-block-sm" disabled={busy} onClick={attempt}>
             {busy ? 'Deleting' : 'Delete permanently'}
           </Button>
-          <button type="button" className="linklike" onClick={() => { setPhase('idle'); setError(''); }}>Keep this customer</button>
+          <button type="button" className="linklike" onClick={keep}>Keep this customer</button>
         </div>
-      ) : null}
-      {phase === 'code-email' ? (
-        <div className="cust-actions">
-          <p>For your security we need a fresh code before deleting. We will email one to {ownerEmail}.</p>
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <Button type="button" variant="secondary" className="btn-block-sm" disabled={busy} onClick={sendCode}>{busy ? 'Sending' : 'Email me a code'}</Button>
-          <button type="button" className="linklike" onClick={() => { setPhase('idle'); setError(''); }}>Keep this customer</button>
-        </div>
-      ) : null}
-      {phase === 'code-entry' ? (
-        <form className="cust-actions" onSubmit={verify} noValidate>
-          <Field
-            id="stepup-code"
-            name="code"
-            label={`${OTP_LENGTH} digit code`}
-            hint={`Sent to ${ownerEmail}`}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={OTP_LENGTH}
-            required
-            autoFocus
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
-            error={error || undefined}
-          />
-          <Button type="submit" variant="secondary" className="btn-block-sm" disabled={busy || code.length !== OTP_LENGTH}>{busy ? 'Checking' : 'Confirm and delete'}</Button>
-          <button type="button" className="linklike" onClick={() => { setPhase('idle'); setCode(''); setError(''); }}>Keep this customer</button>
-        </form>
-      ) : null}
+      ) : (
+        <StepUp email={ownerEmail} demo={demo} intro="before deleting" confirmLabel="Confirm and delete" cancelLabel="Keep this customer" onVerified={attempt} onCancel={keep} />
+      )}
     </section>
   );
 }

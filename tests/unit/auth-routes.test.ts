@@ -10,8 +10,9 @@ vi.mock('../../src/security/login-guard', async (orig) => ({
   verifyWithGuard: guard.verify,
 }));
 
-import { handleLogout, handleRequestCode, handleVerify, type AuthApi, type AuthDeps } from '../../src/lib/auth-handlers';
-import { readSessionStart } from '../../src/lib/auth-cookies';
+import { handleExpired, handleLogout, handleRequestCode, handleVerify, type AuthApi, type AuthDeps } from '../../src/lib/auth-handlers';
+import { readSessionStart, signSessionStart, startCookieName } from '../../src/lib/auth-cookies';
+import { activityCookieName, readActivity } from '../../src/lib/session-policy';
 import { OTP_LENGTH } from '../../src/lib/otp';
 import { getClientIp } from '../../src/lib/client-ip';
 
@@ -275,7 +276,7 @@ describe('verify', () => {
     const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(db, auth));
     expect(res.status).toBe(200);
     const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(3);
+    expect(cookies).toHaveLength(4);
     for (const c of cookies) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=lax/i);
@@ -286,7 +287,57 @@ describe('verify', () => {
     expect(auth.verifyOtp).toHaveBeenCalledWith({ email: 'ben@example.com', token: '12345678', type: 'email' });
     const start = cookies.find((c) => c.includes('dp-st='))!;
     const value = decodeURIComponent(start.split(';')[0].split('=').slice(1).join('='));
-    expect(readSessionStart(SECRET, value, Math.floor(Date.now() / 1000))).toEqual({ userId: 'user-1', sessionId: 'sess-1' });
+    const now = Math.floor(Date.now() / 1000);
+    expect(readSessionStart(SECRET, value, now)).toMatchObject({ userId: 'user-1', sessionId: 'sess-1' });
+    expect(Math.abs(readSessionStart(SECRET, value, now)!.at - now)).toBeLessThan(5);
+    // The activity cookie carries the business's limits (defaults here: no settings row) and is bound to the same session.
+    const la = cookies.find((c) => c.includes('dp-la='))!;
+    const act = readActivity(SECRET, decodeURIComponent(la.split(';')[0].split('=').slice(1).join('=')));
+    expect(act).toMatchObject({ userId: 'user-1', sessionId: 'sess-1', idleMinutes: 30, maxDays: 7 });
+  });
+
+  const cookieValue = (res: Response, name: string) => {
+    const c = res.headers.getSetCookie().find((x) => x.startsWith(`${name}=`))!;
+    return decodeURIComponent(c.split(';')[0].split('=').slice(1).join('='));
+  };
+  const limitsDb = (row: Record<string, unknown> | null) => {
+    const db = makeDb([], ['user-1']);
+    const base = db.query.getMockImplementation()!;
+    db.query.mockImplementation((async (sql: string, params: unknown[] = []) => (/from public\.tenant_defaults/.test(sql) ? { rows: row ? [row] : [] } : base(sql, params))) as never);
+    return db;
+  };
+
+  it('puts the business\'s own limits into the activity cookie', async () => {
+    const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
+    runGuard('real');
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }), deps(limitsDb({ idle_logout_minutes: 15, max_session_days: 2 }), auth));
+    expect(readActivity(SECRET, cookieValue(res, activityCookieName()))).toMatchObject({ idleMinutes: 15, maxDays: 2 });
+  });
+
+  it('a step-up code keeps the original login time, so it cannot stretch the session past the maximum', async () => {
+    const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
+    runGuard('real');
+    const now = Math.floor(Date.now() / 1000);
+    const loggedIn = now - 5 * 86400;
+    // Signed in five days ago on another Supabase session; entering a code now (step-up) gives a new session.
+    const cookie = `${startCookieName()}=${signSessionStart(SECRET, 'user-1', 'old-session', loggedIn)}`;
+    const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }, { cookie }), deps(limitsDb({ idle_logout_minutes: 30, max_session_days: 7 }), auth));
+    const st = readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!;
+    expect(st).toEqual({ userId: 'user-1', sessionId: 'sess-1', at: loggedIn });
+  });
+
+  it('a login-time cookie that is forged, someone else\'s or past the maximum starts a new sign-in now', async () => {
+    const auth = makeAuth({ verifyOtp: vi.fn(async () => ({ data: { session, user: { id: 'user-1' } }, error: null })) });
+    runGuard('real');
+    const now = Math.floor(Date.now() / 1000);
+    for (const prior of [
+      signSessionStart('x'.repeat(40), 'user-1', 'old', now - 3 * 86400),
+      signSessionStart(SECRET, 'user-2', 'old', now - 3 * 86400),
+      signSessionStart(SECRET, 'user-1', 'old', now - 8 * 86400),
+    ]) {
+      const res = await handleVerify(post('/api/auth/verify', { email: 'ben@example.com', code: '12345678' }, { cookie: `${startCookieName()}=${prior}` }), deps(limitsDb({ idle_logout_minutes: 30, max_session_days: 7 }), auth));
+      expect(Math.abs(readSessionStart(SECRET, cookieValue(res, startCookieName()), now)!.at - now)).toBeLessThan(5);
+    }
   });
 
   it('fails generically when the session secret is missing', async () => {
@@ -367,7 +418,7 @@ describe('logout', () => {
     expect(res.status).toBe(303);
     expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
     const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(3);
+    expect(cookies).toHaveLength(4);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/i);
     expect(d.revoke).toHaveBeenCalledWith(live);
     expect(d.revokeByRefreshToken).not.toHaveBeenCalled();
@@ -386,11 +437,23 @@ describe('logout', () => {
     const d = deps(makeDb([]), makeAuth(), { revokeByRefreshToken: async () => { throw new Error('down'); } });
     const res = await handleLogout(logoutReq(), { refresh: 'rt' }, d);
     expect(res.status).toBe(303);
-    expect(res.headers.getSetCookie()).toHaveLength(3);
+    expect(res.headers.getSetCookie()).toHaveLength(4);
   });
 
   it('refuses cross-origin logout', async () => {
     expect((await handleLogout(logoutReq('https://evil.test'), { access: 'tok' }, deps(makeDb([]), makeAuth()))).status).toBe(403);
+  });
+});
+
+describe('expired', () => {
+  it('clears every session cookie and sends the person to sign in with the notice', () => {
+    const res = handleExpired(new Request(`${ORIGIN}/api/auth/expired`));
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(`${ORIGIN}/login?notice=signed-out`);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toHaveLength(4);
+    for (const c of cookies) expect(c).toMatch(/Max-Age=0/i);
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 });
 

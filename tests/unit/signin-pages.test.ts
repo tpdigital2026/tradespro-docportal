@@ -22,8 +22,14 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('sign-in pages', () => {
   it('an unknown slug, a reserved word and a malformed slug render exactly the plain /login markup', async () => {
-    const plain = await html(LoginPage() as Promise<React.ReactElement>);
+    const plain = await html(LoginPage({ searchParams: Promise.resolve({}) }) as Promise<React.ReactElement>);
     for (const slug of ['no-such-biz', 'customers', 'dev', 'x', 'Bad_Slug']) expect(await branded(slug), slug).toBe(plain);
+  });
+  it('says why after the session policy signed someone out, and only then', async () => {
+    const out = await html(LoginPage({ searchParams: Promise.resolve({ notice: 'signed-out' }) }) as Promise<React.ReactElement>);
+    expect(out).toContain('You were signed out for your security. Sign in again to carry on.');
+    const plain = await html(LoginPage({ searchParams: Promise.resolve({ notice: 'other' }) }) as Promise<React.ReactElement>);
+    expect(plain).not.toContain('signed out');
   });
   it('the plain sign-in carries no business letterhead and no FJC brand', async () => {
     const plain = await branded('no-such-biz');

@@ -1,7 +1,8 @@
 import { after, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashEmail, requestCodeWithGuard, verifyWithGuard } from '../security/login-guard';
-import { accessCookieName, cookieOptions, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt, tokenSessionId } from './auth-cookies';
+import { accessCookieName, cookieOptions, readSessionStart, refreshCookieName, sessionSecret, SESSION_MAX_AGE_SECONDS, signSessionStart, startCookieName, tokenExpiresAt, tokenSessionId } from './auth-cookies';
+import { activityCookieName, DEFAULT_LIMITS, limitsFrom, signActivity, type SessionLimits } from './session-policy';
 import { OTP_PATTERN } from './otp';
 import { getClientIp } from './client-ip';
 import { isSameOrigin } from './same-origin';
@@ -172,6 +173,7 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   let session: { access_token: string; refresh_token: string } | null = null;
   let userId = '';
   let sessionId = '';
+  let limits: SessionLimits = DEFAULT_LIMITS;
   let db: GuardDb | null = null;
   try {
     db = await deps.openDb();
@@ -197,6 +199,16 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
       },
     });
     if (result.outcome !== 'verified' || !session) return respond(json(401, false, MSG_BAD_CODE));
+    // The business's session policy goes into the activity cookie, so the proxy can enforce it without a lookup.
+    try {
+      const lim = await conn.query(
+        `select idle_logout_minutes, max_session_days from public.tenant_defaults where tenant_id = (select p.tenant_id from public.profiles p where p.id = $1)`,
+        [userId],
+      );
+      limits = limitsFrom(lim.rows[0]);
+    } catch (e) {
+      logFailure('verify limits', e); // the defaults apply; never a reason to refuse a good code
+    }
   } catch (e) {
     if (!isBusy(e)) logFailure('verify', e);
     return respond(json(503, false, MSG_BUSY));
@@ -205,11 +217,33 @@ export async function handleVerify(req: Request, deps: AuthDeps = realDeps): Pro
   }
 
   const s = session as { access_token: string; refresh_token: string };
+  const now = Math.floor(Date.now() / 1000);
   const res = json(200, true, 'Signed in.');
   res.cookies.set(accessCookieName(), s.access_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
   res.cookies.set(refreshCookieName(), s.refresh_token, cookieOptions(SESSION_MAX_AGE_SECONDS));
-  res.cookies.set(startCookieName(), signSessionStart(secret, userId, sessionId, Math.floor(Date.now() / 1000)), cookieOptions(SESSION_MAX_AGE_SECONDS));
+  res.cookies.set(startCookieName(), signSessionStart(secret, userId, sessionId, loginTimeFor(req, secret, userId, now, limits)), cookieOptions(SESSION_MAX_AGE_SECONDS));
+  res.cookies.set(activityCookieName(), signActivity(secret, { userId, sessionId, lastAt: now, ...limits }), cookieOptions(SESSION_MAX_AGE_SECONDS));
   return respond(res);
+}
+
+/** One cookie's value from a request's Cookie header, or undefined. */
+export function cookieFrom(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.get('cookie') ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return undefined;
+}
+
+/**
+ * The login time to sign into the new dp-st. A step-up (the same person entering a code while still signed in) keeps
+ * the original login time, so a fresh code can never stretch the session past the business's maximum. A genuine,
+ * unexpired login-time cookie for this person is the only thing that counts as "still signed in"; anything else
+ * (none, forged, someone else's, past the maximum days) is a new sign-in that starts now.
+ */
+export function loginTimeFor(req: Request, secret: string, userId: string, now: number, limits: SessionLimits): number {
+  const prior = readSessionStart(secret, cookieFrom(req, startCookieName()), now, limits.maxDays * 86400);
+  return prior && prior.userId === userId ? prior.at : now;
 }
 
 export async function handleLogout(
@@ -227,10 +261,22 @@ export async function handleLogout(
   } catch {
     /* best effort; the cookies are cleared either way */
   }
-  const res = NextResponse.redirect(new URL('/login', req.url), 303);
-  for (const name of [accessCookieName(), refreshCookieName(), startCookieName()]) {
+  return clearAll(NextResponse.redirect(new URL('/login', req.url), 303));
+}
+
+function clearAll(res: NextResponse): NextResponse {
+  for (const name of [accessCookieName(), refreshCookieName(), startCookieName(), activityCookieName()]) {
     res.cookies.set(name, '', { ...cookieOptions(0), maxAge: 0, expires: new Date(0) });
   }
   res.headers.set('Cache-Control', 'no-store');
   return res;
+}
+
+/**
+ * Where getSession sends a session the policy has ended (idle too long, or past the maximum days): the cookies are
+ * cleared and the sign-in page says why. A GET, because it is reached by a redirect; all it can do is sign the visitor
+ * out, which is also all a forged link to it could do.
+ */
+export function handleExpired(req: Request): Response {
+  return clearAll(NextResponse.redirect(new URL('/login?notice=signed-out', req.url), 303));
 }

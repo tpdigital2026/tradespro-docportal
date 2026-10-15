@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { accessCookieName } from './auth-cookies';
 import { isDemo } from './demo';
 import { anonClient } from './supabase-server';
+import { demoStepUpCookieName, demoStepUpFresh } from './step-up-demo';
 import { assertRecentStepUp, StepUpRequiredError, type AuthClaims } from '../security/step-up';
 
 /** The slice of Supabase Auth used here. getClaims verifies the token's signature before returning claims. */
@@ -26,10 +27,16 @@ export async function requireFreshStepUp(token: string | undefined, api: ClaimsA
   assertRecentStepUp(claims, nowSeconds);
 }
 
-/** For the request being served. Demo mode has no real login, so it counts as fresh there. */
+/**
+ * For the request being served. Demo mode has no real login, so it uses the clearly separate demo stand-in
+ * (step-up-demo.ts: a published dummy code, a process-signed cookie, 10 minutes); real mode never reads that cookie.
+ */
 export async function requireFreshStepUpForRequest(): Promise<void> {
-  if (isDemo()) return;
   const jar = await cookies();
+  if (isDemo()) {
+    if (!demoStepUpFresh(jar.get(demoStepUpCookieName())?.value, Math.floor(Date.now() / 1000))) throw new StepUpRequiredError();
+    return;
+  }
   await requireFreshStepUp(jar.get(accessCookieName())?.value, anonClient().auth as unknown as ClaimsApi, Math.floor(Date.now() / 1000));
 }
 

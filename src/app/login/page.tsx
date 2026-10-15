@@ -7,11 +7,12 @@ import { LoginForm } from './LoginForm';
 
 export const metadata = signInMetadata(TRADESPRO_BRAND);
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[] }> }) {
   if (await getSession()) redirect('/');
+  const { notice } = await searchParams;
   return (
     <SignIn brand={TRADESPRO_BRAND}>
-      <LoginForm />
+      <LoginForm signedOut={notice === 'signed-out'} />
     </SignIn>
   );
 }

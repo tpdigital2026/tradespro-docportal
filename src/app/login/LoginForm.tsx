@@ -5,6 +5,7 @@ import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
 import { OTP_LENGTH, OTP_PLACEHOLDER } from '../../lib/otp';
 import { LOGIN_WINDOW_MINUTES, LOGIN_WINDOW_MS } from '../../lib/login-window';
+import { SESSION_EXPIRED_MESSAGE } from '../../lib/signed-out';
 
 type Step = 'email' | 'code';
 
@@ -35,7 +36,8 @@ async function post(url: string, body: unknown): Promise<{ ok: boolean; status: 
   }
 }
 
-export function LoginForm({ preview }: { preview?: PreviewState }) {
+/** signedOut: the session policy ended the last session (idle too long, or past the maximum days). */
+export function LoginForm({ preview, signedOut = false }: { preview?: PreviewState; signedOut?: boolean }) {
   const [step, setStep] = useState<Step>(preview?.step ?? 'email');
   const [email, setEmail] = useState(preview ? 'owner@example.com' : '');
   const [code, setCode] = useState('');
@@ -143,6 +145,7 @@ export function LoginForm({ preview }: { preview?: PreviewState }) {
         </h1>
         <p className="lede">{isEmail ? 'We email you a sign-in code. No password to remember.' : `We sent an ${OTP_LENGTH} digit code to ${sentTo}.`}</p>
       </div>
+      {signedOut && isEmail ? <p className="flash signin-flash" role="status">{SESSION_EXPIRED_MESSAGE} Sign in again to carry on.</p> : null}
       <form className="login-form" onSubmit={isEmail ? sendCode : verify} noValidate>
         {isEmail ? (
           <Field
