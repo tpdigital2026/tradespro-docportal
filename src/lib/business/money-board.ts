@@ -3,7 +3,8 @@
  *  - quoted: the issued quote version's stored gross;
  *  - invoiced to date: the stored totals of issued (final or sent) invoices;
  *  - received: payments recorded with Mark as paid against those invoices;
- *  - outstanding: invoiced to date less received (never below zero);
+ *  - outstanding: the sum of each issued invoice's own outstanding (its total less what was paid on it, never below
+ *    zero), so a payment over one invoice never hides another that is unpaid;
  *  - still to invoice: quoted less invoiced to date (never below zero).
  * Nothing is estimated or forecast. Payments are recorded by the owner and are not checked against a bank.
  */
@@ -20,31 +21,39 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 const WORD_ALT = Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.length).join('|');
 
-export type DueRule = { kind: 'on-receipt' } | { kind: 'days'; days: number };
+export type DueRule = { kind: 'on-receipt' } | { kind: 'days'; days: number } | { kind: 'check' };
+
+/** An anchor that means the invoice date: "the invoice", "this invoice", "the invoice date", "the date of invoice". */
+const INVOICE_ANCHOR = String.raw`(?:of|from|after)\s+(?:the\s+|this\s+)?(?:date\s+of\s+(?:the\s+|this\s+)?)?invoice(?:\s+date)?\b`;
 
 /**
- * Reads a due rule from an invoice's printed wording, only when it names one plainly:
- *   "due upon receipt", "payable on receipt"            -> due on the invoice date
- *   "within 14 days", "14 days from the invoice date"  -> invoice date plus 14 days
- * Anything else ("Before works start", "on completion") has no calendar date: null, never guessed.
+ * Reads a due rule from an invoice's printed wording, only when it is counted from the invoice itself:
+ *   "due upon receipt", "payable on receipt"                       -> due on the invoice date (wins over any interest wording)
+ *   "within 14 days", "within 14 days of the invoice date"         -> invoice date plus 14 days
+ *   "14 days from the invoice", "30 days of the invoice date"      -> invoice date plus N days
+ * A count of days from anything else ("of completion", "after the due date") is { kind: 'check' }: no due date, and
+ * the screen asks the owner to check it. Wording with no count of days ("Before works start") is null. Never guessed.
  */
 export function dueRuleFrom(wording: string | null | undefined): DueRule | null {
   if (!wording) return null;
-  const w = wording.normalize('NFKC').toLowerCase().replace(/[-‐-―]/g, ' ').replace(/\s+/g, ' ');
-  const n = new RegExp(`\\b(?:within|in)\\s+(\\d{1,3}|${WORD_ALT})\\s+(?:calendar\\s+)?days?\\b|\\b(\\d{1,3}|${WORD_ALT})\\s+(?:calendar\\s+)?days?\\s+(?:of|from|after)\\b|\\bnet\\s+(\\d{1,3})\\b`).exec(w);
-  if (n) {
-    const raw = n[1] ?? n[2] ?? n[3];
-    const days = /^\d+$/.test(raw) ? Number(raw) : NUMBER_WORDS[raw];
-    if (Number.isInteger(days) && days >= 0 && days <= 365) return { kind: 'days', days };
-  }
+  const w = wording.normalize('NFKC').toLowerCase().replace(/[-‐-―]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/\b(?:upon|on)\s+receipt\b/.test(w)) return { kind: 'on-receipt' };
-  return null;
+  const count = new RegExp(String.raw`\b(\d{1,3}|${WORD_ALT})\s+(?:calendar\s+)?days?\b`).exec(w);
+  if (!count) return null;
+  const days = /^\d+$/.test(count[1]) ? Number(count[1]) : NUMBER_WORDS[count[1]];
+  if (!Number.isInteger(days) || days < 0 || days > 365) return { kind: 'check' };
+  const before = w.slice(0, count.index);
+  const after = w.slice(count.index + count[0].length).trim();
+  if (new RegExp(`^${INVOICE_ANCHOR}`).test(after)) return { kind: 'days', days };
+  // "within 14 days" with nothing after it (or the end of a sentence) counts from the invoice.
+  if (/\bwithin\s+$/.test(before) && /^(?:[.,;)]|$)/.test(after)) return { kind: 'days', days };
+  return { kind: 'check' };
 }
 
-/** yyyy-mm-dd the invoice falls due, or null when its wording gives no calendar date. */
+/** yyyy-mm-dd the invoice falls due, or null when its wording gives no calendar date counted from the invoice. */
 export function dueDateFor(d: Pick<FactDocument, 'docDate' | 'dueWording'>): string | null {
   const r = dueRuleFrom(d.dueWording);
-  if (!r) return null;
+  if (!r || r.kind === 'check') return null;
   return r.kind === 'on-receipt' ? d.docDate : addDays(d.docDate, r.days);
 }
 
@@ -63,6 +72,8 @@ export interface InvoiceLine {
   outstandingPence: number;
   dueOn: string | null;
   dueWording: string | null;
+  /** The wording counts days from something other than the invoice: no due date, the owner should check it. */
+  dueCheck: boolean;
   /** Recorded payments equal the invoice's gross. */
   settled: boolean;
   /** Past its due date (Europe/London), not settled. */
@@ -132,6 +143,7 @@ export function jobBalance(job: JobFacts, today: string): JobBalance | null {
         outstandingPence: Math.max(0, gross - received),
         dueOn,
         dueWording: d.dueWording,
+        dueCheck: dueRuleFrom(d.dueWording)?.kind === 'check',
         settled,
         overdue,
         daysOverdue: overdue && dueOn ? daysBetween(dueOn, today) : 0,
@@ -148,7 +160,7 @@ export function jobBalance(job: JobFacts, today: string): JobBalance | null {
     quotedPence: job.quote.grossPence,
     invoicedPence: invoiced,
     receivedPence: received,
-    outstandingPence: Math.max(0, invoiced - received),
+    outstandingPence: invoices.reduce((s, i) => s + i.outstandingPence, 0),
     toInvoicePence: Math.max(0, job.quote.grossPence - invoiced),
     invoices,
     awaitingDeposit: invoices.some((i) => i.type === 'deposit-invoice' && !i.settled),
@@ -278,3 +290,25 @@ export function paymentTotals(rows: PaymentRow[], month: string): PaymentTotals 
 
 export const METHOD_LABELS: Record<string, string> = { 'bank transfer': 'Bank transfer', cash: 'Cash', cheque: 'Cheque', card: 'Card', other: 'Other' };
 export const methodLabel = (m: string) => METHOD_LABELS[m] ?? 'Other';
+
+// ---------------------------------------------------------------- Home strip (invoices only, no job load)
+
+export interface InvoiceTotalsLine {
+  docDate: string;
+  grossPence: number;
+  paidPence: number;
+  dueWording: string | null;
+}
+
+/** The same rules as jobBalance, over issued invoices alone: outstanding is the sum of each invoice's own outstanding. */
+export function summariseInvoices(lines: InvoiceTotalsLine[], today: string): { anyInvoices: boolean; outstandingPence: number; overdueInvoices: number } {
+  let outstanding = 0;
+  let overdue = 0;
+  for (const l of lines) {
+    const left = Math.max(0, l.grossPence - l.paidPence);
+    outstanding += left;
+    const due = dueDateFor({ docDate: l.docDate, dueWording: l.dueWording });
+    if (left > 0 && due !== null && today > due) overdue += 1;
+  }
+  return { anyInvoices: lines.length > 0, outstandingPence: outstanding, overdueInvoices: overdue };
+}

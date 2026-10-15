@@ -4,11 +4,13 @@
  * explicitly (the same pattern as the Documents library). Demo mode builds the same shapes from dummy data.
  */
 import 'server-only';
+import { cache } from 'react';
 import { isDemo } from '../demo';
 import { docTypeFromDb, type DocStatus } from '../job-stage';
 import { planFromJson } from '../payment-plan';
 import { requireSession } from '../session';
-import { storedGross, storedSchedule, type FactDocument, type FactPayment, type JobFacts } from '../business/facts';
+import { isLive, storedGross, storedSchedule, type FactDocument, type FactPayment, type JobFacts } from '../business/facts';
+import type { InvoiceTotalsLine } from '../business/money-board';
 import { withServiceConnection } from './customer-admin';
 import { demoBusinessFacts } from '../demo-business';
 import type { Db } from '../../security/login-guard';
@@ -134,9 +136,39 @@ export async function loadBusinessFactsSql(db: Db, tenantId: string, limit = JOB
   return { jobs, truncated, noJobPage: new Set() };
 }
 
-/** What the Pipeline, Money and Guarantees screens call: session first, tenant from it. */
-export async function getBusinessFacts(): Promise<BusinessFacts> {
+/** What the Pipeline, Money and Guarantees screens call: session first, tenant from it. Read once per request. */
+export const getBusinessFacts: () => Promise<BusinessFacts> = cache(async () => {
   const s = await requireSession();
   if (isDemo()) return demoBusinessFacts();
   return withServiceConnection((db) => loadBusinessFactsSql(db, s.tenantId));
+});
+
+/**
+ * For the Home money strip: only the issued invoices (stored total, what was paid on each, printed due wording),
+ * summed in one query, so Home never loads every job.
+ */
+export async function loadInvoiceTotalsSql(db: Db, tenantId: string): Promise<InvoiceTotalsLine[]> {
+  const r = await db.query(
+    `select d.doc_date, d.total_pence,
+            coalesce((select sum(p.amount_pence) from public.payments p where p.tenant_id = d.tenant_id and p.document_id = d.id), 0)::bigint as paid,
+            coalesce(v.final_content -> 'content' -> 'input' ->> 'dueNote', v.final_content -> 'content' -> 'input' ->> 'dueLabel') as due_wording
+       from public.documents d
+       left join public.document_versions v on v.id = d.current_version_id and v.tenant_id = d.tenant_id and v.finalised_at is not null
+      where d.tenant_id = $1 and d.status in ('final', 'sent') and d.total_pence is not null
+        and d.type in ('deposit_invoice', 'balance_invoice', 'invoice_full', 'invoice_stage')`,
+    [tenantId],
+  );
+  return r.rows.map((x) => ({ docDate: isoDate(x.doc_date), grossPence: Number(x.total_pence), paidPence: Number(x.paid), dueWording: str(x.due_wording) }));
+}
+
+export async function getInvoiceTotals(): Promise<InvoiceTotalsLine[]> {
+  const s = await requireSession();
+  if (isDemo()) {
+    return demoBusinessFacts().jobs.flatMap((j) =>
+      j.documents
+        .filter((d) => isLive(d.status) && d.totalPence !== null && ['deposit-invoice', 'balance-invoice', 'invoice-full', 'invoice-stage'].includes(d.type))
+        .map((d) => ({ docDate: d.docDate, grossPence: d.totalPence as number, paidPence: j.payments.filter((p) => p.documentId === d.id).reduce((t, p) => t + p.amountPence, 0), dueWording: d.dueWording })),
+    );
+  }
+  return withServiceConnection((db) => loadInvoiceTotalsSql(db, s.tenantId));
 }

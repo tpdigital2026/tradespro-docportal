@@ -35,6 +35,8 @@ export interface Appointment {
   jobId: string | null;
   quoteNumber: string | null;
   notes: string | null;
+  /** ISO instant of the last change. */
+  updatedAt?: string;
 }
 
 export interface AppointmentFormValues {
@@ -67,14 +69,18 @@ function clean(s: string, multiline: boolean): string {
   return multiline ? t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() : t.replace(/\s+/g, ' ').trim();
 }
 
+/** The same bounds as the database check on starts_at. */
+const inRange = (d: string) => d >= '2000-01-01' && d < '2100-01-01';
+const RANGE = 'Choose a date between 2000 and 2099';
+
 const id = z.union([z.literal(''), z.string().max(80).regex(/^[A-Za-z0-9-]+$/)]);
 
 const schema = z.strictObject({
   kind: z.enum(KIND_KEYS, { error: 'Choose what kind of appointment this is' }),
   title: z.string().transform((s) => clean(s, false)).pipe(z.string().min(1, 'Give it a short title').max(TITLE_MAX, `Keep the title under ${TITLE_MAX} characters`)),
-  date: z.string().refine(isIsoDate, 'Choose a date'),
+  date: z.string().refine(isIsoDate, 'Choose a date').refine(inRange, RANGE),
   start: z.string().refine(isTime, 'Choose a start time'),
-  endDate: z.union([z.literal(''), z.string().refine(isIsoDate, 'Choose a real end date')]),
+  endDate: z.union([z.literal(''), z.string().refine(isIsoDate, 'Choose a real end date').refine(inRange, RANGE)]),
   end: z.union([z.literal(''), z.string().refine(isTime, 'Choose a real end time')]),
   customerId: id,
   jobId: id,

@@ -31,6 +31,10 @@ describe('appointment form rules', () => {
     expect(bad({ date: '2026-03-29', start: '01:30' })?.start).toMatch(/clocks go forward/);
     expect(bad({ customerId: "x' or 1=1" })?.customerId).toBeTruthy();
     expect(bad({ date: '2026-02-30' })?.date).toBeTruthy();
+    expect(bad({ date: '1999-12-31' })?.date).toMatch(/between 2000 and 2099/);
+    expect(bad({ date: '2100-01-01' })?.date).toMatch(/between 2000 and 2099/);
+    expect(bad({ endDate: '2100-01-01', end: '09:00' })?.endDate).toMatch(/between 2000 and 2099/);
+    expect(checkAppointment({ ...base, date: '2099-12-31', start: '23:45' }).ok).toBe(true);
     expect(checkAppointment({ ...base, extra: 'x' }).ok).toBe(false);
   });
 

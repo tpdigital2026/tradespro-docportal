@@ -70,6 +70,8 @@ Customer data is removed once a customer's `purge_at` passes. `purge_at` is last
 3. Delete those files from storage.
 4. `private.purge_customers` deletes the claimed customers and writes a `purge_log` row (a zero-count run is a heartbeat).
 
+5. Separately, in the same maintenance run: `select private.purge_unlinked_appointments(now())` (service role, migration 031). It deletes appointments with no customer once the latest of their `created_at`, `updated_at` and own end (or start) is older than the business's `retention_days`. It touches no files and returns the number deleted. It is not scheduled yet: add it to the maintenance cron alongside the customer purge.
+
 Residual risk: if the connection drops after the files are deleted, the customer stays expired and is purged on the next run. A write in that gap can leave a kept customer pointing at deleted files. A single transaction and a long statement timeout keep this window small.
 
 ### Retention and the in-app notice
@@ -84,6 +86,8 @@ Same shape as the purge, one customer, ONE transaction on a service connection w
 2. `private.customer_storage_paths(tenant, customer)` lists the files.
 3. Delete those files from storage; abort and roll back on any failure.
 4. `private.erase_customer(tenant, customer)`, then commit.
+
+Appointments linked to the customer (directly or through one of their jobs) are locked by the claim and erased by the same cascade; they hold no files. Appointments with no customer are not reached by an erasure: they are removed by `private.purge_unlinked_appointments` (purge job protocol, step 5).
 
 In the app this is `eraseCustomerWith` (`src/lib/data/customer-admin.ts`). It needs the owner role and a fresh emailed code (`requireFreshStepUpForRequest`, which verifies the token's signature before reading `amr`). Storage deletion goes through the `StorageDeleter` interface (`src/lib/storage.ts`); until buckets exist this is an in-memory stand-in, so wire the real bucket client in before launch.
 
@@ -121,8 +125,8 @@ Supabase Auth's own `/auth/v1/otp` and `/auth/v1/verify` endpoints are reachable
 ### Business tabs: Pipeline, Money, Calendar, Guarantees (migration 030)
 
 - Every figure is a sum of recorded facts, read on a service connection with the session's tenant in every query (`src/lib/data/business.ts`): the issued quote version's stored `money` (gross and schedule), the stored `total_pence` of issued invoices, and recorded payments. Nothing is recomputed, estimated or forecast. A quote finalised without a stored schedule shows a plain "cannot be worked out" note instead of a stage.
-- Due dates are read only from the due wording printed on each issued invoice ("due upon receipt", "within 14 days"); wording such as "Before works start" has no calendar date and is never guessed. Overdue compares Europe/London dates.
+- Due dates are read only from the due wording printed on each issued invoice, and only when counted from the invoice ("due upon receipt", "within 14 days", "14 days from the invoice date"). Days counted from anything else ("of completion", "after the due date") give no due date and show "Check the due date on this invoice"; wording such as "Before works start" has no calendar date. Overdue compares Europe/London dates. A job's outstanding is the sum of each invoice's own outstanding, so an overpaid invoice never hides an unpaid one. Calendar files carry SEQUENCE (from `updated_at`) so an edited appointment replaces the old copy when imported again.
 - The Money CSV export (`/api/money/export`) is the rows on screen; every cell is quoted and a cell starting with `=`, `+`, `-`, `@`, tab or carriage return gets a leading single quote.
-- `appointments`: tenant scoped, row level security forced, composite foreign keys to customers and jobs (a job fills in its customer and may not name another), column grants for what the owner types. Erased with the customer and locked in `private.lock_customer_tree`. Booking extends the customer's retention. Appointments with no customer are removed by `private.purge_unlinked_appointments` once older than the retention period (service role only, not scheduled yet).
+- `appointments`: tenant scoped, row level security forced, composite foreign keys to customers and jobs (a job fills in its customer and may not name another), column grants for what the owner types. Erased with the customer and locked in `private.lock_customer_tree`. Booking or moving an appointment extends the customer's retention to at least the retention period after the appointment itself (migration 031), so a customer is never purged before a booked visit. Appointments with no customer are removed by `private.purge_unlinked_appointments` (see the purge protocol, step 5); the form tells the owner both rules.
 - Calendar files (`/api/calendar/ics`) are RFC 5545 with UTC times, escaped text and folded lines, carrying only the title and the notes the owner typed. No reminders or notifications.
 - `pipeline`, `money`, `calendar` and `guarantees` are reserved sign-in words (app and database check).

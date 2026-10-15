@@ -30,8 +30,7 @@ export async function GET(req: Request) {
     } else if (isMonth(m)) {
       const { from, to } = instantsFor(`${m}-01`, `${m}-${String(daysInMonth(m)).padStart(2, '0')}`);
       const list = await listAppointments(from, to);
-      const stamp = new Date().toISOString();
-      events = list.map((a) => ({ id: a.id, title: a.title, startsAt: a.startsAt, endsAt: a.endsAt, notes: a.notes, stamp }));
+      events = list.map((a) => ({ id: a.id, title: a.title, startsAt: a.startsAt, endsAt: a.endsAt, notes: a.notes, stamp: a.updatedAt ?? '2026-01-01T00:00:00.000Z' }));
       name = icsFilename(`appointments-${m}`);
       calName = `Appointments, ${monthLabel(m)}`;
     } else {

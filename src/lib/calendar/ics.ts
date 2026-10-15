@@ -14,8 +14,16 @@ export interface IcsEvent {
   startsAt: string | Date;
   endsAt: string | Date | null;
   notes: string | null;
-  /** When the appointment was last changed; DTSTAMP. */
+  /** When the appointment was last changed: DTSTAMP, and the SEQUENCE that makes an edited copy replace the old one. */
   stamp: string | Date;
+}
+
+const SEQUENCE_EPOCH = Date.UTC(2020, 0, 1);
+
+/** Seconds since 2020 of the last change: rises with every edit, fits a 32-bit integer until 2088. */
+export function sequenceOf(stamp: string | Date): number {
+  const t = (typeof stamp === 'string' ? new Date(stamp) : stamp).getTime();
+  return Number.isFinite(t) ? Math.max(0, Math.floor((t - SEQUENCE_EPOCH) / 1000)) : 0;
 }
 
 export const ICS_DOMAIN = 'docs.tradesprodigital.io';
@@ -68,7 +76,7 @@ export function foldLine(line: string): string {
 const uidOf = (id: string) => `${id.replace(/[^A-Za-z0-9-]/g, '')}@${ICS_DOMAIN}`;
 
 function eventLines(e: IcsEvent): string[] {
-  const lines = ['BEGIN:VEVENT', `UID:${uidOf(e.id)}`, `DTSTAMP:${utcStamp(e.stamp)}`, `DTSTART:${utcStamp(e.startsAt)}`];
+  const lines = ['BEGIN:VEVENT', `UID:${uidOf(e.id)}`, `DTSTAMP:${utcStamp(e.stamp)}`, `SEQUENCE:${sequenceOf(e.stamp)}`, `DTSTART:${utcStamp(e.startsAt)}`];
   if (e.endsAt) lines.push(`DTEND:${utcStamp(e.endsAt)}`);
   lines.push(`SUMMARY:${escapeText(e.title)}`);
   if (e.notes && e.notes.trim()) lines.push(`DESCRIPTION:${escapeText(e.notes)}`);

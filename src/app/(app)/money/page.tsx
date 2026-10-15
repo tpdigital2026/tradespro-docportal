@@ -26,6 +26,7 @@ function InvoiceStatus({ i }: { i: InvoiceLine }) {
 
 function due(i: InvoiceLine, today: string): string {
   if (i.settled) return '';
+  if (i.dueCheck) return 'Check the due date on this invoice';
   if (i.dueOn) return i.dueOn === today ? 'Due today' : i.dueOn < today ? `Was due ${shortDate(i.dueOn)}` : `Due ${shortDate(i.dueOn)}`;
   return i.dueWording ? `Due: ${i.dueWording.replace(/\.$/, '').replace(/^./, (c) => c.toLowerCase())}` : 'No due date on the invoice';
 }

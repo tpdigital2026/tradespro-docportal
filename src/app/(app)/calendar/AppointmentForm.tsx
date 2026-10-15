@@ -69,6 +69,7 @@ export function AppointmentForm({
 
       <div className="fgroup">
         <h3 className="fgroup-h">Who it is for</h3>
+        <p className="hint" id="link-rule">Link a customer and this appointment is deleted along with their data. Appointments without a customer are deleted after your retention period.</p>
         <div className="fgroup-row">
           <div className="field">
             <label htmlFor="customerId">Customer</label>
@@ -78,7 +79,7 @@ export function AppointmentForm({
               name="customerId"
               className="input"
               value={customerId}
-              aria-describedby={['customerId-hint', e.customerId ? 'customerId-error' : ''].filter(Boolean).join(' ')}
+              aria-describedby={['customerId-hint', 'link-rule', e.customerId ? 'customerId-error' : ''].filter(Boolean).join(' ')}
               aria-invalid={e.customerId ? true : undefined}
               onChange={(ev) => {
                 setCustomerId(ev.target.value);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FactDocument, FactPayment, JobFacts } from '../../src/lib/business/facts';
 import { storedSchedule } from '../../src/lib/business/facts';
-import { buildBalances, dueDateFor, dueRuleFrom, jobBalance, overdueJobIds, paymentRows, paymentTotals } from '../../src/lib/business/money-board';
+import { buildBalances, dueDateFor, dueRuleFrom, jobBalance, overdueJobIds, paymentRows, paymentTotals, summariseInvoices } from '../../src/lib/business/money-board';
 import { buildPipeline, byPipelineUrgency, pipelineCard } from '../../src/lib/business/pipeline';
 import { guaranteeRows, filterGuarantees } from '../../src/lib/business/guarantees';
 import { moneyCsv, moneyView, parseMoneyParams } from '../../src/lib/business/money-view';
@@ -89,10 +89,19 @@ describe('due dates from the printed wording', () => {
     expect(dueRuleFrom('Payment due within 14 days of the invoice date.')).toEqual({ kind: 'days', days: 14 });
     expect(dueRuleFrom('Due within fourteen days')).toEqual({ kind: 'days', days: 14 });
     expect(dueRuleFrom('30 days from the invoice date')).toEqual({ kind: 'days', days: 30 });
-    expect(dueRuleFrom('Net 7')).toEqual({ kind: 'days', days: 7 });
+    expect(dueRuleFrom('14 days of the invoice date')).toEqual({ kind: 'days', days: 14 });
+    expect(dueRuleFrom('within 10 days of the date of invoice')).toEqual({ kind: 'days', days: 10 });
+    expect(dueRuleFrom('Within 7 days.')).toEqual({ kind: 'days', days: 7 });
     expect(dueRuleFrom('Before works start')).toBeNull();
     expect(dueRuleFrom('Balance due on completion')).toBeNull();
     expect(dueRuleFrom(null)).toBeNull();
+    // Another anchor: no due date, the owner is asked to check it.
+    expect(dueRuleFrom('Payment within 14 days of completion')).toEqual({ kind: 'check' });
+    expect(dueRuleFrom('Interest charged 30 days after the due date')).toEqual({ kind: 'check' });
+    expect(dueRuleFrom('Net 30')).toBeNull();
+    expect(dueDateFor({ docDate: '2026-10-10', dueWording: 'within 14 days of completion' })).toBeNull();
+    // Upon receipt wins over interest wording.
+    expect(dueRuleFrom('Payment is due upon receipt. Interest at 8% is charged 30 days after the due date.')).toEqual({ kind: 'on-receipt' });
     expect(dueDateFor({ docDate: '2026-10-10', dueWording: 'within 7 days' })).toBe('2026-10-17');
     expect(dueDateFor({ docDate: '2026-10-10', dueWording: 'due upon receipt' })).toBe('2026-10-10');
   });
@@ -114,6 +123,26 @@ describe('money', () => {
     const b = jobBalance(depositJob({ documents: [doc('q', 'quotation', 'Q100', '2026-10-01', 100000), due] }), TODAY)!;
     expect(b.overdue).toBe(false);
     expect(jobBalance(depositJob({ documents: [doc('q', 'quotation', 'Q100', '2026-10-01', 100000), due] }), '2026-10-16')!.overdue).toBe(true);
+  });
+
+  it('an invoice counted from completion is not overdue and asks to be checked', () => {
+    const odd = doc('b', 'balance-invoice', 'INV-Q100-B', '2026-09-01', 70000, { dueWording: 'Payment within 14 days of completion' });
+    const b = jobBalance(depositJob({ documents: [doc('q', 'quotation', 'Q100', '2026-10-01', 100000), odd] }), TODAY)!;
+    expect(b.invoices[0]).toMatchObject({ dueOn: null, dueCheck: true, overdue: false });
+    expect(b.overdue).toBe(false);
+  });
+
+  it('job outstanding is the sum of each invoice, so an overpaid invoice never hides an unpaid one', () => {
+    const j = depositJob({ documents: [doc('q', 'quotation', 'Q100', '2026-10-01', 100000), inv, bal], payments: [pay('p1', 'd', 40000, '2026-10-03')] });
+    const b = jobBalance(j, TODAY)!;
+    expect(b.receivedPence).toBe(40000);
+    expect(b.outstandingPence).toBe(70000); // not 100000 - 40000
+    expect(b.invoices[0].settled).toBe(true);
+    const totals = summariseInvoices([{ docDate: '2026-10-02', grossPence: 30000, paidPence: 40000, dueWording: null }, { docDate: '2026-10-08', grossPence: 70000, paidPence: 0, dueWording: 'due upon receipt' }], TODAY);
+    expect(totals).toEqual({ anyInvoices: true, outstandingPence: 70000, overdueInvoices: 1 });
+    const all = buildBalances([j], TODAY);
+    expect(all.outstandingPence).toBe(totals.outstandingPence);
+    expect(all.overdueInvoices).toBe(totals.overdueInvoices);
   });
 
   it('settled only when every part is invoiced and paid', () => {
@@ -160,7 +189,8 @@ describe('money', () => {
         docs.push(doc(`i${i.index}`, type, number, '2026-09-02', i.grossPence, { dueWording: r() < 0.5 ? 'due upon receipt' : null }));
         let left = i.grossPence;
         while (left > 0 && r() < 0.7) {
-          const amt = Math.max(1, Math.min(left, Math.floor(r() * i.grossPence)));
+          // Now and then an overpayment (a payment recorded by hand can be more than the invoice).
+          const amt = r() < 0.1 ? left + 1 + Math.floor(r() * 5000) : Math.max(1, Math.min(left, Math.floor(r() * i.grossPence)));
           pays.push(pay(`p${pays.length}`, `i${i.index}`, amt, `2026-${r() < 0.5 ? '09' : '10'}-0${1 + Math.floor(r() * 9)}`));
           left -= amt;
           paid += amt;
@@ -171,9 +201,14 @@ describe('money', () => {
       const invoiced = docs.filter((d) => d.type !== 'quotation').reduce((t, d) => t + (d.totalPence ?? 0), 0);
       expect(b.invoicedPence).toBe(invoiced);
       expect(b.receivedPence).toBe(paid);
-      expect(b.outstandingPence).toBe(invoiced - paid);
+      const perInvoice = docs.filter((d) => d.type !== 'quotation').reduce((t, d) => t + Math.max(0, (d.totalPence ?? 0) - pays.filter((p) => p.documentId === d.id).reduce((x, p) => x + p.amountPence, 0)), 0);
+      expect(b.outstandingPence).toBe(perInvoice);
+      expect(b.outstandingPence).toBeGreaterThanOrEqual(Math.max(0, invoiced - paid));
+      const strip = summariseInvoices(b.invoices.map((i) => ({ docDate: i.issuedOn, grossPence: i.grossPence, paidPence: i.receivedPence, dueWording: i.dueWording })), TODAY);
+      expect(strip.outstandingPence).toBe(b.outstandingPence);
+      expect(strip.overdueInvoices).toBe(b.invoices.filter((i) => i.overdue).length);
       expect(b.toInvoicePence).toBe(gross - invoiced);
-      expect(b.invoices.every((i) => i.outstandingPence >= 0 && i.settled === (i.receivedPence === i.grossPence))).toBe(true);
+      expect(b.invoices.every((i) => i.outstandingPence >= 0 && i.settled === (i.receivedPence >= i.grossPence))).toBe(true);
       const rows = paymentRows([job]);
       const t = paymentTotals(rows, '2026-10');
       expect(t.yearPence).toBe(paid);

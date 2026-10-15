@@ -1,6 +1,6 @@
 import ICAL from 'ical.js';
 import { describe, expect, it } from 'vitest';
-import { buildIcs, escapeText, foldLine, icsFilename, utcStamp, type IcsEvent } from '../../src/lib/calendar/ics';
+import { buildIcs, escapeText, foldLine, icsFilename, sequenceOf, utcStamp, type IcsEvent } from '../../src/lib/calendar/ics';
 import { londonToUtc } from '../../src/lib/london';
 
 const enc = new TextEncoder();
@@ -74,7 +74,7 @@ describe('ics', () => {
   it('puts nothing in but the title, time and notes', () => {
     const text = buildIcs([{ id: 'x', title: 'Visit', startsAt: '2026-07-01T08:00:00Z', endsAt: null, notes: 'Bring ladder', stamp: '2026-06-01T00:00:00Z' }]);
     const [ev] = parse(text);
-    expect(ev.keys.sort()).toEqual(['description', 'dtstamp', 'dtstart', 'summary', 'uid']);
+    expect(ev.keys.sort()).toEqual(['description', 'dtstamp', 'dtstart', 'sequence', 'summary', 'uid']);
     expect(text).not.toMatch(/LOCATION|ATTENDEE|ORGANIZER|ALARM|VALARM/);
   });
 
@@ -111,6 +111,17 @@ describe('ics', () => {
       expect(ev.start.getTime()).toBe(start.at.getTime());
       if (end) expect(ev.end!.getTime()).toBe(end.getTime());
     }
+  });
+
+  it('SEQUENCE rises with every edit, so an edited copy replaces the old one', () => {
+    const base = { id: 'x', title: 'Visit', startsAt: '2026-07-01T08:00:00Z', endsAt: null, notes: null };
+    const v1 = buildIcs([{ ...base, stamp: '2026-06-01T10:00:00Z' }]);
+    const v2 = buildIcs([{ ...base, stamp: '2026-06-01T10:00:05Z' }]);
+    const seq = (t: string) => Number((new ICAL.Component(ICAL.parse(t)).getFirstSubcomponent('vevent')!.getFirstPropertyValue('sequence')));
+    expect(seq(v2)).toBeGreaterThan(seq(v1));
+    expect(seq(v2) - seq(v1)).toBe(5);
+    expect(sequenceOf('2088-01-01T00:00:00Z')).toBeLessThan(2 ** 31);
+    expect(sequenceOf('2019-01-01T00:00:00Z')).toBe(0);
   });
 
   it('stamps and filenames', () => {

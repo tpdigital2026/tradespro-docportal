@@ -40,6 +40,7 @@ function toAppointment(r: Record<string, unknown>): Appointment {
     jobId: r.job_id ? String(r.job_id) : null,
     quoteNumber: r.reference ? String(r.reference) : null,
     notes: r.notes ? String(r.notes) : null,
+    updatedAt: r.updated_at ? iso(r.updated_at) : undefined,
   };
 }
 
@@ -142,7 +143,7 @@ export async function getAppointment(id: string): Promise<(Appointment & { updat
   if (!isAppointmentId(id)) return null;
   if (isDemo()) {
     const a = demoAppointments().list.find((x) => x.id === id);
-    return a ? { ...a, updatedAt: a.startsAt } : null;
+    return a ? { ...a, updatedAt: a.updatedAt ?? '2026-01-01T00:00:00.000Z' } : null;
   }
   return withServiceConnection((db) => getAppointmentSql(db, s.tenantId, id));
 }
@@ -172,7 +173,7 @@ export async function saveAppointment(id: string | null, v: AppointmentInput): P
   if (isDemo()) {
     const st = demoAppointments();
     const links = demoLinked(v);
-    const row: Omit<Appointment, 'id'> = { kind: v.kind, title: v.title, startsAt: v.startsAt.toISOString(), endsAt: v.endsAt?.toISOString() ?? null, notes: v.notes, ...links };
+    const row: Omit<Appointment, 'id'> = { kind: v.kind, title: v.title, startsAt: v.startsAt.toISOString(), endsAt: v.endsAt?.toISOString() ?? null, notes: v.notes, updatedAt: new Date().toISOString(), ...links };
     if (id) {
       const found = st.list.find((a) => a.id === id);
       if (!found) throw new AppointmentError('not_found', 'That appointment could not be found.');

@@ -93,7 +93,7 @@ export function moneyCsv(v: MoneyView): { filename: string; body: string } {
     }
     for (const i of b.invoices) {
       const status = i.settled ? 'Settled' : i.overdue ? `Overdue by ${i.daysOverdue} ${i.daysOverdue === 1 ? 'day' : 'days'}` : i.receivedPence > 0 ? 'Part paid' : 'Not paid';
-      rows.push([b.customerName, b.quoteNumber, i.number, `${DOC_TYPE_NAMES[i.type]} (${i.part})`, i.issuedOn, i.dueOn ?? (i.dueWording ?? ''), pounds(i.grossPence), pounds(i.receivedPence), status, pounds(b.quotedPence), pounds(b.toInvoicePence)]);
+      rows.push([b.customerName, b.quoteNumber, i.number, `${DOC_TYPE_NAMES[i.type]} (${i.part})`, i.issuedOn, i.dueOn ?? (i.dueCheck ? `Check the due date on this invoice: ${i.dueWording ?? ''}` : (i.dueWording ?? '')), pounds(i.grossPence), pounds(i.receivedPence), status, pounds(b.quotedPence), pounds(b.toInvoicePence)]);
     }
   }
   return {

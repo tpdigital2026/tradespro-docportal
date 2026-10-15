@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { actAs, actAsServer, createTenantWithUser, dbAvailable, withRollback } from './helpers';
-import { loadBusinessFactsSql } from '../../src/lib/data/business';
+import { loadBusinessFactsSql, loadInvoiceTotalsSql } from '../../src/lib/data/business';
 import { listAppointmentsSql, linkOptionsSql, getAppointmentSql } from '../../src/lib/data/appointments';
-import { buildBalances } from '../../src/lib/business/money-board';
+import { buildBalances, summariseInvoices } from '../../src/lib/business/money-board';
 import { buildPipeline } from '../../src/lib/business/pipeline';
 import { guaranteeRows } from '../../src/lib/business/guarantees';
 import { nextStepHref } from '../../src/lib/job-stage';
@@ -165,17 +165,63 @@ describe.skipIf(!dbAvailable)('appointments', () => {
     });
   });
 
-  it('appointments with no customer are purged once older than the retention period, and only those', async () => {
+  it('unlinked appointments: the clock is the latest of created, updated and the appointment itself, plus retention', async () => {
     await withRollback(async (c) => {
       const a = await business(c, 'ApPurge', 'AP-100');
       await c.query(`insert into public.tenant_defaults (tenant_id, retention_days) values ($1, 30)`, [a.tenantId]);
-      await c.query(`insert into public.appointments (tenant_id, kind, title, starts_at) values ($1, 'other', 'old', now() - interval '40 days'), ($1, 'other', 'recent', now() - interval '10 days')`, [a.tenantId]);
-      await c.query(`insert into public.appointments (tenant_id, kind, title, starts_at, customer_id) values ($1, 'other', 'linked old', now() - interval '40 days', $2)`, [a.tenantId, a.customerId]);
-      await c.query(`select private.purge_unlinked_appointments(now())`);
+      const ins = `insert into public.appointments (tenant_id, kind, title, starts_at, ends_at, customer_id, created_at, updated_at) values ($1, 'other', $2, $3::timestamptz, $4::timestamptz, $5, $6::timestamptz, $7::timestamptz)`;
+      const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+      await c.query(ins, [a.tenantId, 'old', ago(40), null, null, ago(45), ago(45)]); // everything 40+ days ago: goes
+      await c.query(ins, [a.tenantId, 'edited lately', ago(40), null, null, ago(45), ago(5)]); // changed 5 days ago: stays
+      await c.query(ins, [a.tenantId, 'made lately', ago(40), null, null, ago(10), ago(10)]); // typed in 10 days ago about an old visit: stays
+      await c.query(ins, [a.tenantId, 'long job', ago(33), ago(20), null, ago(60), ago(60)]); // ended 20 days ago: stays
+      await c.query(ins, [a.tenantId, 'future', ago(-400), null, null, ago(60), ago(60)]); // not happened yet: stays
+      await c.query(ins, [a.tenantId, 'linked old', ago(40), null, a.customerId, ago(45), ago(45)]); // linked: the customer's purge decides
+      const n = await c.query(`select private.purge_unlinked_appointments(now()) as n`);
+      expect(n.rows[0].n).toBe(1);
       const left = await c.query(`select title from public.appointments where tenant_id = $1 order by title`, [a.tenantId]);
-      expect(left.rows.map((r) => r.title)).toEqual(['linked old', 'recent']);
+      expect(left.rows.map((r) => r.title)).toEqual(['edited lately', 'future', 'linked old', 'long job', 'made lately']);
+      // A date in the future passed by the caller can never bring the purge forward.
+      await c.query(`select private.purge_unlinked_appointments(now() + interval '10 years')`);
+      expect((await c.query(`select count(*)::int n from public.appointments where tenant_id = $1`, [a.tenantId])).rows[0].n).toBe(5);
       await actAs(c, a.userId);
       await expectFail(c, `select private.purge_unlinked_appointments(now())`, [], /permission denied/);
+    });
+  });
+
+  it('a customer with an appointment further out than the retention period is kept until after it', async () => {
+    await withRollback(async (c) => {
+      const a = await business(c, 'ApFuture', 'AF-100');
+      await c.query(`insert into public.tenant_defaults (tenant_id, retention_days) values ($1, 90)`, [a.tenantId]);
+      await c.query(`update public.customers set purge_at = now() + interval '1 day' where id = $1`, [a.customerId]);
+      await actAs(c, a.userId);
+      const appt = await c.query(`insert into public.appointments (tenant_id, kind, title, starts_at, ends_at, customer_id) values ($1, 'job_start', 'Booked far ahead', now() + interval '400 days', now() + interval '402 days', $2) returning id`, [a.tenantId, a.customerId]);
+      await actAsServer(c);
+      const after = await c.query(`select purge_at >= now() + interval '492 days' as ok, purge_at > (select ends_at from public.appointments where id = $2) as after_visit from public.customers where id = $1`, [a.customerId, appt.rows[0].id]);
+      expect(after.rows[0]).toEqual({ ok: true, after_visit: true });
+      // Not claimable by the purge at a time before the visit.
+      const claimed = await c.query(`select id from private.claim_expired_customers(now())`);
+      expect(claimed.rows.map((r) => r.id)).not.toContain(a.customerId);
+      // Moving it later pushes the date out again; moving it earlier never shortens it.
+      await actAs(c, a.userId);
+      await c.query(`update public.appointments set starts_at = now() + interval '600 days', ends_at = null where id = $1`, [appt.rows[0].id]);
+      await actAsServer(c);
+      expect((await c.query(`select purge_at >= now() + interval '689 days' as ok from public.customers where id = $1`, [a.customerId])).rows[0].ok).toBe(true);
+      await c.query(`update public.appointments set starts_at = now() + interval '1 day' where id = $1`, [appt.rows[0].id]);
+      expect((await c.query(`select purge_at >= now() + interval '689 days' as ok from public.customers where id = $1`, [a.customerId])).rows[0].ok).toBe(true);
+    });
+  });
+
+  it('the Home strip totals come from issued invoices alone and agree with the Money screen', async () => {
+    await withRollback(async (c) => {
+      const a = await business(c, 'ApStrip', 'AS-100');
+      const lines = await loadInvoiceTotalsSql(c, a.tenantId);
+      expect(lines).toEqual([{ docDate: '2026-10-02', grossPence: 36000, paidPence: 36000, dueWording: 'Before works start' }]);
+      const facts = await loadBusinessFactsSql(c, a.tenantId);
+      const money = buildBalances(facts.jobs, '2026-10-15');
+      expect(summariseInvoices(lines, '2026-10-15')).toEqual({ anyInvoices: true, outstandingPence: money.outstandingPence, overdueInvoices: money.overdueInvoices });
+      const other = await business(c, 'ApStrip2', 'AS2-100');
+      expect(await loadInvoiceTotalsSql(c, other.tenantId)).toHaveLength(1);
     });
   });
 });

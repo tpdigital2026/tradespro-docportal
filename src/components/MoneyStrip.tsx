@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { buildBalances } from '../lib/business/money-board';
-import { getBusinessFacts } from '../lib/data/business';
+import { summariseInvoices } from '../lib/business/money-board';
+import { getInvoiceTotals } from '../lib/data/business';
 import { todayLondon } from '../lib/london';
 import { formatGBP } from '../lib/money';
 import '../styles/business.css';
@@ -10,9 +10,9 @@ import '../styles/business.css';
  * Shown only when at least one invoice has been issued, so a new business never sees a row of zeros.
  */
 export async function MoneyStrip() {
-  let b: ReturnType<typeof buildBalances> | null = null;
+  let b: ReturnType<typeof summariseInvoices> | null = null;
   try {
-    b = buildBalances((await getBusinessFacts()).jobs, todayLondon());
+    b = summariseInvoices(await getInvoiceTotals(), todayLondon());
   } catch {
     return null;
   }
