@@ -1,6 +1,6 @@
 import type { Page } from 'playwright-core';
 import { html, raw } from '../lib/html';
-import { balanceDue, balanceStatement, computeTotals, depositOf, formatGBP, type MoneyLine, type Pence } from '../lib/money';
+import { balanceDue, balanceStatement, computeTotals, depositOf, formatGBP, type Instalment, type MoneyLine, type Pence } from '../lib/money';
 import { documentShell } from '../pdf/document';
 import type { Brand, Tenant } from '../themes/types';
 import { documentCss } from './css';
@@ -103,7 +103,7 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
     .map((g, gi) => P.page(html`${headRest}<div>${g.map((i) => items[i])}</div>`, header, footer(gi + 2)));
 
   const pricing = P.page(
-    html`<span class="eyebrow">Amount due</span><h2>Pricing &amp; payment</h2><div class="rule"></div>${s.note ? html`<div class="callout" style="margin-bottom:6mm">${s.note}</div>` : null}${P.priceTable(s.rows, s.showVat)}${P.totalsBlock(s.totalRows, s.grandLabel, formatGBP(s.grandPence), s.afterRows)}${s.guarantee ? F.compactGuaranteeBand(s.guarantee.years, s.guarantee.text) : null}<div style="margin-top:9mm">${F.payCard(s.bank, s.paymentRef)}</div><div class="terms" style="margin-top:9mm"><div class="t"><h5>Terms and conditions</h5><p>${s.terms}</p></div>${s.showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div><div class="fine" data-reserved style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${s.disclaimer}</div>`,
+    html`<span class="eyebrow">Amount due</span><h2>Pricing &amp; payment</h2><div class="rule"></div>${s.note ? html`<div class="callout" style="margin-bottom:6mm">${s.note}</div>` : null}${P.priceTable(s.rows, s.showVat)}${P.totalsBlock(s.totalRows, s.grandLabel, formatGBP(s.grandPence), s.afterRows)}${s.guarantee ? F.compactGuaranteeBand(s.guarantee.years, s.guarantee.text) : null}<div style="margin-top:9mm">${F.payCard(s.bank, s.paymentRef)}</div><div class="terms" style="margin-top:9mm"><div class="t"><h5>Terms and conditions</h5><p>${s.terms}</p></div>${s.showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div>${s.disclaimer.trim() ? html`<div class="fine" data-reserved style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${s.disclaimer}</div>` : null}`,
     header,
     footer(total),
   );
@@ -202,6 +202,103 @@ export async function buildBalanceInvoice(page: Page, input: BalanceInvoiceInput
     totalRows: showVat ? [['Subtotal', formatGBP(st.balance.netPence)], [`VAT (${rate})`, formatGBP(st.balance.vatPence)]] : [],
     grandLabel: 'Total due',
     grandPence: st.balance.grossPence,
+    afterRows,
+    guarantee: input.guarantee,
+    bank: input.bank,
+    paymentRef: input.paymentRef,
+    terms: input.terms,
+    disclaimer: input.disclaimer,
+  });
+}
+
+export interface FullInvoiceInput extends Omit<InvoiceCommon, 'depositPctBp'> {
+  /** Note under the amount due, for example "Payment is due upon receipt of this invoice". */
+  dueNote: string;
+}
+
+/** One invoice for the whole job: the quote's own lines, paid in one go. */
+export async function buildFullInvoice(page: Page, input: FullInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+  assertUniformVat(input.quoteLines);
+  const quote = computeTotals(input.quoteLines, input.vatRateBp);
+  const showVat = input.quoteLines.some((l) => l.vatApplies);
+  const rate = `${input.vatRateBp / 100}%`;
+  return renderInvoice(page, tenant, brand, {
+    title: 'Invoice',
+    invoiceNo: input.invoiceNo,
+    dateLabel: input.dateLabel,
+    metaRows: [['Quote ref.', input.quoteRef]],
+    customer: input.customer,
+    due: { label: 'Total due', amountPence: quote.grossPence, note: input.dueNote },
+    jobTitle: input.jobTitle,
+    scope: input.scope,
+    note: null,
+    rows: quote.lines.map((l) => ({
+      description: l.description,
+      kind: l.kind,
+      qty: String(l.qty),
+      unit: formatGBP(l.unitNetPence),
+      vat: l.vatApplies ? rate : '0%',
+      total: formatGBP(l.grossPence),
+    })),
+    showVat,
+    totalRows: showVat ? [['Subtotal', formatGBP(quote.netPence)], [`VAT (${rate})`, formatGBP(quote.vatPence)]] : [],
+    grandLabel: 'Total due',
+    grandPence: quote.grossPence,
+    afterRows: [],
+    guarantee: input.guarantee,
+    bank: input.bank,
+    paymentRef: input.paymentRef,
+    terms: input.terms,
+    disclaimer: input.disclaimer,
+  });
+}
+
+export interface StageInvoiceInput extends Omit<InvoiceCommon, 'depositPctBp'> {
+  /** This stage, as worked out by buildSchedule from the quote totals and the plan. */
+  stage: Instalment;
+  stageCount: number;
+  /** Money already received against the earlier stages. */
+  receivedPence: Pence;
+  dueNote: string;
+}
+
+/** One stage of a job paid in stages. The stage amount comes from the schedule; the template only lays it out. */
+export async function buildStageInvoice(page: Page, input: StageInvoiceInput, tenant: Tenant, brand: Brand): Promise<string> {
+  assertUniformVat(input.quoteLines);
+  const quote = computeTotals(input.quoteLines, input.vatRateBp);
+  const st = input.stage;
+  if (st.netPence + st.vatPence !== st.grossPence || st.grossPence <= 0 || st.grossPence > quote.grossPence) throw new RangeError('The stage amount does not fit the quote');
+  const showVat = input.quoteLines.some((l) => l.vatApplies);
+  const rate = `${input.vatRateBp / 100}%`;
+  const inc = showVat ? ' (inc. VAT)' : '';
+  const heading = `Stage ${st.index} of ${input.stageCount}`;
+  const afterRows: [string, string][] = [[`Quote total${inc}`, formatGBP(quote.grossPence)]];
+  if (input.receivedPence > 0) afterRows.push(['Received so far', formatGBP(input.receivedPence)]);
+  afterRows.push(['Left to pay after this stage', formatGBP(balanceDue(quote.grossPence, [...(input.receivedPence > 0 ? [input.receivedPence] : []), st.grossPence]))]);
+  return renderInvoice(page, tenant, brand, {
+    title: 'Stage Invoice',
+    invoiceNo: input.invoiceNo,
+    dateLabel: input.dateLabel,
+    metaRows: [['Quote ref.', input.quoteRef], ['Stage', `${st.index} of ${input.stageCount}`]],
+    customer: input.customer,
+    due: { label: 'Total due', amountPence: st.grossPence, note: input.dueNote },
+    jobTitle: input.jobTitle,
+    scope: input.scope,
+    note: `${heading}: ${st.label}.`,
+    rows: [
+      {
+        description: `${heading}: ${st.label} – ${input.jobDescription}`,
+        kind: 'Stage',
+        qty: '1',
+        unit: formatGBP(st.netPence),
+        vat: showVat ? rate : '0%',
+        total: formatGBP(st.grossPence),
+      },
+    ],
+    showVat,
+    totalRows: showVat ? [['Subtotal', formatGBP(st.netPence)], [`VAT (${rate})`, formatGBP(st.vatPence)]] : [],
+    grandLabel: 'Total due',
+    grandPence: st.grossPence,
     afterRows,
     guarantee: input.guarantee,
     bank: input.bank,

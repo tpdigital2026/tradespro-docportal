@@ -125,6 +125,7 @@ describe.skipIf(!dbAvailable)('customer erasure and keep', () => {
       const r = await eraseCustomerWith(c, storage, { tenantId: t.tenantId, userId: t.userId }, t.customerId, nested);
       expect(r).toBe('erased');
       expect([...storage.deleted].sort()).toEqual([`${t.tenantId}/photo.jpg`, `${t.tenantId}/q.pdf`, `${t.tenantId}/v1.pdf`]);
+      expect(storage.deletedPrefixes).toEqual([`${t.tenantId}/${t.customerId}/`]);
       const left = await c.query(`select (select count(*) from public.customers where tenant_id = $1)::int c, (select count(*) from public.jobs where tenant_id = $1)::int j, (select count(*) from public.documents where tenant_id = $1)::int d`, [t.tenantId]);
       expect(left.rows[0]).toEqual({ c: 0, j: 0, d: 0 });
       const audit = await c.query(`select action, entity, entity_id, meta from public.audit_log where tenant_id = $1`, [t.tenantId]);

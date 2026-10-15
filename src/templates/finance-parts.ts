@@ -1,4 +1,5 @@
-import { html, type Raw } from '../lib/html';
+import { html, raw, type Raw } from '../lib/html';
+import { contactLines } from './parts';
 import type { Brand, Tenant } from '../themes/types';
 
 export interface Customer {
@@ -16,11 +17,13 @@ export interface BankDetails {
 }
 
 export function financeHeader(t: Tenant, b: Brand, title: string, meta: [string, string][]): Raw {
-  return html`<div class="fhead"><div class="l"><img src="${b.assets.logoWhite}" alt="${t.name}"><div class="addr">${t.addressLine}<br>${t.phone} · ${t.email}<br>Company No. ${t.companyNo}</div></div><div class="r"><h1>${title}</h1><div class="meta">${meta.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div></div>`;
+  return html`<div class="fhead"><div class="l"><img src="${b.assets.logoWhite}" alt="${t.name}"><div class="addr">${contactLines(t)}</div></div><div class="r"><h1>${title}</h1><div class="meta">${meta.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div></div>`;
 }
 
+const reach = (c: Customer): string => [c.email, c.phone].filter((x) => x !== '').join(' · ');
+
 export function partyBlock(eyebrow: string, c: Customer): Raw {
-  return html`<div class="party"><span class="eyebrow">${eyebrow}</span><div class="nm">${c.name}</div><div class="ad">${c.addressLines.map((l) => html`${l}<br>`)}${c.email} · ${c.phone}</div></div>`;
+  return html`<div class="party"><span class="eyebrow">${eyebrow}</span><div class="nm">${c.name}</div><div class="ad">${c.addressLines.map((l, i) => html`${i > 0 ? raw('<br>') : null}${l}`)}${reach(c) ? html`${c.addressLines.length ? raw('<br>') : null}${reach(c)}` : null}</div></div>`;
 }
 
 export function dueBox(label: string, amount: string, note: string): Raw {
@@ -36,7 +39,7 @@ export function compactGuaranteeBand(years: number, text: string): Raw {
 }
 
 export function financeFooter(t: Tenant): Raw {
-  return html`<div class="ffoot" data-reserved><span class="tag">${t.tagline}</span><span>${t.name} · ${t.web}</span></div>`;
+  return html`<div class="ffoot" data-reserved><span class="tag">${t.tagline}</span><span>${[t.name, t.web].filter((x) => x !== '').join(' · ')}</span></div>`;
 }
 
 export function financePage(head: Raw, inner: Raw, foot: Raw): Raw {

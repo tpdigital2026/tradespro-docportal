@@ -13,7 +13,8 @@ export interface ReceiptInput {
   /** dd/mm/yyyy */
   paidDateLabel: string;
   customer: F.Customer;
-  kind: 'deposit' | 'balance';
+  /** Which payment this is: a deposit, a balance, one stage of a staged job, or a payment against a single full invoice. */
+  kind: 'deposit' | 'balance' | 'stage' | 'full';
   description: string;
   method: string;
   amountPaidPence: Pence;
@@ -24,6 +25,8 @@ export interface ReceiptInput {
   /** Wording for a deposit balance still to come, for example "Due on completion of works". */
   balanceDueLabel: string;
 }
+
+const ROW_KIND: Record<ReceiptInput['kind'], string> = { deposit: 'Deposit', balance: 'Balance', stage: 'Stage', full: 'Payment' };
 
 export function buildReceipt(input: ReceiptInput, tenant: Tenant, brand: Brand): string {
   if (input.amountPaidPence <= 0) throw new RangeError('The amount paid must be greater than zero');
@@ -42,7 +45,7 @@ export function buildReceipt(input: ReceiptInput, tenant: Tenant, brand: Brand):
   const remainingNote = paidInFull ? 'Paid in full' : input.kind === 'deposit' ? input.balanceDueLabel : 'Still outstanding';
   const row = {
     description: input.description,
-    kind: input.kind === 'deposit' ? 'Deposit' : 'Balance',
+    kind: ROW_KIND[input.kind],
     qty: '1',
     unit: amount,
     vat: '',

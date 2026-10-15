@@ -187,7 +187,7 @@ export async function getDraftWith(client: DataClient, jobId: string): Promise<Q
   if (d && d.status !== 'draft') return null; // an issued quote is no longer edited here
   let values: QuoteFormValues | null = null;
   if (d) {
-    const ver = await client.from('document_versions').select('input, bank_account_id').eq('document_id', d.id).eq('version', 1).maybeSingle();
+    const ver = await latestVersionWith(client, d.id, 'input, bank_account_id');
     if (ver.error) throw new QuoteError('failed', 'Could not load that quote');
     const stored = (ver.data as { input?: { form?: unknown } } | null)?.input?.form;
     const parsed = quoteFormSchema.safeParse(stored);
@@ -238,12 +238,22 @@ interface Found {
   customer_id: string;
 }
 
+/**
+ * The newest version of a document. A draft quote is edited in its newest version: version 1 at first, or the new
+ * version made when an issued quote is changed (the issued versions before it never change).
+ */
+export async function latestVersionWith(client: DataClient, documentId: string, cols: string): Promise<{ data: unknown; error: unknown }> {
+  const r = await client.from('document_versions').select(`version, finalised_at, ${cols}`).eq('document_id', documentId).order('version', { ascending: false }).limit(1);
+  if (r.error) return { data: null, error: r.error };
+  return { data: ((r.data ?? []) as unknown[])[0] ?? null, error: null };
+}
+
 /** The scope as last saved for this job, or null. The approval on it is the only approval there is. */
 export async function storedScopeWith(client: DataClient, jobId: string): Promise<ScopeFormValues | null> {
   const doc = await client.from('documents').select('id').eq('job_id', jobId).eq('type', 'quotation').maybeSingle();
   const id = (doc.data as { id?: string } | null)?.id;
   if (doc.error || !id) return null;
-  const ver = await client.from('document_versions').select('input').eq('document_id', id).eq('version', 1).maybeSingle();
+  const ver = await latestVersionWith(client, id, 'input');
   const stored = (ver.data as { input?: { form?: { scope?: unknown } } } | null)?.input?.form?.scope;
   const parsed = scopeFormSchema.safeParse(stored);
   return parsed.success ? (parsed.data as ScopeFormValues) : null;
@@ -273,11 +283,14 @@ async function ensureDocument(
     if (row.status !== 'draft') throw new QuoteError('locked', 'This quote has been issued and can no longer be edited here.');
     const upd = await client.from('documents').update({ doc_date: input.date ?? today }).eq('id', row.id).select('id');
     if (upd.error || !upd.data?.length) throw new QuoteError('failed', 'Could not save');
-    const v = await client.from('document_versions').update({ input: stored, bank_account_id: bank }).eq('document_id', row.id).eq('version', 1).select('id');
+    const latest = await latestVersionWith(client, row.id, 'id');
+    if (latest.error) throw new QuoteError('failed', 'Could not save');
+    const newest = latest.data as { id: string; version: number; finalised_at: string | null } | null;
+    const v = newest && !newest.finalised_at ? await client.from('document_versions').update({ input: stored, bank_account_id: bank }).eq('id', newest.id).select('id') : { data: [], error: null };
     if (v.error) throw new QuoteError('failed', 'Could not save');
     if (!v.data?.length) {
-      // Version missing (an earlier save stopped half way): create it.
-      const ins = await client.from('document_versions').insert({ tenant_id: tenantId, document_id: row.id, version: 1, input: stored, bank_account_id: bank }).select('id').single();
+      // No editable version (an earlier save stopped half way, or the newest is issued): create the next one.
+      const ins = await client.from('document_versions').insert({ tenant_id: tenantId, document_id: row.id, version: (newest?.version ?? 0) + 1, input: stored, bank_account_id: bank }).select('id').single();
       if (ins.error || !ins.data) throw new QuoteError('failed', 'Could not save');
       const cur = await client.from('documents').update({ current_version_id: ins.data.id }).eq('id', row.id).select('id');
       if (cur.error) throw new QuoteError('failed', 'Could not save');
@@ -367,6 +380,19 @@ const demoStore = () => (demoDrafts ??= demoQuoteDrafts.map((d) => ({ jobId: d.j
 /** Test hook: forget demo edits. */
 export function resetDemoQuotes(): void {
   demoDrafts = null;
+}
+
+/** Demo mode only: the draft quotes held in memory. */
+export function demoDraftRows(): readonly DemoDraft[] {
+  return demoStore();
+}
+
+/** Demo mode only: a finalised quote leaves the drafts; a revised one comes back. */
+export function demoRemoveDraft(jobId: string): void {
+  demoDrafts = demoStore().filter((r) => r.jobId !== jobId);
+}
+export function demoRestoreDraft(jobId: string, values: QuoteFormValues): void {
+  if (!demoStore().some((r) => r.jobId === jobId)) demoStore().unshift({ jobId, values: structuredClone(values) });
 }
 
 function demoCustomerName(id: string): string {

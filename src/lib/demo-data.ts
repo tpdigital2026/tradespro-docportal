@@ -1,8 +1,9 @@
 /** Clearly dummy data for demo mode. Never shown outside it. */
 import type { DocType } from './job-stage';
 import type { RawDocument, RawPayment } from './job-billing';
+import { FJC_WORDING } from '../db/wording';
 import { FJC_SCOPE_EXAMPLES } from './scope/fjc-examples';
-import { emptyScope } from './scope/model';
+import { approvalHash, emptyScope, scopeKey, type ScopeFormValues } from './scope/model';
 import type { QuoteFormValues } from './validation/quote';
 
 export const demoSession = {
@@ -81,6 +82,70 @@ export const demoRecentDocs: DemoRecentDoc[] = [
   { type: 'survey', number: 'SUR-DEMO-3007', customerName: 'Mr Ray Pretend', date: '2026-10-03', status: 'Draft' },
 ];
 
+// ------------------------------------------------------------------ the business on demo documents
+
+/** FJC's own business facts and wording (as seeded), so demo documents look like the real thing. Customers stay dummy. */
+export const demoBusiness = {
+  tenant: {
+    name: 'FJC Roofing Ltd',
+    addressLine: 'Rochester · United Kingdom · ME3 9UD',
+    phone: '07596115834',
+    email: 'Ben@fjcroofingltd.com',
+    web: 'www.fjcroofingltd.co.uk',
+    companyNo: '13855379',
+    vatNo: 'GB 408094403',
+    tagline: 'Covering Your Home, Protecting Your Family',
+    ownerName: 'Ben Cunningham',
+    ownerTitle: 'Director',
+  },
+  wording: FJC_WORDING,
+  disclaimer: '',
+  validityDays: 30,
+};
+
+/**
+ * Dummy scope wording, already approved, so demo quotes can be previewed and finalised. Generic steps only: no
+ * measurements, products, brands or guarantees.
+ */
+function demoScope(title: string): ScopeFormValues {
+  const items = [
+    { id: 'd1', kind: 'heading' as const, text: 'Getting ready' },
+    { id: 'd2', kind: 'step' as const, text: 'Protect the paths and the garden under the work area.' },
+    { id: 'd3', kind: 'step' as const, text: 'Set up safe access to the roof.' },
+    { id: 'd4', kind: 'heading' as const, text: 'The work' },
+    { id: 'd5', kind: 'step' as const, text: 'Strip the old roof covering and take it away.' },
+    { id: 'd6', kind: 'step' as const, text: 'Check the boards underneath and replace any that are rotten.' },
+    { id: 'd7', kind: 'step' as const, text: 'Lay the new roof covering.' },
+    { id: 'd8', kind: 'heading' as const, text: 'Finishing off' },
+    { id: 'd9', kind: 'step' as const, text: 'Clear all waste from site.' },
+    { id: 'd10', kind: 'step' as const, text: 'Walk round the finished job with you.' },
+  ];
+  const scope: ScopeFormValues = {
+    coverTitle: title,
+    coverSub: 'Scope of works and price (demo)',
+    intro: 'Thank you for asking us to quote. This is demo wording: it shows how a quotation is laid out.',
+    specCards: [],
+    note: '',
+    items,
+    copy: {
+      sections: [
+        { heading: 'Getting ready', steps: ['Protect the paths and the garden under the work area.', 'Set up safe access to the roof.'] },
+        { heading: 'The work', steps: ['Strip the old roof covering and take it away.', 'Check the boards underneath and replace any that are rotten.', 'Lay the new roof covering.'] },
+        { heading: 'Finishing off', steps: ['Clear all waste from site.', 'Walk round the finished job with you.'] },
+      ],
+      corrections: [],
+      uncertain: [],
+      engine: 'fallback',
+      generatedAt: '2026-10-12T09:00:00.000Z',
+      sourceKey: scopeKey(items),
+      proof: 'demo',
+      approvedAt: null,
+      approvalHash: null,
+    },
+  };
+  return { ...scope, copy: { ...scope.copy!, approvedAt: '2026-10-12T09:05:00.000Z', approvalHash: approvalHash(scope) } };
+}
+
 // ------------------------------------------------------------------ quote form (dummy data only)
 
 export const demoJobTypes = [
@@ -120,7 +185,7 @@ const demoForm = (over: Partial<QuoteFormValues>): QuoteFormValues => ({
 export const demoQuoteDrafts: { jobId: string; values: QuoteFormValues }[] = [
   {
     jobId: 'demo-job-2001',
-    values: demoForm({ quoteNumber: 'DEMO-2001', customerId: 'demo-customer-1', price: '8400', propertyAddress: '123 Bromley Road, BR2 8BG' }),
+    values: demoForm({ quoteNumber: 'DEMO-2001', customerId: 'demo-customer-1', price: '8400', propertyAddress: '123 Bromley Road, BR2 8BG', scope: demoScope('Flat roof replacement') }),
   },
   {
     jobId: 'demo-job-2002',
@@ -187,7 +252,7 @@ const dPay = (id: string, documentId: string, amountPence: number, paidOn: strin
 export const demoIssuedJobs: DemoIssuedJob[] = [
   {
     jobId: 'demo-job-3001',
-    form: demoForm({ quoteNumber: 'DEMO-3001', customerId: 'demo-customer-1', price: '8400', date: '2026-10-08', propertyAddress: '123 Bromley Road, BR2 8BG' }),
+    form: demoForm({ quoteNumber: 'DEMO-3001', customerId: 'demo-customer-1', price: '8400', date: '2026-10-08', propertyAddress: '123 Bromley Road, BR2 8BG', scope: demoScope('Flat roof replacement') }),
     documents: [dDoc('demo-doc-3001-q', 'quotation', 'DEMO-3001'), dDoc('demo-doc-3001-d', 'deposit-invoice', 'INV-DEMO-3001-D')],
     payments: [dPay('demo-payment-3001-1', 'demo-doc-3001-d', 302400, '2026-10-11', 'bank transfer')],
   },
@@ -201,6 +266,7 @@ export const demoIssuedJobs: DemoIssuedJob[] = [
       date: '2026-10-09',
       plan: { kind: 'full', depositPct: '30', stages: [{ label: '', mode: 'pct', value: '' }, { label: '', mode: 'pct', value: '' }] },
       propertyAddress: '9 Sample Close, AB1 2CD',
+      scope: demoScope('Fascia and gutter replacement'),
     }),
     documents: [dDoc('demo-doc-3002-q', 'quotation', 'DEMO-3002'), dDoc('demo-doc-3002-f', 'invoice-full', 'INV-DEMO-3002')],
     payments: [],
@@ -214,6 +280,7 @@ export const demoIssuedJobs: DemoIssuedJob[] = [
       price: '25000',
       date: '2026-09-28',
       propertyAddress: '123 Bromley Road, BR2 8BG',
+      scope: demoScope('Tiled re-roof'),
       plan: {
         kind: 'staged',
         depositPct: '30',

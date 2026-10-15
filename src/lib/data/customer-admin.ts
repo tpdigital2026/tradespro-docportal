@@ -67,6 +67,8 @@ export async function eraseCustomerWith(db: Db, storage: StorageDeleter, actor: 
     const paths = await db.query('select private.customer_storage_paths($1, $2) as path', [actor.tenantId, customerId]);
     const list = paths.rows.map((r) => String(r.path));
     await storage.deleteStorageObjects(list);
+    // Page images and previews are not listed in any column; they live under the customer's folder.
+    await storage.deleteStoragePrefix(`${actor.tenantId}/${customerId}/`);
     const erased = await db.query('select private.erase_customer($1, $2) as n', [actor.tenantId, customerId]);
     if (Number(erased.rows[0]?.n) !== 1) throw new Error('Erase did not remove exactly one customer');
     await writeAudit(db, {
@@ -105,6 +107,30 @@ export async function extendRetentionWith(db: Db, actor: Actor, customerId: stri
     });
     await t.commit();
     return new Date(at).toISOString();
+  } catch (e) {
+    await t.rollback().catch(() => undefined);
+    throw e;
+  }
+}
+
+/**
+ * The retention purge (README "Purge job protocol"), ONE transaction: claim the expired customers, list their files,
+ * delete the files and each customer's folder (any failure rolls back), then delete the customers. Not scheduled yet:
+ * a cron route or job calls this on a service connection.
+ */
+export async function purgeExpiredWith(db: Db, storage: StorageDeleter, o: TxOptions = {}): Promise<number> {
+  const t = tx(db, o);
+  await t.start();
+  try {
+    const claimed = await db.query('select id, tenant_id from private.claim_expired_customers(now())');
+    const rows = claimed.rows as { id: string; tenant_id: string }[];
+    const ids = rows.map((r) => r.id);
+    const paths = ids.length ? await db.query('select private.expired_storage_paths($1::uuid[]) as path', [ids]) : { rows: [] };
+    await storage.deleteStorageObjects(paths.rows.map((r) => String(r.path)));
+    for (const r of rows) await storage.deleteStoragePrefix(`${r.tenant_id}/${r.id}/`);
+    const done = await db.query('select private.purge_customers($1::uuid[], now()) as ids', [ids]);
+    await t.commit();
+    return ((done.rows[0]?.ids as string[] | null) ?? []).length;
   } catch (e) {
     await t.rollback().catch(() => undefined);
     throw e;

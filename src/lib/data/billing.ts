@@ -117,6 +117,8 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
 // ---------------------------------------------------------------- demo mode (in memory, dummy data)
 
 interface DemoState {
+  /** Issued jobs: the dummy ones, plus any quote finalised in this demo session. */
+  jobs: DemoIssuedJob[];
   documents: Map<string, RawDocument[]>;
   payments: Map<string, RawPayment[]>;
   /** When each demo payment was recorded in this session, for the duplicate window. */
@@ -127,7 +129,7 @@ export const DUPLICATE_WINDOW_MS = 30_000;
 let demoState: DemoState | null = null;
 function demo(): DemoState {
   if (!demoState) {
-    demoState = { documents: new Map(), payments: new Map(), recordedAt: new Map() };
+    demoState = { jobs: demoIssuedJobs.map((j) => structuredClone(j)), documents: new Map(), payments: new Map(), recordedAt: new Map() };
     for (const j of demoIssuedJobs) {
       demoState.documents.set(j.jobId, structuredClone(j.documents));
       demoState.payments.set(j.jobId, structuredClone(j.payments));
@@ -139,6 +141,42 @@ function demo(): DemoState {
 /** Test hook: forget demo edits. */
 export function resetDemoBilling(): void {
   demoState = null;
+}
+
+/** Demo mode only: the in-memory issued jobs, their documents and payments (the Documents library reads these). */
+export function demoBillingState(): Readonly<Pick<DemoState, 'jobs' | 'documents' | 'payments'>> {
+  return demo();
+}
+
+/** Demo mode only: a quote has been finalised, so its job is issued. */
+export function demoIssueQuote(job: { jobId: string; form: QuoteFormValues; documentId: string }): void {
+  const st = demo();
+  const found = st.jobs.find((j) => j.jobId === job.jobId);
+  if (found) found.form = structuredClone(job.form);
+  else st.jobs.unshift({ jobId: job.jobId, form: structuredClone(job.form), documents: [], payments: [] });
+  const docs = st.documents.get(job.jobId) ?? [];
+  const q = docs.find((d) => d.type === 'quotation');
+  if (q) q.status = 'final';
+  else docs.unshift({ id: job.documentId, type: 'quotation', number: job.form.quoteNumber, status: 'final' });
+  st.documents.set(job.jobId, docs);
+  if (!st.payments.has(job.jobId)) st.payments.set(job.jobId, []);
+}
+
+/** Demo mode only: a quote goes back to draft for a new version. Refused when the job has any other document. */
+export function demoUnissueQuote(jobId: string): boolean {
+  const st = demo();
+  const docs = st.documents.get(jobId) ?? [];
+  if (docs.some((d) => d.type !== 'quotation')) return false;
+  st.jobs = st.jobs.filter((j) => j.jobId !== jobId);
+  st.documents.delete(jobId);
+  st.payments.delete(jobId);
+  return true;
+}
+
+/** Demo mode only: a follow-on document is finalised. */
+export function demoMarkFinal(jobId: string, documentId: string): void {
+  const d = (demo().documents.get(jobId) ?? []).find((x) => x.id === documentId);
+  if (d) d.status = 'final';
 }
 
 function demoSummary(j: DemoIssuedJob): JobSummary {
@@ -171,7 +209,7 @@ function demoPlan(form: QuoteFormValues) {
 
 export async function listJobSummaries(): Promise<JobSummary[]> {
   await requireSession();
-  if (isDemo()) return demoIssuedJobs.map(demoSummary);
+  if (isDemo()) return demo().jobs.map(demoSummary);
   return loadJobSummariesWith(await ownerClient());
 }
 
@@ -179,7 +217,7 @@ export async function getJobSummary(reference: string): Promise<JobSummary | nul
   await requireSession();
   if (typeof reference !== 'string' || !NUMBER_RE.test(reference)) return null;
   if (isDemo()) {
-    const j = demoIssuedJobs.find((x) => x.form.quoteNumber === reference);
+    const j = demo().jobs.find((x) => x.form.quoteNumber === reference);
     return j ? demoSummary(j) : null;
   }
   return (await loadJobSummariesWith(await ownerClient(), { reference }))[0] ?? null;

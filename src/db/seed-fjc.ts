@@ -4,7 +4,7 @@ import { FJC_SCOPE_EXAMPLES } from '../lib/scope/fjc-examples';
 import { FJC_WORDING, tenantWordingSchema } from './wording';
 
 // Taken from tests/fixtures/fjc.ts (the approved FJC brand).
-const FJC_COLOURS = {
+export const FJC_COLOURS: Record<string, string> = {
   navy: '#0f2b4a', navy2: '#16395f', navy3: '#1f4a78', blue: '#2f6fbf', sky: '#7fa6dc', ice: '#e9f0f9',
   gold: '#c9a24b', gold2: '#e4cf9a', goldbg: '#faf5e8', ink: '#152235', body: '#3a4657', muted: '#6b7686',
   rule: '#dde3eb', paper: '#f4f6fa',

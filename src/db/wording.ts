@@ -7,6 +7,15 @@ export const tenantWordingSchema = z.strictObject({
   quote: z.strictObject({ terms: text }),
   deposit_invoice: z.strictObject({ terms: text, dueLabel: text, balanceDueLabel: text }),
   balance_invoice: z.strictObject({ terms: text, dueNote: text }),
+  /** Optional. Without it, a full invoice uses the business's balance invoice wording (both are paid on receipt). */
+  invoice_full: z.strictObject({ terms: text, dueNote: text }).optional(),
+  /** Optional. Without it, a stage invoice uses the business's balance invoice wording. */
+  invoice_stage: z.strictObject({ terms: text, dueNote: text }).optional(),
+  /**
+   * Optional. The confirmation the owner ticks before a document is finalised. Without it the default wording in
+   * src/lib/documents/confirmation.ts is used (draft wording, to be reviewed by a solicitor before wider use).
+   */
+  confirmation: z.strictObject({ text: text.max(600), version: z.string().regex(/^[a-z0-9-]{1,20}$/) }).optional(),
   receipt: z.strictObject({ balanceDueLabel: text }),
   guarantee: z.strictObject({ statement: text, disclaimerLine: text.nullable() }),
 });
