@@ -25,6 +25,12 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       ]);
       const kit = await c.query(`select colours from public.brand_kits where tenant_id = $1`, [first.tenantId]);
       expect(kit.rows[0].colours.navy).toBe('#0f2b4a');
+      const imgs = await c.query(`select kind::text as kind, storage_path from public.brand_assets where tenant_id = $1 and kind::text in ('hero_image', 'sign_in_photo', 'share_card') order by kind`, [first.tenantId]);
+      expect(imgs.rows).toEqual([
+        { kind: 'hero_image', storage_path: `${first.tenantId}/hero-1400.jpg` },
+        { kind: 'share_card', storage_path: `${first.tenantId}/og.jpg` },
+        { kind: 'sign_in_photo', storage_path: `${first.tenantId}/van-1600.jpg` },
+      ]);
       const bank = await c.query(`select count(*)::int n from public.bank_accounts where tenant_id = $1`, [first.tenantId]);
       expect(bank.rows[0].n).toBe(0);
       const users = await c.query(`select count(*)::int n from public.profiles where tenant_id = $1`, [first.tenantId]);

@@ -21,9 +21,10 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   // /api is always matched, whatever its path ends in. Pages skip only framework assets, static
-  // files and the public metadata files (robots.txt, the web app manifest). guardRequest denies by default.
+  // files and the public metadata files (robots.txt, the web app manifest), each end-anchored so /robots.txt/x or
+  // /robots.txtfoo is still guarded. guardRequest denies by default.
   matcher: [
     '/api/:path*',
-    '/((?!api/|_next/static|_next/image|favicon\\.ico|robots\\.txt|site\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)',
+    '/((?!api/|_next/static/|_next/image|favicon\\.ico$|robots\\.txt$|site\\.webmanifest$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)',
   ],
 };

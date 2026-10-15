@@ -32,13 +32,18 @@ describe('sign-in pages', () => {
     expect(plain).toContain('Illustration of a document page');
     expect(plain).toContain('Quotes, invoices, receipts and guarantees, ready to send.');
   });
-  it('only the FJC brand shows the FJC van photo; nobody shows the old letterhead sample', () => {
+  it('the sign-in photo comes from the brand data, not the address; nobody shows the old letterhead sample', () => {
     const fjc = signin(DEMO_BRAND);
     expect(fjc).toContain('/brands/fjc/van-1600.jpg');
     expect(fjc).toContain('alt="FJC Roofing van"');
     expect(fjc).not.toContain('Illustration of a document page');
-    const other = signin({ ...DEMO_BRAND, slug: 'other', name: 'Other Ltd' });
+    const other = signin({ ...DEMO_BRAND, slug: 'other', name: 'Other Ltd', signInPhoto: null });
     expect(other).not.toContain('/brands/fjc/van');
+    // Same slug as FJC but no photo on record: no photo. Another slug with a photo on record: its photo.
+    expect(signin({ ...DEMO_BRAND, signInPhoto: null })).not.toContain('/brands/fjc/van');
+    const own = signin({ ...DEMO_BRAND, slug: 'acme', name: 'Acme Ltd', signInPhoto: { src: '/brands/acme/yard-1200.jpg', width: 1200, height: 800, srcSetJpg: '/brands/acme/yard-1200.jpg 1200w', srcSetWebp: null, alt: 'Acme yard' } });
+    expect(own).toContain('/brands/acme/yard-1200.jpg');
+    expect(own).toContain('alt="Acme yard"');
     expect(other).toContain('Illustration of a document page');
     expect(signin(TRADESPRO_BRAND)).not.toContain('/brands/fjc/van');
     for (const html of [fjc, other, signin(TRADESPRO_BRAND)]) expect(html).not.toContain('login-sample.png');

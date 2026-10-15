@@ -34,13 +34,12 @@ export const ROBOTS: NonNullable<Metadata['robots']> = {
 };
 
 export const SHARE_CARD = { url: '/og/docportal.png', width: 1200, height: 630, alt: 'TradesPro DocPortal' } as const;
-const FJC_CARD = { url: '/brands/fjc/og.jpg', width: 1200, height: 630, alt: 'FJC Roofing Ltd DocPortal' } as const;
 
 export const SIGNIN_DESCRIPTION = 'Sign in to your DocPortal with a code sent to your email. Invite only.';
 
-/** The share card for a sign-in page. Only FJC has its own card; every other address gets the neutral one. */
+/** The share card for a sign-in page: the business's own card from its brand kit, or the neutral one. */
 export function shareCardFor(brand: TenantBrand) {
-  return brand.slug === 'fjc' ? FJC_CARD : SHARE_CARD;
+  return brand.shareCard ?? SHARE_CARD;
 }
 
 /**

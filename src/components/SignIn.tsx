@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import type { ReactNode } from 'react';
-import { brandStyle, type TenantBrand } from '../lib/brand-core';
+import { brandStyle, type BrandImage, type TenantBrand } from '../lib/brand-core';
 import { PoweredBy } from './PoweredBy';
 import { SamplePage } from './SamplePage';
 
@@ -10,25 +10,25 @@ import { SamplePage } from './SamplePage';
  * Desktop: white form panel on the left, navy panel on the right: FJC's own van photo for FJC, a wordless
  * document illustration for everyone else. Phone: navy strip with the logo (and FJC's photo), white form below.
  */
-/** FJC's own photo (Ben and the van). Only ever shown for the FJC address. */
-function VanPhoto({ className, sizes }: { className: string; sizes: string }) {
+/** The business's own sign-in photo from its brand kit (FJC: Ben and the van). Only for that business's address. */
+function BrandPhoto({ img, className, sizes }: { img: BrandImage; className: string; sizes: string }) {
   return (
     <picture className={className}>
-      <source type="image/webp" srcSet="/brands/fjc/van-900.webp 900w, /brands/fjc/van-1600.webp 1600w" sizes={sizes} />
-      <img src="/brands/fjc/van-1600.jpg" srcSet="/brands/fjc/van-900.jpg 900w, /brands/fjc/van-1600.jpg 1600w" sizes={sizes} width={1600} height={1200} alt="FJC Roofing van" />
+      {img.srcSetWebp ? <source type="image/webp" srcSet={img.srcSetWebp} sizes={sizes} /> : null}
+      <img src={img.src} srcSet={img.srcSetJpg || undefined} sizes={sizes} width={img.width} height={img.height} alt={img.alt} />
     </picture>
   );
 }
 
 export function SignIn({ brand, children }: { brand: TenantBrand; children: ReactNode }) {
   const dark = brand.logoDark;
-  const photo = brand.slug === 'fjc';
+  const photo = brand.signInPhoto ?? null;
   return (
     <div className="signin brandroot" style={brandStyle(brand)}>
       <header className="signin-bar">
         <Image src={dark.url} width={dark.width} height={dark.height} alt={`${brand.name} logo`} className="brand-logo" priority />
       </header>
-      {photo ? <VanPhoto className="signin-photo-m" sizes="100vw" /> : null}
+      {photo ? <BrandPhoto img={photo} className="signin-photo-m" sizes="100vw" /> : null}
 
       <main id="main" className="signin-main">
         <div className="signin-brand">
@@ -51,7 +51,7 @@ export function SignIn({ brand, children }: { brand: TenantBrand; children: Reac
 
       {photo ? (
         <aside className="signin-art is-photo">
-          <VanPhoto className="signin-photo" sizes="50vw" />
+          <BrandPhoto img={photo} className="signin-photo" sizes="50vw" />
           <p className="signin-photo-cap">Quotes, invoices, receipts and guarantees, ready to send.</p>
         </aside>
       ) : (

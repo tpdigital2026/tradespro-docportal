@@ -64,11 +64,13 @@ describe('sign-in metadata', () => {
     for (const slug of ['no-such-biz', 'customers', 'Bad_Slug']) expect(await slugMetadata({ params: Promise.resolve({ slug }) })).toEqual(plain);
     expect(plain.title).toEqual({ absolute: 'Sign in | TradesPro DocPortal' });
   });
-  it('a business address uses the business name and only FJC gets the FJC card', () => {
+  it('a business address uses the business name; the card comes from the brand data', () => {
     const fjc = signInMetadata(DEMO_BRAND);
     expect(fjc.title).toEqual({ absolute: 'Sign in | FJC Roofing Ltd' });
     expect(shareCardFor(DEMO_BRAND).url).toBe('/brands/fjc/og.jpg');
-    expect(shareCardFor({ ...DEMO_BRAND, slug: 'other', name: 'Other Ltd' }).url).toBe('/og/docportal.png');
+    expect(shareCardFor({ ...DEMO_BRAND, slug: 'other', name: 'Other Ltd', shareCard: null }).url).toBe('/og/docportal.png');
+    expect(shareCardFor({ ...DEMO_BRAND, shareCard: null }).url).toBe('/og/docportal.png');
+    expect(shareCardFor({ ...DEMO_BRAND, slug: 'acme', shareCard: { url: '/brands/acme/og.jpg', width: 1200, height: 630, alt: 'Acme' } }).url).toBe('/brands/acme/og.jpg');
     expect(shareCardFor(TRADESPRO_BRAND).url).toBe('/og/docportal.png');
   });
   it('share text says nothing about anyone', () => {

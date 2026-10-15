@@ -27,6 +27,7 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
   if (existing.rows.length > 0) {
     // Wording added after the first seed: fill it in where it is still empty, never overwrite the business's own edits.
     await seedScopeExamples(db, existing.rows[0].id);
+    await seedBrandImages(db, existing.rows[0].id);
     return { tenantId: existing.rows[0].id, created: false };
   }
 
@@ -59,7 +60,31 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
       [tenantId, kit.rows[0].id, kind, `${tenantId}/${file}`],
     );
   }
+  await seedBrandImages(db, tenantId);
   return { tenantId, created: true };
+}
+
+/**
+ * FJC's banner, sign-in photo and share card (files in public/brands/fjc). Only adds a kind that is missing. The
+ * banner's licence is still to be confirmed by the owner; until then it is FJC's alone, and removing this row
+ * removes it from Home.
+ */
+const BRAND_IMAGES: [string, string, number, number, string][] = [
+  ['hero_image', 'hero-1400.jpg', 1400, 864, ''],
+  ['sign_in_photo', 'van-1600.jpg', 1600, 1200, 'FJC Roofing van'],
+  ['share_card', 'og.jpg', 1200, 630, 'FJC Roofing Ltd DocPortal'],
+];
+async function seedBrandImages(db: Db, tenantId: string): Promise<void> {
+  const kit = await db.query(`select id from public.brand_kits where tenant_id = $1`, [tenantId]);
+  if (!kit.rows[0]) return;
+  for (const [kind, file, w, h, alt] of BRAND_IMAGES) {
+    await db.query(
+      `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt)
+       select $1, $2, $3::text::public.asset_kind, $4, $5, $6, $7
+       where not exists (select 1 from public.brand_assets where tenant_id = $1 and kind::text = $3::text)`,
+      [tenantId, kit.rows[0].id, kind, `${tenantId}/${file}`, w, h, alt],
+    );
+  }
 }
 
 /** Scope wording for the FJC job types, from src/lib/scope/fjc-examples.ts. Only fills rows that have none. */

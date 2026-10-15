@@ -124,6 +124,9 @@ describe('proxy matcher', () => {
     for (const p of ['/', '/customers', '/customers/abc', '/login', '/documents/new']) expect(pages.test(p)).toBe(true);
     for (const p of ['/_next/static/x.js', '/favicon.ico', '/logo.svg', '/fonts/a.woff2', '/robots.txt', '/site.webmanifest']) expect(pages.test(p)).toBe(false);
   });
+  it('the static allowances are whole names: nothing can hide behind them', () => {
+    for (const p of ['/robots.txt/x', '/robots.txtfoo', '/favicon.icox', '/favicon.ico/customers', '/site.webmanifest/x', '/site.webmanifestx', '/_next/staticx']) expect(pages.test(p), p).toBe(true);
+  });
 });
 
 describe('refreshTokenRejected', () => {

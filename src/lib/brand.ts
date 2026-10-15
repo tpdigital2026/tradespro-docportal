@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { cache } from 'react';
-import { DEMO_BRAND, TRADESPRO_BRAND, planAccent, type Logo, type TenantBrand } from './brand-core';
+import { DEMO_BRAND, TRADESPRO_BRAND, planAccent, type BrandImage, type Logo, type ShareCard, type TenantBrand } from './brand-core';
 import { withServiceConnection, type ServiceDb } from './data/customer-admin';
 import { isDemo } from './demo';
 import { isValidSlug } from './slug';
@@ -36,6 +36,71 @@ function publicFileExists(urlPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/* ---------- photos and cards ---------- */
+
+const PHOTO_RE = /^([A-Za-z0-9_]+(?:-[A-Za-z]+)*)-(\d{2,4})\.(jpg|webp)$|^([A-Za-z0-9_-]{1,60})\.(jpg|png)$/;
+
+export interface ImageRow {
+  kind: string;
+  storage_path: string | null;
+  width: number | null;
+  height: number | null;
+  alt: string | null;
+}
+
+function publicFiles(slug: string): string[] {
+  try {
+    return readdirSync(path.join(process.cwd(), 'public', 'brands', slug));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A stored photo path `<tenant>/<name>-<width>.jpg` maps to /brands/<slug>/ like the logos; every width of the same
+ * name found there (jpg and webp) goes into the srcset. Anything else is dropped.
+ */
+export function imageFromRow(slug: string, tenantId: string, row: ImageRow, list: (slug: string) => string[] = publicFiles): BrandImage | null {
+  if (!isValidSlug(slug) || typeof row.storage_path !== 'string' || !row.storage_path.startsWith(`${tenantId}/`)) return null;
+  const file = row.storage_path.slice(tenantId.length + 1);
+  const m = PHOTO_RE.exec(file);
+  const w = Number(row.width);
+  const h = Number(row.height);
+  if (!m || !m[1] || m[3] !== 'jpg' || !Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > DIM_MAX || h > DIM_MAX) return null;
+  const files = list(slug);
+  if (!files.includes(file)) return null;
+  const widths = (ext: string) =>
+    files
+      .map((f) => new RegExp(`^${m[1]}-(\\d{2,4})\\.${ext}$`).exec(f))
+      .filter((x): x is RegExpExecArray => x !== null)
+      .map((x) => Number(x[1]))
+      .sort((a, b) => a - b);
+  const set = (ext: string) => widths(ext).map((n) => `/brands/${slug}/${m[1]}-${n}.${ext} ${n}w`).join(', ');
+  return { src: `/brands/${slug}/${file}`, width: w, height: h, srcSetJpg: set('jpg'), srcSetWebp: widths('webp').length ? set('webp') : null, alt: (row.alt ?? '').slice(0, 120) };
+}
+
+export function shareCardFromRow(slug: string, tenantId: string, row: ImageRow, exists: (publicPath: string) => boolean = publicFileExists): ShareCard | null {
+  if (!isValidSlug(slug) || typeof row.storage_path !== 'string' || !row.storage_path.startsWith(`${tenantId}/`)) return null;
+  const file = row.storage_path.slice(tenantId.length + 1);
+  if (!/^[A-Za-z0-9_-]{1,60}\.(jpg|png)$/.test(file) || Number(row.width) !== 1200 || Number(row.height) !== 630) return null;
+  const url = `/brands/${slug}/${file}`;
+  return exists(url) ? { url, width: 1200, height: 630, alt: (row.alt ?? '').slice(0, 120) } : null;
+}
+
+/** The brand images from the kit rows: only the kinds that are there, only files that exist. */
+export function brandImagesFrom(slug: string | null, tenantId: string, rows: ImageRow[], list?: (slug: string) => string[], exists?: (p: string) => boolean): Pick<TenantBrand, 'heroImage' | 'signInPhoto' | 'shareCard'> {
+  if (!slug) return { heroImage: null, signInPhoto: null, shareCard: null };
+  const row = (k: string) => rows.find((r) => r.kind === k);
+  const hero = row('hero_image');
+  const photo = row('sign_in_photo');
+  const card = row('share_card');
+  return {
+    heroImage: hero ? imageFromRow(slug, tenantId, hero, list) : null,
+    signInPhoto: photo ? imageFromRow(slug, tenantId, photo, list) : null,
+    shareCard: card ? shareCardFromRow(slug, tenantId, card, exists) : null,
+  };
 }
 
 /* ---------- loading ---------- */
@@ -82,7 +147,11 @@ async function lookup(slug: string | null, tenantId: string | null, open?: () =>
   try {
     return await withServiceConnection(async (db) => {
       const r = await db.query(`select * from private.public_brand($1::text, $2::uuid)`, [slug, tenantId]);
-      return brandFromRow(r.rows[0] as BrandRow | undefined);
+      const brand = brandFromRow(r.rows[0] as BrandRow | undefined);
+      if (brand.isOwnBrand) return brand;
+      const row = r.rows[0] as BrandRow;
+      const imgs = await db.query(`select * from private.public_brand_images($1::text, $2::uuid)`, [slug, tenantId]).catch(() => ({ rows: [] }));
+      return { ...brand, ...brandImagesFrom(brand.slug, row.tenant_id, imgs.rows as ImageRow[]) };
     }, open);
   } catch {
     // No database, bad keys or any other trouble: the plain TradesPro brand, never an error page.

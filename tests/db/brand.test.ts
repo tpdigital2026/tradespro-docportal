@@ -74,3 +74,23 @@ describe.skipIf(!dbAvailable)('tenant slug and public brand', () => {
     });
   });
 });
+
+describe.skipIf(!dbAvailable)('brand images come from the brand kit (migration 014)', () => {
+  it('public_brand_images returns only that business\'s banner, photo and card; a business without rows gets none', async () => {
+    await withRollback(async (c) => {
+      const t = await createTenantWithUser(c, 'Images Co');
+      const other = await createTenantWithUser(c, 'Plain Co');
+      await c.query(`update public.tenants set slug = 'images-co-test' where id = $1`, [t.tenantId]);
+      await c.query(`update public.tenants set slug = 'plain-co-test' where id = $1`, [other.tenantId]);
+      const kit = await c.query(`insert into public.brand_kits (tenant_id) values ($1) returning id`, [t.tenantId]);
+      await c.query(`insert into public.brand_kits (tenant_id) values ($1)`, [other.tenantId]);
+      await c.query(`insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt) values ($1, $2, 'hero_image', $3, 1400, 864, '')`, [t.tenantId, kit.rows[0].id, `${t.tenantId}/hero-1400.jpg`]);
+      await c.query(`insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt) values ($1, $2, 'logo_colour', $3, 10, 5, '')`, [t.tenantId, kit.rows[0].id, `${t.tenantId}/logo.png`]);
+      const mine = await c.query(`select kind, storage_path from private.public_brand_images('images-co-test', null)`);
+      expect(mine.rows).toEqual([{ kind: 'hero_image', storage_path: `${t.tenantId}/hero-1400.jpg` }]);
+      expect((await c.query(`select * from private.public_brand_images(null, $1)`, [other.tenantId])).rows).toEqual([]);
+      const anon = await c.query(`select has_function_privilege('authenticated', 'private.public_brand_images(text, uuid)', 'execute') as a`);
+      expect(anon.rows[0].a).toBe(false);
+    });
+  });
+});

@@ -8,6 +8,23 @@ export interface Logo {
   height: number;
 }
 
+/** A photo in a few widths. src and width/height are the largest JPEG; srcSet lists every width found. */
+export interface BrandImage {
+  src: string;
+  width: number;
+  height: number;
+  srcSetJpg: string;
+  srcSetWebp: string | null;
+  alt: string;
+}
+
+export interface ShareCard {
+  url: string;
+  width: number;
+  height: number;
+  alt: string;
+}
+
 /** The public face of one business. Everything here is safe to show before anyone has signed in. */
 export interface TenantBrand {
   name: string;
@@ -20,6 +37,12 @@ export interface TenantBrand {
   /** A validated #rrggbb, or null when the business has none or it is unusable. */
   accent: string | null;
   isOwnBrand: boolean;
+  /** The Home banner, from the brand kit. Absent: a plain band in the business colour. */
+  heroImage?: BrandImage | null;
+  /** The photo beside the sign-in form, from the brand kit. Absent: the wordless document illustration. */
+  signInPhoto?: BrandImage | null;
+  /** The link preview card for the business's sign-in address. Absent: the neutral DocPortal card. */
+  shareCard?: ShareCard | null;
 }
 
 export const TRADESPRO_BRAND: TenantBrand = {
@@ -39,6 +62,10 @@ export const DEMO_BRAND: TenantBrand = {
   logoDark: { url: '/brands/fjc/logo_white.png', width: 1036, height: 439 },
   accent: '#2f6fbf',
   isOwnBrand: false,
+  // As seeded for FJC (npm run db:seed). The banner stays FJC's until the owner confirms the image licence.
+  heroImage: { src: '/brands/fjc/hero-1400.jpg', width: 1400, height: 864, srcSetJpg: '/brands/fjc/hero-800.jpg 800w, /brands/fjc/hero-1400.jpg 1400w', srcSetWebp: '/brands/fjc/hero-800.webp 800w, /brands/fjc/hero-1400.webp 1400w', alt: '' },
+  signInPhoto: { src: '/brands/fjc/van-1600.jpg', width: 1600, height: 1200, srcSetJpg: '/brands/fjc/van-900.jpg 900w, /brands/fjc/van-1600.jpg 1600w', srcSetWebp: '/brands/fjc/van-900.webp 900w, /brands/fjc/van-1600.webp 1600w', alt: 'FJC Roofing van' },
+  shareCard: { url: '/brands/fjc/og.jpg', width: 1200, height: 630, alt: 'FJC Roofing Ltd DocPortal' },
 };
 
 export { RESERVED_SLUGS, isValidSlug } from './slug';
