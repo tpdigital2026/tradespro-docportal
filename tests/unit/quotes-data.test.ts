@@ -202,3 +202,12 @@ describe('lookups', () => {
     expect(JSON.stringify(banks)).not.toMatch(/SECRET/);
   });
 });
+
+describe('check violations on a new job', () => {
+  it('only the reserved-number constraint gets the reserved-number message', async () => {
+    const { checkViolation } = await import('../../src/lib/data/quotes');
+    expect(checkViolation('new row for relation "jobs" violates check constraint "jobs_reference_not_document_like"').message).toMatch(/cannot start with INV-/);
+    expect(checkViolation('violates check constraint "jobs_reference_check"').message).toMatch(/2 to 40 letters/);
+    expect(checkViolation('violates check constraint "jobs_payment_plan_kind"').message).toMatch(/breaks a rule/);
+  });
+});

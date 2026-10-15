@@ -209,6 +209,14 @@ export function cleanPara(raw: string): string {
 }
 
 /** Fingerprint of generated wording (groups and lines). */
+/** Said when approving copy whose server proof has expired (made more than a day ago). Shared with the screen. */
+export const COPY_TOO_OLD = 'This copy is more than a day old. Generate it again, then approve.';
+
+/** The owner has changed the wording since it was generated (the generated fingerprint no longer matches). */
+export function wordingEdited(copy: ScopeCopy | null): boolean {
+  return !!copy?.genKey && copy.genKey !== sectionsKey(copy.sections);
+}
+
 export function sectionsKey(sections: readonly CopySection[]): string {
   return `g${sha256Hex(JSON.stringify(cleanCopySections(sections).map((s) => [s.heading, s.steps])))}`;
 }

@@ -16,7 +16,8 @@ export type GenerateOutcome =
   | { ok: false; code: 'empty' | 'failed'; message: string };
 
 export const LIMIT_MESSAGE = 'You have used the AI assistant a lot in the last few minutes, so the basic tidy was used this time. Try the AI again in a little while.';
-export const COPY_TOO_OLD = 'This copy is more than a day old. Generate it again, then approve.';
+export { COPY_TOO_OLD } from '../scope/model';
+import { COPY_TOO_OLD } from '../scope/model';
 const FAILED = 'We could not tidy that just now. Please try again.';
 
 interface Who {

@@ -1,7 +1,7 @@
 'use client';
 
 import { AutoTextarea } from './bits';
-import { groupItems, SCOPE_LIMITS, type ScopeCopy, type ScopeItem } from '../../lib/scope/model';
+import { groupItems, SCOPE_LIMITS, wordingEdited, type ScopeCopy, type ScopeItem } from '../../lib/scope/model';
 
 const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
 
@@ -31,6 +31,7 @@ export function engineLine(copy: ScopeCopy): string {
 /** Their steps beside the tidied wording. Everything on the right can be edited. */
 export function ScopeReview({ items, copy, notice, approved, editCopy, errors }: Props) {
   const groups = groupItems(items);
+  const edited = wordingEdited(copy);
   let n = 0;
   return (
     <div className="sc-review">
@@ -39,6 +40,13 @@ export function ScopeReview({ items, copy, notice, approved, editCopy, errors }:
       {approved && copy.approvedAt ? (
         <p className="sc-approved" role="status">
           {approvedTime(copy.approvedAt) ? `Approved at ${approvedTime(copy.approvedAt)}.` : 'Approved.'} This is the wording the customer will read.
+          {edited ? ' It includes changes you made yourself after it was generated.' : null}
+        </p>
+      ) : null}
+      {edited ? (
+        <p className="sc-edited" role="note">
+          <span className="sc-edited-tag">Edited by you</span>
+          You changed some of the wording after it was made. Your own changes are not checked by the assistant, so read them through before you approve.
         </p>
       ) : null}
 

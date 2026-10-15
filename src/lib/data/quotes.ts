@@ -366,8 +366,18 @@ export async function saveDraftWith(client: DataClient, tenantId: string, rawFor
     }
     throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
   }
-  if (ins.error?.code === '23514') throw new QuoteError('invalid', NUMBER_SUFFIX_MESSAGE, { quoteNumber: NUMBER_SUFFIX_MESSAGE });
+  if (ins.error?.code === '23514') throw checkViolation(String(ins.error.message ?? ''));
   throw new QuoteError('failed', 'Could not save');
+}
+
+export const NUMBER_FORMAT_MESSAGE = 'Use 2 to 40 letters, numbers, dots, dashes or slashes, starting with a letter or number';
+export const SAVE_RULE_MESSAGE = 'That could not be saved because it breaks a rule on the data. Check the quote and try again.';
+
+/** A check violation on the job insert, told apart by its constraint: only the reserved-number rule gets that message. */
+export function checkViolation(message: string): QuoteError {
+  if (/jobs_reference_not_document_like/.test(message)) return new QuoteError('invalid', NUMBER_SUFFIX_MESSAGE, { quoteNumber: NUMBER_SUFFIX_MESSAGE });
+  if (/jobs_reference_check/.test(message)) return new QuoteError('invalid', NUMBER_FORMAT_MESSAGE, { quoteNumber: NUMBER_FORMAT_MESSAGE });
+  return new QuoteError('invalid', SAVE_RULE_MESSAGE);
 }
 
 // ---------------------------------------------------------------- demo mode (in memory, dummy data)

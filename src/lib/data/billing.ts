@@ -383,7 +383,8 @@ export async function saveFollowOnWith(db: { query: ServiceDb['query'] }, actor:
     if (ver.rows[0]) {
       // Repairing: the receipt on record must be for this very payment. Positions can shift; a payment is never linked to another's receipt.
       const theirs = (ver.rows[0].input as { followOn?: { paymentId?: string | null } } | null)?.followOn?.paymentId ?? null;
-      if (w.paymentId !== null && theirs !== w.paymentId) throw new BillingError('invalid', 'That receipt number already belongs to a different payment, so it cannot be used for this one.');
+      // Both ways round: a version made for a payment is never reused by a save that names no payment (or another one).
+      if (theirs !== w.paymentId) throw new BillingError('invalid', w.paymentId === null ? 'That document number already belongs to a receipt for a payment, so it cannot be used here.' : 'That receipt number already belongs to a different payment, so it cannot be used for this one.');
     } else {
       const input = { schema: 1, followOn: { instalment: w.instalment, heading: w.heading, netPence: w.netPence, vatPence: w.vatPence, grossPence: w.grossPence, paymentId: w.paymentId } };
       ver = await db.query(

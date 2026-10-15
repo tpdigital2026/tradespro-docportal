@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { approveScopeAction, generateScopeCopyAction } from '../../app/(app)/documents/new/scope-actions';
 import { applyJobTypeDefaults, isPristine } from '../../lib/scope/defaults';
-import { copyErrors, countSteps, isApproved, isStale, scopeErrors, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../../lib/scope/model';
+import { copyErrors, COPY_TOO_OLD, countSteps, isApproved, isStale, scopeErrors, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../../lib/scope/model';
 import { tidyItems } from '../../lib/scope/tidy';
 import { Button } from '../Button';
 import { ScopeDetails } from '../scope/ScopeDetails';
@@ -30,6 +30,7 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
   const [busy, setBusy] = useState<'generating' | 'approving' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tooOld, setTooOld] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const type = ctx.jobTypes.find((t) => t.id === values.jobTypeId);
@@ -81,6 +82,7 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
       return;
     }
     setNotice(res.notice);
+    setTooOld(false);
     patchScope({ copy: res.copy });
     setView('review');
     window.scrollTo({ top: 0 });
@@ -115,9 +117,12 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
       return;
     }
     if (!res.ok) {
-      setMessage(res.message);
+      // Old copy is not an error the owner caused: say what to do, with the button right there.
+      if (res.message === COPY_TOO_OLD) setTooOld(true);
+      else setMessage(res.message);
       return;
     }
+    setTooOld(false);
     const now = scopeRef.current.copy;
     if (now) patchScope({ copy: { ...now, approvedAt: res.approvedAt, approvalHash: res.approvalHash } });
   };
@@ -157,6 +162,16 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
                 <p>Start with the first thing you do on site. One sentence for each step, like "Strip off and remove the existing roof covering".</p>
               </div>
             ) : null}
+            {scope.legacyOverflow ? (
+              <section className="sc-legacy" aria-labelledby="sc-legacy-h">
+                <h3 id="sc-legacy-h" className="qt-h3">Older notes that did not fit</h3>
+                <p className="hint">This draft was started before the step boxes existed, and these notes would not fit as steps. They are not on the quote. Copy anything you need into a step, then discard them.</p>
+                <pre className="sc-legacy-text" tabIndex={0}>{scope.legacyOverflow}</pre>
+                <div>
+                  <Button type="button" variant="secondary" onClick={() => patchScope({ legacyOverflow: '' })}>Discard these notes</Button>
+                </div>
+              </section>
+            ) : null}
             <ScopeSteps items={scope.items} update={updateItems} errors={errors} />
             <ScopeExamples
               types={ctx.jobTypes}
@@ -172,6 +187,12 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
         </div>
       )}
 
+      {tooOld && reviewing ? (
+        <div className="sc-notice sc-too-old" role="alert">
+          <p>{COPY_TOO_OLD}</p>
+          <Button type="button" variant="secondary" onClick={generate} disabled={busy !== null}>{busy === 'generating' ? 'Generating...' : 'Generate it again'}</Button>
+        </div>
+      ) : null}
       {message ? <p className="form-error" role="alert">{message}</p> : null}
       {!approved && !reviewing ? <p className="hint">The price step opens once you have approved the wording.</p> : null}
 

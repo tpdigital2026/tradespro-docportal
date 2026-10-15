@@ -470,13 +470,27 @@ describe.skipIf(!dbAvailable)('job references cannot look like document numbers 
   it('refuses endings -D, -B, -S{n}, -P{n} and prefixes INV-, RCP-, GC-, SR-, for the server and the app role', async () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');
-      const bad = ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-S10', 'Q1-P2', 'Q-5-P99', 'INV-100', 'RCP-100', 'GC-100', 'SR-100', 'A/B-D'];
+      const bad = ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-S10', 'Q1-P2', 'Q-5-P99', 'INV-100', 'RCP-100', 'GC-100', 'SR-100', 'GUA-100', 'SUR-100', 'A/B-D'];
       const ins = `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3)`;
       for (const ref of bad) await expectFail(c, ins, [a.tenantId, a.customerId, ref], /jobs_reference_not_document_like/);
       await actAs(c, a.userId);
       for (const ref of bad) await expectFail(c, ins, [a.tenantId, a.customerId, ref], /jobs_reference_not_document_like/);
       await actAsServer(c);
       for (const ref of ['Q1-DX', 'Q1-S', 'Q1-P', 'Q1-d', 'Q-5-2', 'INVOICE-1', 'GCSE-1', 'xRCP-1', 'QT-0042']) await c.query(ins, [a.tenantId, a.customerId, ref]);
+    });
+  });
+
+  it('a trailing newline or any space cannot slip a reserved ending past the check (migration 013)', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const r = await c.query(`select pg_get_constraintdef(oid) as d from pg_constraint where conname = 'jobs_reference_not_document_like'`);
+      expect(r.rows[0].d).toMatch(/space/);
+      for (const ref of ['Q1-D\n', 'Q1-B ', 'Q 1']) {
+        await c.query('savepoint y');
+        await expect(c.query(`insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3)`, [a.tenantId, a.customerId, ref])).rejects.toThrow();
+        await c.query('rollback to savepoint y');
+      }
+      expect((await c.query(`select ($1::text !~ '[[:space:][:cntrl:]]' and $1::text !~ '-(D|B|S[0-9]+|P[0-9]+)$') as ok`, ['Q1-D\n'])).rows[0].ok).toBe(false);
     });
   });
 
@@ -497,6 +511,19 @@ describe.skipIf(!dbAvailable)('job references cannot look like document numbers 
 });
 
 describe.skipIf(!dbAvailable)('saveFollowOnWith repair never crosses payments', () => {
+  it('a save that names no payment never reuses a version made for a payment (the null-payment bypass)', async () => {
+    await withRollback(async (c) => {
+      const a = await seedTenant(c, 'Alpha');
+      const inv = await doc(c, a, 'invoice_full', `INV-${ref('Alpha')}`, 'final');
+      const p1 = await pay(c, a, inv, { amount: 3000 });
+      const number = `RCP-${ref('Alpha')}`;
+      const w = { jobId: a.jobId, type: 'receipt' as const, number, instalment: 1, heading: 'Invoice', netPence: 2500, vatPence: 500, grossPence: 3000, date: '2026-10-15', paymentId: p1 };
+      const actor = { tenantId: a.tenantId, userId: a.userId };
+      await saveFollowOnWith(c, actor, w, { nested: true });
+      await expect(saveFollowOnWith(c, actor, { ...w, paymentId: null }, { nested: true })).rejects.toMatchObject({ code: 'invalid', message: expect.stringMatching(/belongs to a receipt for a payment/) });
+    });
+  });
+
   it('refuses to reuse a receipt number whose version belongs to another payment, and says why', async () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');

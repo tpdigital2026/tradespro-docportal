@@ -149,7 +149,7 @@ describe('quoteInputSchema (strict)', () => {
     }
   });
   it('quote numbers cannot end like a document number (-D, -B, -S or -P and digits) or start like one (INV-, RCP-, GC-, SR-), in draft or final', () => {
-    for (const n of ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-P2', 'Q-5-P99', 'FJC/2026/17-S10', 'INV-100', 'RCP-100', 'GC-100', 'SR-100']) {
+    for (const n of ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-P2', 'Q-5-P99', 'FJC/2026/17-S10', 'INV-100', 'RCP-100', 'GC-100', 'SR-100', 'GUA-100', 'SUR-100']) {
       for (const mode of ['draft', 'final'] as const) {
         expect(normaliseQuote(ready({ quoteNumber: n }), mode).errors.quoteNumber, `${mode} ${n}`).toMatch(/cannot start with INV-/);
       }
