@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
@@ -8,6 +10,17 @@ const EXPECTED = [
 ];
 
 describe.skipIf(!dbAvailable)('schema', () => {
+  it('the migrate tracking table and the migration files agree exactly (nothing would be re-run or skipped)', async () => {
+    await withRollback(async (c) => {
+      const files = readdirSync(path.join(__dirname, '../../supabase/migrations')).filter((f) => f.endsWith('.sql')).sort();
+      // Unique numbers: no two files share a numeric prefix plus letter (e.g. two 030_*.sql).
+      const prefixes = files.map((f) => f.split('_')[0]);
+      expect(new Set(prefixes).size, 'two migration files share a number').toBe(prefixes.length);
+      const applied = (await c.query(`select name from public._migrations order by name`)).rows.map((r) => String(r.name));
+      expect(applied).toEqual(files);
+    });
+  });
+
   it('has every table from the spec', async () => {
     await withRollback(async (c) => {
       const r = await c.query(`select tablename from pg_tables where schemaname = 'public'`);

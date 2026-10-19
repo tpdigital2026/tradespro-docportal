@@ -6,17 +6,29 @@
  *   1. the customer purge protocol (README "Purge job protocol": claim_expired_customers, expired_storage_paths, delete
  *      the files with the real storage client, purge_customers, all in ONE transaction with no request.jwt.claims and a
  *      generous statement timeout; any storage failure rolls the database step back);
- *   2. private.purge_old_login_attempts (sign-in attempt rows older than 30 days);
- *   3. the storage orphan sweep (dry run with ?dry=1).
+ *   2. private.purge_unlinked_appointments(now()) (appointments with no customer past the retention period; it touches
+ *      no files; migration 031);
+ *   3. private.purge_old_login_attempts (sign-in attempt rows older than 30 days);
+ *   4. the storage orphan sweep (dry run with ?dry=1).
  * Logs and the answer hold counts only.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import type { Db } from '../../security/login-guard';
 import type { SweepResult } from './orphan-sweep';
+
+/** Step 2: on a service connection with no app role or claims (the function is granted to the service role only). */
+export async function purgeUnlinkedAppointmentsWith(db: Db): Promise<number> {
+  await db.query('reset role');
+  await db.query(`select set_config('request.jwt.claims', '', false)`);
+  const r = await db.query('select private.purge_unlinked_appointments(now()) as n');
+  return Number(r.rows[0]?.n ?? 0);
+}
 
 export interface MaintenanceDeps {
   secret(): string | undefined;
   purgeCustomers(): Promise<number>;
+  purgeUnlinkedAppointments(): Promise<number>;
   purgeLoginAttempts(): Promise<number>;
   sweep(dryRun: boolean): Promise<SweepResult>;
   log(line: string): void;
@@ -56,6 +68,7 @@ export async function handleMaintenance(req: Request, deps: MaintenanceDeps): Pr
     }
   };
   await step('purge', deps.purgeCustomers, (n) => ({ customers: n }));
+  await step('appointments', deps.purgeUnlinkedAppointments, (n) => ({ deleted: n }));
   await step('loginAttempts', deps.purgeLoginAttempts, (n) => ({ deleted: n }));
   await step('orphans', () => deps.sweep(dryRun), (r) => ({ ...r }));
   return NextResponse.json({ ok, ...result }, { status: ok ? 200 : 500, headers: { 'Cache-Control': 'no-store' } });

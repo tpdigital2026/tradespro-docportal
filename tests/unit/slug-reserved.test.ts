@@ -45,5 +45,8 @@ describe('reserved slugs', () => {
     expect(latest.has('tenants_slug_not_reserved')).toBe(true);
     const fromSql = [...new Set([...latest.values()].flat())].sort();
     expect(fromSql).toEqual([...RESERVED_SLUGS].sort());
+    // Every merged task's routes: the business tabs (030) and Owner Settings (040). The survey report added no
+    // top-level route (it lives under /documents and /api/surveys).
+    expect(fromSql).toEqual(expect.arrayContaining(['pipeline', 'money', 'calendar', 'guarantees', 'settings']));
   });
 });

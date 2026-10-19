@@ -61,6 +61,11 @@ describe.skipIf(!dbAvailable)('tenant slug and public brand', () => {
       expect(r.rows.map((x) => x.conname)).toContain('tenants_slug_not_reserved');
       const words = [...new Set(r.rows.flatMap((row) => [.../ARRAY\[([^\]]+)\]/.exec(row.def as string)![1].matchAll(/'([^']+)'/g)].map((m) => m[1])))].sort();
       expect(words).toEqual([...RESERVED_SLUGS].sort());
+      // Every merged task's words are live: the business tabs (030) and Owner Settings (040).
+      expect(words).toEqual(expect.arrayContaining(['pipeline', 'money', 'calendar', 'guarantees', 'settings']));
+      for (const w of ['pipeline', 'money', 'calendar', 'guarantees', 'settings']) {
+        await expectFail(c, `update public.tenants set slug = $1 where id = (select id from public.tenants order by id limit 1)`, [w], /tenants_slug_not_reserved/);
+      }
     });
   });
 

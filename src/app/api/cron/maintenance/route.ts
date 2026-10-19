@@ -1,5 +1,5 @@
 import { purgeExpiredWith, withServiceConnection } from '../../../../lib/data/customer-admin';
-import { handleMaintenance, type MaintenanceDeps } from '../../../../lib/maintenance/cron';
+import { handleMaintenance, purgeUnlinkedAppointmentsWith, type MaintenanceDeps } from '../../../../lib/maintenance/cron';
 import { sweepOrphansWith } from '../../../../lib/maintenance/orphan-sweep';
 import { getStorage } from '../../../../lib/storage';
 
@@ -10,6 +10,7 @@ const deps: MaintenanceDeps = {
   secret: () => process.env.CRON_SECRET?.trim(),
   // One transaction, no app JWT, a five minute statement timeout (purgeExpiredWith clears the claims itself).
   purgeCustomers: () => withServiceConnection((db) => purgeExpiredWith(db, getStorage(), { statementTimeoutSeconds: 300 })),
+  purgeUnlinkedAppointments: () => withServiceConnection((db) => purgeUnlinkedAppointmentsWith(db)),
   purgeLoginAttempts: () =>
     withServiceConnection(async (db) => {
       await db.query('reset role');

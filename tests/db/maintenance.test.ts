@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { purgeExpiredWith } from '../../src/lib/data/customer-admin';
+import { purgeUnlinkedAppointmentsWith } from '../../src/lib/maintenance/cron';
 import { SWEEP_REFERENCE_COLUMNS, SWEEP_REVIEWED_TABLES, sweepOrphansWith } from '../../src/lib/maintenance/orphan-sweep';
 import { InMemoryStorage } from '../../src/lib/storage';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
@@ -117,6 +118,27 @@ describe.skipIf(!dbAvailable)('scheduled customer purge (protocol, fake storage)
   });
 });
 
+describe.skipIf(!dbAvailable)('scheduled unlinked appointment purge (cron step 2)', () => {
+  it('the cron step removes only unlinked appointments past retention, as the service role, even from an app-role connection', async () => {
+    await withRollback(async (c) => {
+      const t = await setup(c);
+      await c.query(`insert into public.tenant_defaults (tenant_id, retention_days) values ($1, 30) on conflict (tenant_id) do update set retention_days = 30`, [t.tenantId]);
+      const ins = `insert into public.appointments (tenant_id, kind, title, starts_at, customer_id, created_at, updated_at) values ($1, 'other', $2, $3::timestamptz, $4, $3::timestamptz, $3::timestamptz)`;
+      const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+      await c.query(ins, [t.tenantId, 'old unlinked', ago(40), null]);
+      await c.query(ins, [t.tenantId, 'recent unlinked', ago(5), null]);
+      await c.query(ins, [t.tenantId, 'old linked', ago(40), t.C]);
+      // The connection may arrive carrying an app role and claims: the step clears both before calling the function.
+      await c.query(`set local role authenticated`);
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: t.userId, role: 'authenticated' })]);
+      const n = await purgeUnlinkedAppointmentsWith(c);
+      expect(n).toBeGreaterThanOrEqual(1);
+      const left = await c.query(`select title from public.appointments where tenant_id = $1 order by title`, [t.tenantId]);
+      expect(left.rows.map((r) => r.title)).toEqual(['old linked', 'recent unlinked']);
+    });
+  });
+});
+
 describe.skipIf(!dbAvailable)('orphan sweep coverage (merge hazard)', () => {
   it('every column that can hold a storage path is one the sweep reads', async () => {
     await withRollback(async (c) => {
@@ -124,8 +146,7 @@ describe.skipIf(!dbAvailable)('orphan sweep coverage (merge hazard)', () => {
       expect(r.rows.map((x) => x.col)).toEqual([...SWEEP_REFERENCE_COLUMNS].sort());
     });
   });
-  // TODO(integration): fails loudly until each new table (appointments from the business tabs task, any survey table)
-  // has been checked for stored files and added to SWEEP_REVIEWED_TABLES (and its path column to the reference query).
+  // Fails loudly when a new table appears that nobody has checked for stored files (SWEEP_REVIEWED_TABLES).
   it('every public table has been reviewed for stored files', async () => {
     await withRollback(async (c) => {
       const r = await c.query(`select tablename from pg_tables where schemaname = 'public' order by 1`);

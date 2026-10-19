@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { cronAuthorised, handleMaintenance, type MaintenanceDeps } from '../../src/lib/maintenance/cron';
+import { cronAuthorised, handleMaintenance, purgeUnlinkedAppointmentsWith, type MaintenanceDeps } from '../../src/lib/maintenance/cron';
 import { classify, sweepOrphansWith, type References } from '../../src/lib/maintenance/orphan-sweep';
 import { InMemoryStorage } from '../../src/lib/storage';
 
@@ -22,6 +22,7 @@ function deps(over: Partial<MaintenanceDeps> = {}) {
   const d: MaintenanceDeps = {
     secret: () => SECRET,
     purgeCustomers: async () => (order.push('purge'), 2),
+    purgeUnlinkedAppointments: async () => (order.push('appointments'), 3),
     purgeLoginAttempts: async () => (order.push('logins'), 7),
     sweep: async (dry) => (order.push(`sweep:${dry}`), { dryRun: dry, tenants: 1, scanned: 3, referenced: 1, young: 1, unknown: 0, orphans: 1, deleted: dry ? 0 : 1 }),
     log: (l) => lines.push(l),
@@ -46,27 +47,47 @@ describe('maintenance cron route', () => {
     expect(cronAuthorised(`Bearer ${'x'.repeat(5000)}`, SECRET)).toBe(false);
     expect(cronAuthorised(null, SECRET)).toBe(false);
   });
-  it('runs purge, then sign-in attempts, then the sweep, and logs counts only', async () => {
+  it('runs purge, then unlinked appointments, then sign-in attempts, then the sweep, and logs counts only', async () => {
     const { d, order, lines } = deps();
     const r = await handleMaintenance(get(`Bearer ${SECRET}`), d);
     expect(r.status).toBe(200);
-    expect(order).toEqual(['purge', 'logins', 'sweep:false']);
-    expect(await r.json()).toMatchObject({ ok: true, purge: { customers: 2 }, loginAttempts: { deleted: 7 }, orphans: { deleted: 1 } });
+    expect(order).toEqual(['purge', 'appointments', 'logins', 'sweep:false']);
+    expect(await r.json()).toMatchObject({ ok: true, purge: { customers: 2 }, appointments: { deleted: 3 }, loginAttempts: { deleted: 7 }, orphans: { deleted: 1 } });
+    expect(lines).toContain('maintenance appointments: {"deleted":3}');
     expect(lines.join('\n')).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
   });
   it('?dry=1 sweeps without deleting', async () => {
     const { d, order } = deps();
     await handleMaintenance(get(`Bearer ${SECRET}`, '?dry=1'), d);
-    expect(order).toEqual(['purge', 'logins', 'sweep:true']);
+    expect(order).toEqual(['purge', 'appointments', 'logins', 'sweep:true']);
   });
   it('a failed step is reported (500) by name only, and the later steps still run', async () => {
     const { d, order, lines } = deps({ purgeCustomers: async () => { throw Object.assign(new Error('Storage deletion failed for 1111/abc'), { code: 'X1' }); } });
     const r = await handleMaintenance(get(`Bearer ${SECRET}`), d);
     expect(r.status).toBe(500);
     expect(await r.json()).toMatchObject({ ok: false, purge: { ok: false }, loginAttempts: { ok: true } });
-    expect(order).toEqual(['logins', 'sweep:false']);
+    expect(order).toEqual(['appointments', 'logins', 'sweep:false']);
     expect(lines.join('\n')).toContain('maintenance purge failed: Error X1');
     expect(lines.join('\n')).not.toContain('1111/abc');
+  });
+  it('a failed unlinked-appointment step is reported by name, and the sign-in clean-up and the sweep still run', async () => {
+    const { d, order, lines } = deps({ purgeUnlinkedAppointments: async () => { throw Object.assign(new Error('appointment 2222-abc'), { code: '42501' }); } });
+    const r = await handleMaintenance(get(`Bearer ${SECRET}`), d);
+    expect(r.status).toBe(500);
+    expect(await r.json()).toMatchObject({ ok: false, purge: { ok: true }, appointments: { ok: false }, loginAttempts: { ok: true } });
+    expect(order).toEqual(['purge', 'logins', 'sweep:false']);
+    expect(lines.join('\n')).toContain('maintenance appointments failed: Error 42501');
+    expect(lines.join('\n')).not.toContain('2222-abc');
+  });
+  it('the appointment step calls the database function with now(), with no app role or claims', async () => {
+    const sql: string[] = [];
+    const n = await purgeUnlinkedAppointmentsWith({ query: async (q: string) => (sql.push(q), { rows: /purge_unlinked/.test(q) ? [{ n: 4 }] : [] }) } as never);
+    expect(n).toBe(4);
+    expect(sql).toEqual(['reset role', `select set_config('request.jwt.claims', '', false)`, 'select private.purge_unlinked_appointments(now()) as n']);
+  });
+  it('the route wires the appointment step', () => {
+    const route = readFileSync(path.join(__dirname, '../../src/app/api/cron/maintenance/route.ts'), 'utf8');
+    expect(route).toMatch(/purgeUnlinkedAppointments: \(\) => withServiceConnection\(\(db\) => purgeUnlinkedAppointmentsWith\(db\)\)/);
   });
   it('vercel.json schedules it daily at 03:15 UTC', () => {
     const v = JSON.parse(readFileSync(path.join(__dirname, '../../vercel.json'), 'utf8'));

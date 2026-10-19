@@ -452,6 +452,46 @@ describe.skipIf(!dbAvailable)('purge protocol and erase', () => {
   });
 });
 
+describe.skipIf(!dbAvailable)('lock_customer_tree locks every cascade child (live definition)', () => {
+  const REACH = `
+    with recursive reach(rel, via_cascade) as (
+      select 'public.customers'::regclass::oid, true
+      union
+      select con.conrelid, con.confdeltype = 'c'
+      from pg_constraint con join reach on con.confrelid = reach.rel
+      where con.contype = 'f' and con.confdeltype in ('c', 'n') and reach.via_cascade
+    )
+    select distinct replace(rel::regclass::text, 'public.', '') as t from reach where rel <> 'public.customers'::regclass::oid order by 1`;
+
+  it('the live function names every table the customer cascade reaches (appointments included)', async () => {
+    await withRollback(async (c) => {
+      const reached = (await c.query(REACH)).rows.map((r) => String(r.t));
+      expect(reached).toContain('appointments');
+      const def = String((await c.query(`select pg_get_functiondef('private.lock_customer_tree(uuid[])'::regprocedure) as d`)).rows[0].d);
+      const missing = reached.filter((t) => !new RegExp(`public\\.${t}\\b`).test(def));
+      expect(missing, 'lock_customer_tree no longer locks these cascade children').toEqual([]);
+    });
+  });
+
+  it('called directly, it holds a row lock in every reached table, so a rival cannot lock any of them', async () => {
+    await withFixture(async (fx) => {
+      const reached = (await fx.setup.query(REACH)).rows.map((r) => String(r.t));
+      const locker = await fx.client();
+      await locker.query('begin');
+      await locker.query(`select private.lock_customer_tree(array[$1]::uuid[])`, [fx.customerId]);
+      for (const table of reached) {
+        const has = await fx.setup.query(`select count(*)::int as n from public.${table} where tenant_id = $1`, [fx.tenantId]);
+        expect(has.rows[0].n, `the fixture needs a row in ${table}`).toBeGreaterThan(0);
+        const rival = await fx.client();
+        await rival.query('begin');
+        await expect(rival.query(`select 1 from public.${table} where tenant_id = $1 for update nowait`, [fx.tenantId]), table).rejects.toThrow(/could not obtain lock/i);
+        await rival.query('rollback');
+      }
+      await locker.query('rollback');
+    });
+  });
+});
+
 describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
   it('claim_customer locks the tree: a photo insert waits, and the erase then stops it', async () => {
     await withFixture(async (fx) => {

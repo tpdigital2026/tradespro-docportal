@@ -39,15 +39,29 @@ export const ORPHAN_MIN_AGE_HOURS = 24;
  */
 export const SWEEP_REFERENCE_COLUMNS: readonly string[] = ['brand_assets.storage_path', 'document_versions.pdf_path', 'documents.pdf_path', 'job_photos.storage_path'];
 /**
- * Every public table, reviewed for whether it stores files. A table added by another task must be added here after
- * checking it (TODO at integration: 'appointments' from the business tabs task, and any survey table from the survey
- * task; survey photos live in job_photos as {tenant}/{customer}/{job}/{photo}.jpg, which PHOTO_FILE covers).
+ * Every public table, reviewed for whether it stores files. A new table must be added here after checking it.
+ * Reviewed at integration: `appointments` (business tabs) holds no file paths (title, notes, times, links only); the
+ * survey report added no table: its photos are job_photos rows at {tenant}/{customer}/{job}/{photo}.jpg (PHOTO_FILE).
  */
 export const SWEEP_REVIEWED_TABLES: readonly string[] = [
-  '_migrations', 'ai_runs', 'audit_log', 'bank_accounts', 'brand_assets', 'brand_kits', 'customers', 'document_emails', 'document_versions',
-  'documents', 'job_photos', 'job_types', 'jobs', 'login_attempts', 'payments', 'profiles', 'purge_log', 'share_links', 'tenant_defaults',
-  'tenants', 'used_numbers',
+  '_migrations', 'ai_runs', 'appointments', 'audit_log', 'bank_accounts', 'brand_assets', 'brand_kits', 'customers', 'document_emails',
+  'document_versions', 'documents', 'job_photos', 'job_types', 'jobs', 'login_attempts', 'payments', 'profiles', 'purge_log', 'share_links',
+  'tenant_defaults', 'tenants', 'used_numbers',
 ];
+
+/**
+ * The file shapes the sweep may delete when nothing references them, by name. Brand images (logos, banner, sign-in
+ * photo, share card at {tenant}/{file}) are deliberately NOT here: they are only ever 'referenced' (brand_assets) or
+ * 'unknown' (kept), never deleted. tests/unit/sweep-coverage.test.ts builds a path with every real path builder and
+ * fails if one of them is not represented.
+ */
+export const SWEEP_SHAPES: Readonly<Record<string, RegExp>> = {
+  finaliseRequestFile: REQUEST_FILE,
+  versionFile: VERSION_FILE,
+  previewFile: PREVIEW_FILE,
+  jobPhoto: PHOTO_FILE,
+  signature: SIGNATURE_FILE,
+};
 
 export interface References {
   /** Exact stored paths. */
