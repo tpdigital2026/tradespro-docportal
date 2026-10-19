@@ -88,7 +88,7 @@ export function StepUp({
         </p>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="stepup-actions">
-          <Button type="button" disabled={busy} onClick={send}>{busy ? 'Sending' : 'Email me a code'}</Button>
+          <Button type="button" pending={busy} onClick={send}>{busy ? 'Sending' : 'Email me a code'}</Button>
           <button type="button" className="linklike" onClick={onCancel}>{cancelLabel}</button>
         </div>
       </div>

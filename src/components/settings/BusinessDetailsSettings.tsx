@@ -76,7 +76,7 @@ export function BusinessDetailsSettings({ business: b, isOwner, email, demo }: {
           <Field id="bd-title" label="Your job title" value={v.ownerTitle} maxLength={BUSINESS_LIMITS.ownerTitle} autoComplete="organization-title" onChange={set('ownerTitle')} error={g.errors.ownerTitle} />
           {g.error ? <p className="form-error" role="alert">{g.error}</p> : null}
           <div className="set-row-actions">
-            <Button type="submit" disabled={g.busy}>{g.busy ? 'Checking' : 'Save'}</Button>
+            <Button type="submit" pending={g.busy}>{g.busy ? 'Checking' : 'Save'}</Button>
             <button type="button" className="linklike" onClick={() => { setEditing(false); g.clear(); }}>Cancel</button>
           </div>
         </form>

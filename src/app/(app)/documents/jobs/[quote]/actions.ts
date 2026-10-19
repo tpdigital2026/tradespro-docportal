@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { BillingError, markAsPaid } from '../../../../../lib/data/billing';
 import { paymentFormSchema, type PaymentErrors } from '../../../../../lib/payment';
@@ -26,4 +27,14 @@ export async function markAsPaidAction(quoteRaw: unknown, instalmentRaw: unknown
     if (e instanceof BillingError) return { ok: false, message: e.message, errors: e.errors };
     return { ok: false, message: GENERIC };
   }
+}
+
+/**
+ * Called when the payment dialog closes after a save (not inside markAsPaidAction, which would redraw the job page
+ * under the open dialog). Every screen's cached copy is dropped, so Home's figures, the Jobs table, Money and this job
+ * show the payment at once, also when the owner goes back.
+ */
+export async function refreshAfterPaymentAction(): Promise<void> {
+  await requireSession();
+  revalidatePath('/', 'layout');
 }

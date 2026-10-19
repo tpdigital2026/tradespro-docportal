@@ -1,14 +1,17 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useRef, useState, useTransition } from 'react';
-import { Button, ButtonLink } from '../../../../../components/Button';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { Button } from '../../../../../components/Button';
 import { Field } from '../../../../../components/Field';
 import { MoneyField } from '../../../../../components/MoneyField';
 import { formatGBP } from '../../../../../lib/money';
-import { defaultPaymentForm, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_NOTE_MAX, type PaymentErrors, type PaymentFormValues } from '../../../../../lib/payment';
-import { newDocumentHref } from '../../../../../lib/job-stage';
-import { markAsPaidAction, type PayResult } from './actions';
+import { defaultPaymentForm, PAYMENT_METHOD_LABELS, PAYMENT_NOTE_MAX, type PaymentErrors, type PaymentFormValues, type PaymentMethod } from '../../../../../lib/payment';
+import { markAsPaidAction, refreshAfterPaymentAction, type PayResult } from './actions';
+import { CreateReceipt } from './CreateReceipt';
+
+/** The four ways a trades customer pays, as one clear choice. A cheque is recorded as Other, with its number in the note. */
+const PAY_CHOICES: PaymentMethod[] = ['bank transfer', 'cash', 'card', 'other'];
 
 /**
  * A button that opens a dialog: confirm the amount (it starts as what is still owed), the date and how it was paid.
@@ -23,6 +26,7 @@ export function MarkAsPaid({
   today,
   label,
   primary,
+  autoOpen = false,
 }: {
   quote: string;
   instalment: number;
@@ -32,6 +36,8 @@ export function MarkAsPaid({
   today: string;
   label: string;
   primary: boolean;
+  /** Opened from Home's "Mark invoice as paid": the form shows at once. */
+  autoOpen?: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -42,6 +48,14 @@ export function MarkAsPaid({
   const [done, setDone] = useState<Extract<PayResult, { ok: true }> | null>(null);
   const [pending, start] = useTransition();
   const id = `pay-${instalment}`;
+
+  const opened = useRef(false);
+  useEffect(() => {
+    if (autoOpen && !opened.current && dialog.current && !dialog.current.open) {
+      opened.current = true;
+      dialog.current.showModal();
+    }
+  }, [autoOpen]);
 
   const set = (patch: Partial<PaymentFormValues>) => setValues((v) => ({ ...v, ...patch }));
 
@@ -57,7 +71,7 @@ export function MarkAsPaid({
   };
   const onClosed = () => {
     opener.current?.focus();
-    if (done) router.refresh();
+    if (done) void refreshAfterPaymentAction().catch(() => undefined).finally(() => router.refresh());
   };
 
   const submit = (e: React.FormEvent) => {
@@ -76,7 +90,7 @@ export function MarkAsPaid({
 
   return (
     <>
-      <Button ref={opener} type="button" variant={primary ? 'primary' : 'secondary'} onClick={open} aria-haspopup="dialog">
+      <Button ref={opener} type="button" variant={primary ? 'primary' : 'secondary'} onClick={open} aria-haspopup="dialog" data-pay-open={instalment}>
         {label}
       </Button>
       <dialog ref={dialog} className="pay-dialog" aria-labelledby={`${id}-h`} onClose={onClosed}>
@@ -91,7 +105,7 @@ export function MarkAsPaid({
               {done.remainingPence > 0 ? `${formatGBP(done.remainingPence)} is still to come in on this invoice.` : `${heading} is paid in full.`}
             </p>
             <div className="pay-actions">
-              <ButtonLink href={newDocumentHref('receipt', quote, { n: instalment, payment: done.paymentId })}>Create receipt</ButtonLink>
+              <CreateReceipt quote={quote} instalment={instalment} paymentId={done.paymentId} />
               <Button type="button" variant="secondary" onClick={close}>Not now</Button>
             </div>
           </div>
@@ -105,19 +119,22 @@ export function MarkAsPaid({
             <p className="pay-owed"><span>Still owed</span><strong>{formatGBP(outstandingPence)}</strong></p>
             <MoneyField id={`${id}-amount`} label="Amount received" hint="Change it if only part has been paid." value={values.amount} onChange={(e) => set({ amount: e.target.value })} error={errors.amount} />
             <Field id={`${id}-date`} label="Date received" type="date" max={today} value={values.paidOn} onChange={(e) => set({ paidOn: e.target.value })} error={errors.paidOn} />
-            <div className="field">
-              <label htmlFor={`${id}-method`}>How was it paid?</label>
-              <select id={`${id}-method`} className="input" value={values.method} onChange={(e) => set({ method: e.target.value })} aria-invalid={errors.method ? true : undefined} aria-describedby={errors.method ? `${id}-method-error` : undefined}>
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
+            <fieldset className="pay-methods" aria-describedby={errors.method ? `${id}-method-error` : undefined}>
+              <legend>How was it paid?</legend>
+              <div className="pay-method-opts">
+                {PAY_CHOICES.map((m) => (
+                  <label key={m} className={`pay-method${values.method === m ? ' is-on' : ''}`}>
+                    <input type="radio" name={`${id}-method`} value={m} checked={values.method === m} onChange={() => set({ method: m })} />
+                    <span>{PAYMENT_METHOD_LABELS[m]}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
               {errors.method ? <p className="error" id={`${id}-method-error`} role="alert">{errors.method}</p> : null}
-            </div>
+            </fieldset>
             <Field id={`${id}-note`} label="Note" hint="Optional, for example a cheque number." maxLength={PAYMENT_NOTE_MAX} value={values.note} onChange={(e) => set({ note: e.target.value })} error={errors.note} />
             {message ? <p className="form-error" role="alert">{message}</p> : null}
             <div className="pay-actions">
-              <Button type="submit" disabled={pending}>{pending ? 'Saving' : 'Save payment'}</Button>
+              <Button type="submit" pending={pending}>{pending ? 'Saving' : 'Save payment'}</Button>
               <Button type="button" variant="secondary" onClick={close}>Cancel</Button>
             </div>
           </form>

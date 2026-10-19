@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PendingHint } from './PendingHint';
 import { DocTypeIcon } from './DocTypeIcon';
 import { newDocumentHref, type DocType } from '../lib/job-stage';
 
@@ -45,6 +46,7 @@ export function DocTypeList() {
                 <span className="tile-name">{i.name}</span>
                 <span className="tile-blurb">{i.blurb}</span>
               </span>
+              <PendingHint />
               {i.type === 'quotation' ? (
                 <span className="tile-cta" aria-hidden="true">Start a quote <Arrow /></span>
               ) : (

@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { BillingError, saveFollowOnDraft } from '../../../../lib/data/billing';
@@ -38,6 +39,8 @@ export async function saveFollowOnAction(_prev: FollowOnState, form: FormData): 
   } catch (e) {
     return { message: e instanceof BillingError ? e.message : GENERIC };
   }
-  // Straight to the draft page: check it, then preview and finalise.
+  revalidatePath('/', 'layout');
+  // A receipt made straight after recording its payment opens in the preview; otherwise the draft page to check first.
+  if (form.get('open') === 'preview' && parsed.data.type === 'receipt') redirect(`/documents/${encodeURIComponent(documentId)}/preview`);
   redirect(`/documents/${encodeURIComponent(documentId)}?saved=1`);
 }

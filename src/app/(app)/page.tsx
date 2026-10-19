@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { JobsTable } from '../../components/JobsTable';
 import { NewDocumentMenu } from '../../components/NewDocumentMenu';
+import { PendingHint } from '../../components/PendingHint';
 import { PageHeader } from '../../components/PageHeader';
 import { summariseInvoices } from '../../lib/business/money-board';
 import { timeRange, type Appointment } from '../../lib/calendar/model';
@@ -147,7 +148,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
             <li key={x.label}>
               <Link href={viewHref(x.view)} className="fig" aria-current={view === x.view && x.view !== 'all' ? 'true' : undefined}>
                 <span className="fig-n">{x.n}</span>
-                <span className="fig-label">{x.label}</span>
+                <span className="fig-label">{x.label}<PendingHint /></span>
                 {x.overdue ? (
                   <Suspense fallback={null}>
                     <OverdueNote load={overdueP} />
@@ -185,6 +186,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
                       <span className="plain-end">
                         <span className={`pill is-${d.status === 'draft' ? 'neutral' : 'blue'}`}>{d.status === 'draft' ? 'Draft' : 'Final'}</span>
                         <span className="plain-date">{dateFmt.format(new Date(`${d.date}T00:00:00Z`))}</span>
+                        <PendingHint />
                       </span>
                     </Link>
                   </li>

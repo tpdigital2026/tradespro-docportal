@@ -228,7 +228,7 @@ describe('routes', () => {
     const create = { label: 'x', type: 'invoice-stage' as const, action: 'create' as const, instalment: 2 };
     const paid = { label: 'x', type: 'invoice-stage' as const, action: 'mark-paid' as const, instalment: 2 };
     expect(nextStepHref(create, 'Q1')).toBe('/documents/new?type=invoice-stage&job=Q1&n=2');
-    expect(nextStepHref(paid, 'Q1')).toBe('/documents/jobs/Q1#instalment-2');
+    expect(nextStepHref(paid, 'Q1')).toBe('/documents/jobs/Q1?pay=2#instalment-2');
     expect(jobHref('A/B')).toBe('/documents/jobs/A%2FB');
   });
 });

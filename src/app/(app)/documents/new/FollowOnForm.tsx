@@ -14,7 +14,7 @@ export function FollowOnForm({ job, type, n, payment, exists }: { job: string; t
       <input type="hidden" name="n" value={n} />
       {payment ? <input type="hidden" name="payment" value={payment} /> : null}
       {state?.message ? <p className="form-error" role="alert">{state.message}</p> : null}
-      <Button type="submit" disabled={pending}>{pending ? 'Saving' : exists ? 'Open the saved draft' : 'Save as draft'}</Button>
+      <Button type="submit" pending={pending}>{pending ? 'Saving' : exists ? 'Open the saved draft' : 'Save as draft'}</Button>
     </form>
   );
 }

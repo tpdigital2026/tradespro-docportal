@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import '../styles/business.css';
+import { PendingHint } from './PendingHint';
 
 export interface MoreEntry {
   href: string;
@@ -62,9 +63,11 @@ export function MoreMenu({ path, entries, logOut }: { path: string; entries: Mor
         <ul className="more-list">
           {entries.map((e) => (
             <li key={e.href}>
-              <Link href={e.href} className="more-link" aria-current={e.current ? 'page' : undefined} onClick={() => setOpen(false)}>
+              {/* Stays open, with a spinner on the tapped entry, until the new page is there (it closes on the path change). */}
+              <Link href={e.href} className="more-link" aria-current={e.current ? 'page' : undefined} onClick={() => (e.current ? setOpen(false) : undefined)}>
                 {e.icon}
                 <span>{e.label}</span>
+                <PendingHint />
               </Link>
             </li>
           ))}

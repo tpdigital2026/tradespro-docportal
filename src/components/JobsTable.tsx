@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { DeleteDraft } from './DeleteDraft';
+import { PendingHint } from './PendingHint';
 import { HOME_LOAD_MESSAGES } from '../lib/home-load-messages';
 import { HOME_VIEWS, viewHref, type HomeRow, type HomeView } from '../lib/home-rows';
 
@@ -63,7 +64,7 @@ export function JobsTable({ rows, view, counts, loadFailed = false }: { rows: Ho
             {rows.map((r, i) => (
               <tr key={r.key} role="row">
                 <td role="cell" className="jt-customer">
-                  <Link href={r.href} className="jt-open">{r.customer}</Link>
+                  <Link href={r.href} className="jt-open">{r.customer}<PendingHint /></Link>
                 </td>
                 <td role="cell" className="jt-job">
                   <span className="jt-ref">{r.job}</span>
@@ -76,11 +77,12 @@ export function JobsTable({ rows, view, counts, loadFailed = false }: { rows: Ho
                   {r.next ? (
                     <Link href={r.next.href} className={i === 0 ? 'btn btn-primary jt-go' : 'jt-text'}>
                       {r.next.label}
+                      <PendingHint />
                     </Link>
                   ) : (
                     <span className="jt-none">Nothing to do</span>
                   )}
-                  {r.extra ? <Link href={r.extra.href} className="jt-text jt-extra">{r.extra.label}</Link> : null}
+                  {r.extra ? <Link href={r.extra.href} className="jt-text jt-extra">{r.extra.label}<PendingHint /></Link> : null}
                   {r.deleteDoc ? <DeleteDraft documentId={r.deleteDoc.id} label={r.deleteDoc.label} back="home" /> : null}
                 </td>
                 <td role="cell" className="jt-date is-num">

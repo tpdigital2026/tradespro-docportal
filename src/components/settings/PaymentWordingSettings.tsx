@@ -88,7 +88,7 @@ export function PaymentWordingSettings({ wording, isOwner, email, demo }: { word
           <Preview wording={v} />
           {g.error ? <p className="form-error" role="alert">{g.error}</p> : null}
           <div className="set-row-actions">
-            <Button type="submit" disabled={g.busy}>{g.busy ? 'Checking' : 'Save'}</Button>
+            <Button type="submit" pending={g.busy}>{g.busy ? 'Checking' : 'Save'}</Button>
             <button type="button" className="linklike" onClick={() => { setEditing(false); g.clear(); }}>Cancel</button>
           </div>
         </form>

@@ -236,7 +236,8 @@ export function jobHref(job: string, instalment?: number): string {
 
 /** Where a next step goes: a new document, or the job page where the payment is recorded. */
 export function nextStepHref(step: NextStep, job: string): string {
-  if (step.action === 'mark-paid') return jobHref(job, step.instalment ?? undefined);
+  // The job page opens with the payment form for that invoice already showing (amount and date filled in).
+  if (step.action === 'mark-paid') return step.instalment ? `/documents/jobs/${encodeURIComponent(job)}?pay=${step.instalment}#instalment-${step.instalment}` : jobHref(job);
   return newDocumentHref(step.type, job, step.instalment ? { n: step.instalment } : {});
 }
 

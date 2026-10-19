@@ -131,7 +131,7 @@ export function AppointmentForm({
       </div>
 
       <div className="cal-form-actions">
-        <Button type="submit" disabled={pending}>{pending ? 'Saving' : submitLabel}</Button>
+        <Button type="submit" pending={pending}>{pending ? 'Saving' : submitLabel}</Button>
       </div>
     </form>
   );

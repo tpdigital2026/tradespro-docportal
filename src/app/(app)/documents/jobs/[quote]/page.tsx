@@ -32,6 +32,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
   const { quote: raw } = await params;
   const sp = await searchParams;
   const draftedRaw = sp.drafted;
+  const payParam = typeof sp.pay === 'string' && /^\d{1,2}$/.test(sp.pay) ? Number(sp.pay) : null;
   const drafted = typeof draftedRaw === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{1,63}$/.test(draftedRaw) ? draftedRaw : null;
   // Next hands over the segment already decoded; a stray % is not a valid quote number, so it is a plain 404, never an error.
   let quote = raw;
@@ -130,6 +131,7 @@ export default async function JobPage({ params, searchParams }: { params: Promis
                       today={today}
                       label={paid > 0 ? 'Record more' : 'Mark as paid'}
                       primary={isNext}
+                      autoOpen={payParam === inst.index}
                     />
                   ) : null}
                 </div>

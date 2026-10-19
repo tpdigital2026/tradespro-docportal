@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ButtonLink } from '../../../components/Button';
 import { DeleteDraft } from '../../../components/DeleteDraft';
 import { DocTypeIcon } from '../../../components/DocTypeIcon';
+import { PendingHint } from '../../../components/PendingHint';
 import type { DeleteBack } from './delete-actions';
 import { EmptyState } from '../../../components/EmptyState';
 import { NewDocumentMenu } from '../../../components/NewDocumentMenu';
@@ -39,6 +40,7 @@ function Row({ d, back }: { d: LibraryItem; back: DeleteBack }) {
         <span className="lib-end">
           <span className={`status-chip ${final ? 'is-final' : 'is-draft'}`}>{final ? 'Final' : 'Draft'}</span>
           {d.totalPence !== null && final ? <span className="lib-amount">{formatGBP(d.totalPence)}</span> : null}
+          <PendingHint />
         </span>
       </Link>
       {final ? (
@@ -183,7 +185,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                         <span className="mini-title">{DOC_TYPE_NAMES[d.type]}</span>
                         <span className="mini-meta">{d.number} for {d.customerName}</span>
                       </span>
-                      <span className="mini-go">Open</span>
+                      <span className="mini-go">Open<PendingHint /></span>
                     </Link>
                   </li>
                 ))}

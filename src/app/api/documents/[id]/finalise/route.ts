@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DocumentError, finaliseDocument } from '../../../../../lib/data/documents';
@@ -41,6 +42,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   try {
     const r = await finaliseDocument(id, parsed.data);
+    // Home, Documents, the job and the business tabs show the final document as soon as the owner goes back.
+    revalidatePath('/', 'layout');
     return NextResponse.json({ ok: true, documentId: r.documentId, already: r.already });
   } catch (e) {
     if (e instanceof DocumentError) return NextResponse.json({ ok: false, code: e.code, message: e.message, missing: e.missing }, { status: STATUS[e.code] });

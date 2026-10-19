@@ -73,7 +73,7 @@ function AccountRow({ a, isOwner, email, demo }: { a: BankRow; isOwner: boolean;
           </div>
           <p className="hint">The sort code and account number stay as they are. To change those, add the account again and archive this one.</p>
           <div className="set-row-actions">
-            <Button type="submit" disabled={g.busy}>{g.busy ? 'Saving' : 'Save name'}</Button>
+            <Button type="submit" pending={g.busy}>{g.busy ? 'Saving' : 'Save name'}</Button>
             <button type="button" className="linklike" onClick={() => { setNames({ accountName: a.accountName, bankName: a.bankName }); setMode('view'); g.clear(); }}>Cancel</button>
           </div>
         </form>
@@ -85,7 +85,7 @@ function AccountRow({ a, isOwner, email, demo }: { a: BankRow; isOwner: boolean;
             {a.isDefault ? ' Your oldest other account becomes the default.' : ''}
           </p>
           <div className="set-row-actions">
-            <Button type="button" variant="secondary" disabled={g.busy} onClick={() => g.run(() => archiveBankAccountAction(a.id))}>{g.busy ? 'Archiving' : 'Archive account'}</Button>
+            <Button type="button" variant="secondary" pending={g.busy} onClick={() => g.run(() => archiveBankAccountAction(a.id))}>{g.busy ? 'Archiving' : 'Archive account'}</Button>
             <button type="button" className="linklike" onClick={() => setMode('view')}>Keep it</button>
           </div>
         </div>
@@ -168,7 +168,7 @@ export function BankAccounts({ accounts, isOwner, email, demo }: { accounts: Ban
                 </p>
                 {g.error ? <p className="form-error" role="alert">{g.error}</p> : null}
                 <div className="set-row-actions">
-                  <Button type="submit" disabled={g.busy}>{g.busy ? 'Checking' : 'Save account'}</Button>
+                  <Button type="submit" pending={g.busy}>{g.busy ? 'Checking' : 'Save account'}</Button>
                   <button type="button" className="linklike" onClick={() => { setAdding(false); setForm(EMPTY); g.clear(); }}>Cancel</button>
                 </div>
               </form>

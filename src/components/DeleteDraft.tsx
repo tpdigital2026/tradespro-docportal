@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { deleteDraftAction, type DeleteBack } from '../app/(app)/documents/delete-actions';
+import { Button } from './Button';
 
 /**
  * "Delete draft" with a confirmation step. The confirmation is a native modal dialog: focus moves into it, Escape or
@@ -63,9 +64,9 @@ export function DeleteDraft({ documentId, label, back, variant = 'text' }: { doc
         </p>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="del-dialog-actions">
-          <button type="button" className="btn btn-danger" onClick={confirm} disabled={busy} aria-busy={busy || undefined}>
+          <Button type="button" className="btn-danger" onClick={confirm} pending={busy}>
             {busy ? 'Deleting' : 'Delete draft'}
-          </button>
+          </Button>
           <button type="button" className="btn btn-secondary" onClick={cancel} autoFocus>
             Cancel
           </button>

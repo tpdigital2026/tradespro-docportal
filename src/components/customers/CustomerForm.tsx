@@ -68,7 +68,7 @@ export function CustomerForm({
       <Field id="phone" name="phone" type="tel" inputMode="tel" label="Phone" hint="Optional." autoComplete="off" defaultValue={v.phone} error={e.phone} maxLength={20} />
         </div>
       </div>
-      <Button type="submit" className="btn-block-sm" disabled={pending}>{pending ? 'Saving...' : submitLabel}</Button>
+      <Button type="submit" className="btn-block-sm" pending={pending}>{pending ? 'Saving...' : submitLabel}</Button>
     </form>
   );
 }

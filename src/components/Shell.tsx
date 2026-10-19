@@ -8,6 +8,7 @@ import type { TenantBrand } from '../lib/brand-core';
 import { initials } from '../lib/initials';
 import { MoreMenu } from './MoreMenu';
 import { PoweredBy } from './PoweredBy';
+import { PendingHint } from './PendingHint';
 
 const icons = {
   home: <path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" />,
@@ -93,6 +94,7 @@ function NavLink({ path, href, label, icon }: { path: string; href: string; labe
     <Link href={href} className="navlink" aria-current={isCurrent(path, href) ? 'page' : undefined}>
       <Icon name={icon} />
       <span>{label}</span>
+      <PendingHint />
     </Link>
   );
 }
@@ -187,6 +189,7 @@ export function Shell({
               <Link href={i.href} className="navlink" aria-current={isCurrent(path, i.href) ? 'page' : undefined}>
                 <Icon name={i.icon} />
                 <span>{i.label === 'New document' ? 'New' : i.label}</span>
+                <PendingHint />
               </Link>
             </li>
           ))}

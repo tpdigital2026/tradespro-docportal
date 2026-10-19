@@ -411,7 +411,8 @@ a.mini-row:hover { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
 .qt-stepbtn.is-done .qt-stepnum { background: var(--ink); color: var(--w); box-shadow: none; }
 .qt-stepbtn.is-now .qt-stepnum { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 var(--ring-lg) var(--accent-ring); }
 .qt-stepbtn.is-now, .qt-stepbtn.is-done { color: var(--ink); }
-.qt-stepbtn:not(:disabled):hover .qt-stepnum { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
+.qt-stepbtn[aria-current="step"] { cursor: default; }
+.qt-stepbtn:not(:disabled):not([aria-current="step"]):hover .qt-stepnum { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
 .qt-stepbtn.is-now:hover .qt-stepnum { box-shadow: 0 0 0 var(--ring-lg) var(--accent-ring); }
 .qt-stepbtn.is-done:hover .qt-stepnum { background: var(--accent-hover); box-shadow: none; }
 .qt-steplabel { display: none; font-size: var(--fs-meta); font-weight: 500; }
@@ -1133,3 +1134,23 @@ a.mini-row:hover { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
 .set-pair dd { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--fs-figure); line-height: var(--lh-tight); }
 .set-pair dd span { display: block; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-small); color: var(--ink-muted); margin-top: var(--space-1); }
 .signin-flash { margin-bottom: var(--space-4); }
+
+/* Instant feedback (PendingHint, Spinner): every pressed link or button responds at once. */
+.pending-hint { display: none; width: 1em; height: 1em; flex: none; border-radius: var(--radius-pill); border: var(--stroke) solid currentColor; border-right-color: transparent; }
+.pending-hint.is-pending { display: inline-block; animation: pending-spin 0.8s linear infinite; }
+@keyframes pending-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pending-hint.is-pending { animation: none; border-right-color: currentColor; opacity: 0.6; } }
+.btn:active:not([disabled]), .navlink:active, .jt-text:active, .fig:active, .plain-row:active, .lib-link:active, .mini-row:active { filter: brightness(0.94); }
+a:has(.pending-hint.is-pending) { cursor: progress; }
+
+/* Mark as paid: how it was paid, as one clear choice of four. */
+.pay-methods { margin: 0; padding: 0; border: 0; min-width: 0; }
+.pay-methods legend { margin-bottom: var(--space-2); font-weight: 600; }
+.pay-method-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+@media (min-width: 520px) { .pay-method-opts { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.pay-method { position: relative; display: flex; align-items: center; justify-content: center; min-height: var(--tap); padding: 0 var(--space-3); border: var(--hairline) solid var(--line-input); border-radius: var(--radius); background: var(--paper); font-weight: 600; cursor: pointer; text-align: center; }
+.pay-method input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.pay-method.is-on { border-color: var(--accent); background: var(--blue-100); box-shadow: inset 0 0 0 var(--hairline) var(--accent); }
+.pay-method:has(input:focus-visible) { outline: var(--stroke) solid var(--focus); outline-offset: var(--stroke); }
+.pay-receipt { display: contents; }
+.pay-receipt .form-error { flex: 1 1 100%; }

@@ -21,7 +21,7 @@ export function DeleteAppointment({ id, title }: { id: string; title: string }) 
       <p className="hint">It comes off this calendar. If you added it to your phone, delete it there too.</p>
       {state.message ? <p className="form-error" role="alert">{state.message}</p> : null}
       <div className="cal-confirm-actions">
-        <Button type="submit" disabled={pending} className="btn-danger">{pending ? 'Deleting' : 'Yes, delete it'}</Button>
+        <Button type="submit" pending={pending} className="btn-danger">{pending ? 'Deleting' : 'Yes, delete it'}</Button>
         <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>Keep it</Button>
       </div>
     </form>

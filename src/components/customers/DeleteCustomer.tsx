@@ -50,7 +50,7 @@ export function DeleteCustomer({ customerId, customerName, ownerEmail, demo = fa
       {phase === 'confirm' ? (
         <div className="cust-actions">
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <Button type="button" variant="secondary" className="btn-block-sm" disabled={busy} onClick={attempt}>
+          <Button type="button" variant="secondary" className="btn-block-sm" pending={busy} onClick={attempt}>
             {busy ? 'Deleting' : 'Delete permanently'}
           </Button>
           <button type="button" className="linklike" onClick={keep}>Keep this customer</button>
