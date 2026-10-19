@@ -32,6 +32,7 @@ import { withServiceConnection } from './customer-admin';
 import { tagFailures } from '../../pdf/diagnostics';
 import { ownerClient } from './customers';
 import type { Db } from '../../security/login-guard';
+import { sqlDate } from '../../db/sql-date';
 import { demoDraftRows, demoRemoveDraft, demoRestoreDraft, isKnownId, isRealId } from './quotes';
 
 export { DocumentError } from '../documents/finalise';
@@ -145,7 +146,7 @@ export async function listLibrarySql(db: Db, tenantId: string, f: LibraryFilter 
   const items = rows.flatMap((x) => {
     const type = docTypeFromDb(x.type);
     if (!type) return [];
-    const date = x.doc_date instanceof Date ? x.doc_date.toISOString().slice(0, 10) : String(x.doc_date).slice(0, 10);
+    const date = sqlDate(x.doc_date);
     return [{ id: String(x.id), type, number: String(x.number), status: statusOf(x.status), date, customerName: String(x.customer), jobId: String(x.job_id), quoteNumber: String(x.reference), totalPence: x.total_pence === null ? null : Number(x.total_pence), createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at) }];
   });
   return { items, truncated: r.rows.length > limit };

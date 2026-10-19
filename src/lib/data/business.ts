@@ -14,14 +14,14 @@ import type { InvoiceTotalsLine } from '../business/money-board';
 import { withServiceConnection } from './customer-admin';
 import { demoBusinessFacts } from '../demo-business';
 import type { Db } from '../../security/login-guard';
+import { sqlDate } from '../../db/sql-date';
 
 /** Enough for any one business's working set; the screens say so if a business ever has more. */
 export const JOB_LIMIT = 1000;
 
 const iso = (v: unknown): string | null => (v === null || v === undefined ? null : v instanceof Date ? v.toISOString() : String(v));
-/** node-postgres turns a SQL date into local midnight, so read it back with local getters (toISOString would shift it a day in summer). */
-const isoDate = (v: unknown): string =>
-  v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : String(v).slice(0, 10);
+/** A SQL date as 'yyyy-mm-dd' (src/db/sql-date.ts: never via toISOString). */
+const isoDate = (v: unknown): string => sqlDate(v);
 const STATUSES: readonly string[] = ['draft', 'final', 'sent', 'void'];
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 const years = (v: unknown): number | null => {

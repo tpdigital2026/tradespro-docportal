@@ -19,6 +19,7 @@ import { sameGeneration, verifyGenerated } from '../scope/proof';
 import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
 import { normaliseQuote, NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved, quoteFormSchema, type QuoteErrors, type QuoteFormValues } from '../validation/quote';
 import { ownerClient, type DataClient } from './customers';
+import { todayLondon } from '../payment';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEMO_ID = /^demo-[a-z]+-[\w-]{1,40}$/;
@@ -433,7 +434,8 @@ function demoSave(rawForm: QuoteFormValues, jobId: string | null, vatRateBp: num
 
 // ---------------------------------------------------------------- the functions the screens call
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+/** The UK date (Europe/London), as the README promises for drafts: the UTC date is yesterday between 00:00 and 01:00 BST. */
+const todayIso = () => todayLondon();
 
 export async function getQuoteContext(): Promise<QuoteContext> {
   await requireSession();

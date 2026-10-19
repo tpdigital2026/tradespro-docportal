@@ -11,6 +11,7 @@ import { decryptBankDetails, parseKey } from '../../security/bank-crypto';
 import type { Db } from '../../security/login-guard';
 import type { BankDetails } from '../../templates/finance-parts';
 import type { Brand, Tenant } from '../../themes/types';
+import { sqlDate } from '../../db/sql-date';
 import type { RawDocument, RawPayment } from '../job-billing';
 import { docTypeFromDb, type DocStatus, type DocType } from '../job-stage';
 import { MAX_VAT_RATE_BP, type PaymentPlan } from '../money';
@@ -88,7 +89,8 @@ export interface Loaded {
   survey?: SurveyFacts | null;
 }
 
-const iso = (d: unknown): string => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d ?? '').slice(0, 10));
+/** A SQL date as 'yyyy-mm-dd' (never via toISOString: that moved dates a day early on machines in BST). */
+const iso = (d: unknown): string => sqlDate(d);
 const ts = (d: unknown): string | null => (d === null || d === undefined ? null : d instanceof Date ? d.toISOString() : String(d));
 
 /** The document row and its versions. With lock, the document row is taken FOR UPDATE (finalise and revise). */
