@@ -1,11 +1,14 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../../components/Button';
 import { CustomerStep } from '../../../../components/quote/CustomerStep';
 import { JobStep, type NumberStatus } from '../../../../components/quote/JobStep';
 import { PlanStep } from '../../../../components/quote/PlanStep';
 import { PriceStep } from '../../../../components/quote/PriceStep';
+import { ReviewPreview } from '../../../../components/quote/ReviewPreview';
+import type { DraftPreview } from '../../../../lib/documents/draft-preview';
 import { ReviewStep } from '../../../../components/quote/ReviewStep';
 import { ScopeStep } from '../../../../components/quote/ScopeStep';
 import { TotalsBar } from '../../../../components/quote/TotalsBar';
@@ -13,7 +16,8 @@ import type { StepProps } from '../../../../components/quote/types';
 import type { QuoteContext } from '../../../../lib/data/quotes';
 import { formatPct } from '../../../../lib/money';
 import { applyJobTypeDefaults } from '../../../../lib/scope/defaults';
-import { isApproved, withoutApproval } from '../../../../lib/scope/model';
+import { approvalState, isApproved, withoutApproval } from '../../../../lib/scope/model';
+import { v2OnlyKey } from '../../../../lib/scope/approval';
 import { computeQuoteTotals } from '../../../../lib/quote-totals';
 import {
   normaliseQuote,
@@ -24,11 +28,15 @@ import {
   type QuoteFormValues,
   type QuoteStep,
 } from '../../../../lib/validation/quote';
-import { checkNumberAction, finishQuoteAction, saveDraftAction } from './actions';
+import { checkNumberAction, finishQuoteAction, saveDraftAction, saveForLaterAction, type FinishResult, type FixTarget } from './actions';
+import { FinishPanel, type Outcome } from './FinishPanel';
+import '../../../../styles/finish.css';
 
 const STEP_LABEL: Record<QuoteStep, string> = { customer: 'Customer', job: 'Job', scope: 'Scope', price: 'Price', plan: 'Plan', review: 'Review' };
 const SAVE_DELAY_MS = 1200;
 const CHECK_DELAY_MS = 500;
+/** A save that has not answered by now is reported, never left spinning. */
+const FINISH_TIMEOUT_MS = 45_000;
 
 type Save = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved'; at: string } | { kind: 'error'; message: string };
 
@@ -38,11 +46,14 @@ export function QuoteForm({
   ctx,
   initial,
   initialJobId,
+  initialDocumentId = null,
   initialStep,
 }: {
   ctx: QuoteContext;
   initial: QuoteFormValues;
   initialJobId: string | null;
+  /** The draft's quotation document, for the page 1 preview on the Review step. */
+  initialDocumentId?: string | null;
   /** Where Edit on the draft page lands: the first step with something missing, else the review. */
   initialStep?: QuoteStep;
 }) {
@@ -57,12 +68,15 @@ export function QuoteForm({
   const [serverErrors, setServerErrors] = useState<QuoteErrors>({});
   const [numberStatus, setNumberStatus] = useState<NumberStatus>('idle');
   const [reverted, setReverted] = useState(false);
-  const [finishing, setFinishing] = useState(false);
-  const [finishError, setFinishError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
+  const [scopeView, setScopeView] = useState<'review' | undefined>(undefined);
+  const router = useRouter();
 
   const rev = useRef(0);
   const savedRev = useRef(0);
   const jobRef = useRef<string | null>(initialJobId);
+  const docRef = useRef<string | null>(initialDocumentId);
+  const lastPreview = useRef<Extract<DraftPreview, { state: 'ready' }> | null>(null);
   const claimed = useRef<{ quoteNumber: string; customerId: string } | null>(initialJobId ? { quoteNumber: initial.quoteNumber, customerId: initial.customerId } : null);
   const valuesRef = useRef(values);
   const inFlight = useRef<Promise<void> | null>(null);
@@ -87,10 +101,15 @@ export function QuoteForm({
       if (p.jobTypeId !== undefined && p.jobTypeId !== v.jobTypeId) next.scope = applyJobTypeDefaults(next.scope, ctx.jobTypes, v.jobTypeId, p.jobTypeId);
       // Approval holds only while the steps, wording and note are exactly what was approved. Otherwise it is gone here too,
       // so the screen never shows an approval the server has already dropped.
-      if (next.scope.copy?.approvedAt && !isApproved(next.scope)) next.scope = withoutApproval(next.scope);
+      // An approval from before 15 October stays (so the server can check and upgrade it) only while nothing it covers
+      // or the cover, introduction and key figures have changed.
+      const keepOld = approvalState(next.scope) === 'legacy' && approvalState(v.scope) === 'legacy' && v2OnlyKey(next.scope) === v2OnlyKey(v.scope);
+      if (next.scope.copy?.approvedAt && !isApproved(next.scope) && !keepOld) next.scope = withoutApproval(next.scope);
       return next;
     });
     setServerErrors((e) => (Object.keys(e).length ? {} : e));
+    // An old answer next to the button would now be misleading.
+    setOutcome((o) => (o.kind === 'refused' ? { kind: 'idle' } : o));
   }, [ctx.jobTypes]);
   const touch = useCallback((key: string) => setTouched((t) => (t.has(key) ? t : new Set(t).add(key))), []);
 
@@ -124,7 +143,9 @@ export function QuoteForm({
 
   const runSave = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
-    const p = (async () => {
+    // Started on the next tick, so inFlight is set before the work runs. (Started at once, a call with nothing to save
+    // finished before inFlight was set, left a settled promise there for good, and no autosave ever ran again.)
+    const p: Promise<void> = Promise.resolve().then(async () => {
       try {
         // Keep going until nothing newer is waiting.
         while (savedRev.current !== rev.current) {
@@ -147,6 +168,7 @@ export function QuoteForm({
           const cur = valuesRef.current;
           setReverted(cur.quoteNumber !== res.quoteNumber || cur.customerId !== res.customerId);
           jobRef.current = res.jobId;
+          docRef.current = res.documentId;
           claimed.current = { quoteNumber: res.quoteNumber, customerId: res.customerId };
           valuesRef.current = { ...valuesRef.current, ...claimed.current };
           // A correction from the stored job, not an edit: it must not start another save.
@@ -165,9 +187,9 @@ export function QuoteForm({
           }
         }
       } finally {
-        inFlight.current = null;
+        if (inFlight.current === p) inFlight.current = null;
       }
-    })();
+    });
     inFlight.current = p;
     return p;
   }, []);
@@ -200,7 +222,8 @@ export function QuoteForm({
     return keys;
   };
 
-  const goTo = (ix: number) => {
+  const goTo = (ix: number, view?: 'review') => {
+    setScopeView(view);
     focusAfter.current = true;
     setStepIx(ix);
     setReached((r) => Math.max(r, ix));
@@ -226,32 +249,84 @@ export function QuoteForm({
     [errors],
   );
 
-  const finish = async () => {
-    if (blockers.length > 0) {
+  const outgoing = () => (claimed.current ? { ...valuesRef.current, ...claimed.current } : valuesRef.current);
+
+  /** Runs a server action, but never for longer than FINISH_TIMEOUT_MS, and never throws. */
+  const call = async (fn: typeof finishQuoteAction): Promise<FinishResult | 'timeout' | null> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), FINISH_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([fn(outgoing(), jobRef.current).catch(() => null), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const submit = async (which: 'preview' | 'later') => {
+    if (outcome.kind === 'pending' || outcome.kind === 'saved') return;
+    // Things the screen already knows are missing: say exactly what, with a way to each, without a round trip.
+    // The approval is the exception: the server may be able to check an older one and upgrade it.
+    const known = which === 'preview' ? blockers.filter((b) => b.key !== 'scope.approval') : [];
+    if (known.length > 0) {
       setAttempted(new Set(QUOTE_STEPS));
+      setOutcome({ kind: 'refused', which, saved: jobRef.current !== null, message: known.length === 1 ? 'One thing needs fixing before the preview.' : `${known.length} things need fixing before the preview.`, items: known.map((b) => ({ key: b.key, step: b.step, message: b.message })), diag: 'QF-SCREEN' });
       return;
     }
-    setFinishing(true);
-    setFinishError(null);
-    await (inFlight.current ?? Promise.resolve());
-    const res = await finishQuoteAction(claimed.current ? { ...valuesRef.current, ...claimed.current } : valuesRef.current, jobRef.current).catch(() => null);
-    // A successful finish redirects, so only a refusal or a failure gets here.
-    setFinishing(false);
-    if (res && !res.ok) {
-      if (res.errors) {
-        setServerErrors(res.errors);
-        setAttempted(new Set(QUOTE_STEPS));
-      }
-      setFinishError(res.message);
-    } else if (!res) {
-      setFinishError('We could not save that. Please try again.');
+    if (which === 'later' && !canSave) {
+      setOutcome({ kind: 'refused', which, saved: false, message: 'Nothing was saved because the quote has no customer or quote number yet.', fix: { step: values.customerId ? 'job' : 'customer', label: values.customerId ? 'Open the Job step' : 'Open the Customer step' }, diag: 'QL-SCREEN' });
+      return;
     }
+    setOutcome({ kind: 'pending', which });
+    await (inFlight.current ?? Promise.resolve()).catch(() => undefined);
+    const sentRev = rev.current;
+    const res = await call(which === 'preview' ? finishQuoteAction : saveForLaterAction);
+    if (res === 'timeout') {
+      setOutcome({ kind: 'refused', which, saved: false, message: 'This is taking far too long, so we stopped waiting. It may not have saved. Check your signal and try again.', diag: 'QF-TIMEOUT' });
+      return;
+    }
+    if (!res) {
+      setOutcome({ kind: 'refused', which, saved: false, message: 'Nothing was saved because we could not reach the server. Check your signal and try again.', diag: 'QF-NETWORK' });
+      return;
+    }
+    if (res.jobId && res.quoteNumber && res.customerId) {
+      jobRef.current = res.jobId;
+      claimed.current = { quoteNumber: res.quoteNumber, customerId: res.customerId };
+      setJobId(res.jobId);
+    }
+    if (res.ok) {
+      docRef.current = res.documentId;
+      // What was just saved is the newest: nothing is waiting, so leaving the page does not warn.
+      if (rev.current === sentRev) savedRev.current = sentRev;
+      setSave({ kind: 'saved', at: clock.format(new Date(res.savedAt)) });
+      setOutcome({ kind: 'saved', which, href: res.href });
+      router.push(res.href);
+      return;
+    }
+    if (res.code === 'number_used') setNumberStatus('taken');
+    if (res.errors) {
+      setServerErrors(res.errors);
+      setAttempted(new Set(QUOTE_STEPS));
+    }
+    setOutcome({ kind: 'refused', which, saved: res.saved, message: res.message, fix: res.fix, diag: res.diag });
+  };
+
+  const fixIt = (f: Pick<FixTarget, 'step' | 'scopeView'>) => {
+    setOutcome({ kind: 'idle' });
+    goTo(QUOTE_STEPS.indexOf(f.step), f.scopeView);
   };
 
   // The price opens only once the wording is approved. Changing the steps afterwards closes it again.
   const scopeIx = QUOTE_STEPS.indexOf('scope');
   const scopeOk = isApproved(values.scope);
   const reachable = scopeOk ? reached : Math.min(reached, scopeIx);
+
+  /** For the page 1 preview: saves anything waiting, then the document to draw. */
+  const previewDoc = async (): Promise<string | null> => {
+    if (canSave) await runSave();
+    return savedRev.current === rev.current ? docRef.current : null;
+  };
 
   const ensureSaved = async (): Promise<string | null> => {
     if (canSave) await runSave();
@@ -314,13 +389,11 @@ export function QuoteForm({
           <div ref={headingBox} className="qt-body">
             {step === 'customer' ? <CustomerStep {...stepProps} /> : null}
             {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} /> : null}
-            {step === 'scope' ? <ScopeStep {...stepProps} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
+            {step === 'scope' ? <ScopeStep {...stepProps} startView={scopeView} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
             {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
             {step === 'plan' ? <PlanStep {...stepProps} /> : null}
-            {step === 'review' ? <ReviewStep {...stepProps} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s))} vatRatePct={vatRatePct} /> : null}
+            {step === 'review' ? <ReviewStep {...stepProps} preview={<ReviewPreview watch={values} memory={lastPreview} getDocumentId={previewDoc} onFix={(s) => goTo(QUOTE_STEPS.indexOf(s), s === 'scope' && approvalState(values.scope) !== 'none' ? 'review' : undefined)} />} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s), s === 'scope' && approvalState(values.scope) !== 'none' ? 'review' : undefined)} vatRatePct={vatRatePct} /> : null}
           </div>
-
-          {finishError ? <p className="form-error" role="alert">{finishError}</p> : null}
 
           {step !== 'scope' && stepIx > 0 ? (
             <div className="qt-nav">
@@ -340,9 +413,7 @@ export function QuoteForm({
               planKind={values.plan.kind}
             >
               {last ? (
-                <Button type="button" onClick={finish} disabled={finishing || blockers.length > 0}>
-                  {finishing ? 'Saving' : 'Save quote'}
-                </Button>
+                <FinishPanel outcome={outcome} onPreview={() => void submit('preview')} onLater={() => void submit('later')} onFix={fixIt} />
               ) : (
                 <Button type="button" onClick={next}>Continue to {STEP_LABEL[QUOTE_STEPS[stepIx + 1]].toLowerCase()}</Button>
               )}

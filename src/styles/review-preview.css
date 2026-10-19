@@ -1,0 +1,47 @@
+/* Page 1 of the real quote on the Review step. Tokens only. */
+
+.qt-step:has(.rv-grid) { container-type: inline-size; }
+.rv-grid { display: grid; gap: var(--space-6); grid-template-columns: minmax(0, 1fr); align-items: start; }
+.rv-grid-facts { display: grid; gap: var(--space-6); min-width: 0; }
+.rv-grid-facts > .fgroup-h { margin-bottom: calc(var(--space-6) * -1 + var(--space-3)); }
+@container (min-width: 700px) {
+  .rv-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+  .rv-grid-doc { position: sticky; top: var(--space-5); }
+  .rv-grid .qt-facts { grid-template-columns: minmax(0, 1fr); }
+}
+@container (min-width: 900px) {
+  .rv-grid .qt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.rv-doc { display: grid; gap: var(--space-3); max-width: var(--preview-w); min-width: 0; }
+.rv-doc-head { display: grid; gap: var(--space-1); }
+.rv-doc-title { font-family: var(--font-head); font-size: var(--fs-title); font-weight: 600; }
+.rv-doc-status { font-size: var(--fs-meta); color: var(--ink-muted); min-height: calc(var(--fs-meta) * 1.5); }
+
+/* the page itself: white, A4 in shape whatever is inside it, so nothing jumps when the picture arrives */
+.rv-page { position: relative; display: block; aspect-ratio: 794 / 1123; width: 100%; overflow: hidden; border-radius: var(--radius-sm); background: var(--paper); box-shadow: var(--shadow-md); }
+.rv-page img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity var(--dur) var(--ease); }
+.rv-page img.is-in { opacity: 1; }
+.rv-page.is-updating img.is-in { opacity: 0.55; }
+.rv-page:focus-visible { outline: var(--ring) solid var(--focus); outline-offset: var(--ring); }
+
+.rv-skel { position: absolute; inset: 0; display: grid; align-content: start; gap: var(--space-3); padding: 10% 9%; }
+.rv-skel span { display: block; height: var(--space-3); border-radius: var(--radius-sm); background: var(--steel-100); }
+.rv-skel span:first-child { height: 34%; margin: -11% -10% var(--space-4); border-radius: 0; background: var(--steel-200); }
+.rv-skel span:nth-child(3) { width: 70%; }
+.rv-skel span:nth-child(4) { width: 85%; }
+@media (prefers-reduced-motion: no-preference) {
+  .rv-skel span { animation: rv-pulse 1.6s ease-in-out infinite; }
+  @keyframes rv-pulse { 50% { opacity: 0.55; } }
+}
+
+.rv-all { justify-self: start; }
+.rv-inline-err { font-size: var(--fs-small); color: var(--danger-ink); font-weight: 500; }
+.rv-error { display: grid; gap: var(--space-3); justify-items: start; padding: var(--space-4); border-radius: var(--radius); background: var(--paper); font-size: var(--fs-small); }
+.rv-note { padding: var(--space-4); border-radius: var(--radius); background: var(--paper); }
+
+.rv-missing { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius); background: var(--paper); box-shadow: var(--shadow-sm); }
+.rv-missing-h { font-weight: 700; }
+.rv-missing ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.rv-missing li { display: grid; gap: 0; padding-left: var(--space-4); border-left: var(--stroke) solid var(--warn-ink); font-size: var(--fs-small); }
+.rv-missing-link { display: inline-flex; align-items: center; min-height: var(--tap); font-weight: 600; }

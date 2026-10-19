@@ -4,6 +4,8 @@ import { ButtonLink } from '../../../../components/Button';
 import { DocTypeList } from '../../../../components/DocTypeList';
 import { PageHeader } from '../../../../components/PageHeader';
 import { getQuoteContext, getQuoteDraft, isKnownId, QuoteError, type QuoteContext } from '../../../../lib/data/quotes';
+import { upgradeLegacyApproval } from '../../../../lib/data/scope';
+import { approvalState } from '../../../../lib/scope/model';
 import { requireSession } from '../../../../lib/session';
 import { emptyQuoteForm, QUOTE_STEPS, type QuoteStep } from '../../../../lib/validation/quote';
 import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-stage';
@@ -12,6 +14,10 @@ import { QuoteForm } from './QuoteForm';
 import { SurveyNewView } from './SurveyNewView';
 import { jobIdForReference, surveyedJob, surveyQuoteNote } from '../../../../lib/data/survey-links';
 import { redirect } from 'next/navigation';
+import { StepperBoundary } from './StepperBoundary';
+
+// The Review step draws page 1 of the real document, which takes a few seconds the first time.
+export const maxDuration = 60;
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -32,7 +38,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 }
 
 export default async function NewDocumentPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireSession();
+  const session = await requireSession();
   const sp = await searchParams;
   const type = first(sp.type) ?? '';
 
@@ -75,7 +81,13 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
   // From a job's next step ("Write the quote" after a survey): the job number names the job.
   const jobRef = first(sp.job);
   const draftId = first(sp.draft) ?? (jobRef ? ((await jobIdForReference(jobRef)) ?? undefined) : undefined);
-  const draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
+  let draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
+  // An approval made before 15 October under the first fingerprint: checked against it and its audit row, and upgraded
+  // when that proves the same person approved exactly this content. Otherwise the screen asks for it to be approved again.
+  if (draft && approvalState(draft.values.scope) === 'legacy') {
+    const up = await upgradeLegacyApproval({ userId: session.userId, tenantId: session.tenantId }, draft.jobId).catch(() => 'failed' as const);
+    if (up === 'upgraded') draft = (await getQuoteDraft(draft.jobId)) ?? draft;
+  }
   // A surveyed job's first quote: the note says to read it alongside the survey report.
   if (draft && !draft.documentId && !draft.values.scope.note.trim()) {
     const note = await surveyQuoteNote(draft.jobId).catch(() => null);
@@ -130,7 +142,9 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
       {first(sp.revised) === '1' && draft ? (
         <p className="doc-note" role="note">This is a new version of a quote you had already finalised. Make your changes, save, then read and tick it again. The earlier version stays as it was.</p>
       ) : null}
-      <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} initialStep={stepParam} />
+      <StepperBoundary>
+        <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} initialDocumentId={draft?.documentId ?? null} initialStep={stepParam} />
+      </StepperBoundary>
     </div>
   );
 }

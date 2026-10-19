@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { formatGBP } from '../../lib/money';
 import { isApproved } from '../../lib/scope/model';
 import type { QuoteStep } from '../../lib/validation/quote';
@@ -16,7 +17,8 @@ export function ReviewStep({
   blockers,
   goTo,
   vatRatePct,
-}: StepProps & { blockers: { step: QuoteStep; key: string; message: string }[]; goTo: (s: QuoteStep) => void; vatRatePct: string }) {
+  preview,
+}: StepProps & { blockers: { step: QuoteStep; key: string; message: string }[]; goTo: (s: QuoteStep) => void; vatRatePct: string; preview?: ReactNode }) {
   const approvedCopy = isApproved(values.scope) ? values.scope.copy : null;
   const customer = ctx.customers.find((c) => c.id === values.customerId);
   const type = ctx.jobTypes.find((t) => t.id === values.jobTypeId);
@@ -26,12 +28,12 @@ export function ReviewStep({
     <section aria-labelledby="step-h" className="qt-step">
       <div className="qt-step-head">
         <h2 id="step-h" className="qt-h" tabIndex={-1}>Check it over</h2>
-        <p className="qt-lede">Everything the quote will say. Tap a step above to change anything.</p>
+        <p className="qt-lede">{preview ? 'This is your quote as the customer will get it. Tap a step above to change anything.' : 'Everything the quote will say. Tap a step above to change anything.'}</p>
       </div>
 
       {blockers.length > 0 ? (
         <div className="qt-blockers">
-          <p className="qt-blockers-h">A few things to fix before this quote can be saved as ready.</p>
+          <p className="qt-blockers-h">A few things to fix before you can preview the document.</p>
           <ul>
             {blockers.map((b) => (
               <li key={b.key}>
@@ -44,6 +46,9 @@ export function ReviewStep({
         </div>
       ) : null}
 
+      <div className={preview ? 'rv-grid' : undefined}>
+      {preview ? <div className="rv-grid-doc">{preview}</div> : null}
+      <div className="rv-grid-facts">
       <dl className="qt-facts">
         <div><dt>For</dt><dd>{customer ? customer.name : 'Not chosen'}</dd></div>
         <div><dt>Quote number</dt><dd>{values.quoteNumber || 'Not set'}</dd></div>
@@ -104,6 +109,8 @@ export function ReviewStep({
             <p className="hint" id="bank-hint">Only the last four digits are shown here.</p>
           </>
         )}
+      </div>
+      </div>
       </div>
     </section>
   );

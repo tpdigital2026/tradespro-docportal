@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { auditedApprovalWith } from '../../src/lib/data/scope';
+import { approverOfWith, auditedApprovalWith } from '../../src/lib/data/scope';
 import { compactId } from '../../src/lib/data/customer-admin';
-import { approvalHash } from '../../src/lib/scope/model';
+import { approvalHash, approvalHashV1 } from '../../src/lib/scope/model';
 import { writeAudit } from '../../src/security/audit';
 import { approvedScope } from '../fixtures/scope';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
@@ -28,6 +28,24 @@ describe.skipIf(!dbAvailable)('the audit row behind a scope approval', () => {
         const hash = approvalHash(approvedScope({ note: `n${i}` }));
         await writeAudit(c, { tenantId: a.tenantId, userId: a.userId, action: 'scope.approve', entity: 'job', entityId: compactId(randomUUID()), meta: { hash } });
       }
+    });
+  });
+  it('names who approved an old fingerprint (the newest row), only for that business, job and fingerprint, and an upgrade row can be written', async () => {
+    await withRollback(async (c) => {
+      const a = await createTenantWithUser(c, 'Approve Co D');
+      const b = await createTenantWithUser(c, 'Approve Co E');
+      const job = randomUUID();
+      const scope = approvedScope();
+      const oldHash = approvalHashV1(scope);
+      expect(await approverOfWith(c, a.tenantId, job, oldHash)).toBeNull();
+      await writeAudit(c, { tenantId: a.tenantId, userId: a.userId, action: 'scope.approve', entity: 'job', entityId: compactId(job), meta: { engine: 'fallback', sections: 1, steps: 2, hash: oldHash } });
+      expect(await approverOfWith(c, a.tenantId, job, oldHash)).toBe(a.userId);
+      expect(await approverOfWith(c, b.tenantId, job, oldHash)).toBeNull();
+      expect(await approverOfWith(c, a.tenantId, randomUUID(), oldHash)).toBeNull();
+      expect(await approverOfWith(c, a.tenantId, job, approvalHash(scope))).toBeNull();
+      // the upgrade row: both fingerprints, no content, and it passes the personal-data check
+      await writeAudit(c, { tenantId: a.tenantId, userId: a.userId, action: 'scope.approve', entity: 'job', entityId: compactId(job), meta: { engine: 'fallback', sections: 1, steps: 2, hash: approvalHash(scope), upgradedFrom: oldHash } });
+      expect(await auditedApprovalWith(c, a.tenantId, job, approvalHash(scope))).toBe(true);
     });
   });
 });

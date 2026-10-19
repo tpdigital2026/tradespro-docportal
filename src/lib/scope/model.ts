@@ -203,6 +203,37 @@ export function approvalHash(scope: ScopeFormValues): string {
   return `h${sha256Hex(JSON.stringify({ v: 2, steps, sections, cover, cards, note: cleanPara(scope.note) }))}`;
 }
 
+/**
+ * The first fingerprint (in use until 15 October 2026): the steps, the wording and the note, but not the cover, the
+ * introduction or the key figures. Kept only to recognise approvals made under it, so they can be checked and
+ * upgraded rather than silently refused. Never used to make a new approval.
+ */
+export function approvalHashV1(scope: ScopeFormValues): string {
+  const steps = meaningfulItems(scope.items).map((i) => [i.kind === 'heading' ? 'h' : 's', i.text]);
+  const sections = scope.copy ? cleanCopySections(scope.copy.sections).map((s) => [s.heading, s.steps]) : [];
+  return `h${sha256Hex(JSON.stringify({ v: 1, steps, sections, note: scope.note.replace(/\r\n?/g, '\n').trim() }))}`;
+}
+
+/**
+ * Where the approval stands:
+ *  - 'approved': approved under today's fingerprint and the content still matches;
+ *  - 'legacy': approved under the first fingerprint and the content it covered is unchanged (can be upgraded);
+ *  - 'out_of_date': there is an approval time, but it no longer matches anything (an approval from before
+ *    fingerprints, or the content changed);
+ *  - 'none': never approved.
+ */
+export type ApprovalState = 'approved' | 'legacy' | 'out_of_date' | 'none';
+export function approvalState(scope: ScopeFormValues): ApprovalState {
+  if (isApproved(scope)) return 'approved';
+  const c = scope.copy;
+  if (!c || c.approvedAt === null) return 'none';
+  if (c.approvalHash && c.approvalHash === approvalHashV1(scope) && c.sections.some((s) => s.steps.some((b) => b.trim() !== ''))) return 'legacy';
+  return 'out_of_date';
+}
+
+/** Said whenever an approval exists but has to be made again. Shared by the server and the screen. */
+export const APPROVAL_OUT_OF_DATE = 'Your approved wording needs checking again. Open the Scope step and approve it.';
+
 /** A paragraph box: invisible characters out, line ends made plain, trimmed. */
 export function cleanPara(raw: string): string {
   return stripInvisible(raw).replace(/\r\n?/g, '\n').trim();
@@ -277,9 +308,12 @@ export function scopeErrors(scope: ScopeFormValues, mode: 'draft' | 'final'): Sc
   if (mode === 'final') {
     if (countSteps(scope.items) === 0) e['scope.items'] = 'Add at least one step';
     else if (!e['scope.items'] && !isApproved(scope)) {
+      const st = approvalState(scope);
       e['scope.approval'] = isStale(scope)
         ? 'You changed the steps after the wording was made. Generate the copy again and approve it.'
-        : scope.copy
+        : st === 'legacy' || st === 'out_of_date'
+          ? APPROVAL_OUT_OF_DATE
+          : scope.copy
           ? 'Check the wording and approve it before the price.'
           : 'Generate the copy and approve it before the price.';
     }
