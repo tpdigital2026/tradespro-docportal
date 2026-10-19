@@ -7,8 +7,10 @@ import { getDocumentPage, pdfFilename, type DocumentPage } from '../../../../lib
 import { SEND_REMINDER } from '../../../../lib/documents/confirmation';
 import type { SummarySection } from '../../../../lib/documents/summary';
 import { DOC_TYPE_NAMES, jobHref } from '../../../../lib/job-stage';
+import { upgradeLegacyApproval } from '../../../../lib/data/scope';
 import { requireSession } from '../../../../lib/session';
 import { DownloadButton } from './DownloadButton';
+import { DraftPreview } from './DraftPreview';
 import { EmailPanel } from './EmailPanel';
 import { ReviseForm } from './ReviseForm';
 import { SurveyNext } from './SurveyNext';
@@ -20,6 +22,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!doc) return { title: 'Document', description: 'One of your documents.' };
   return { title: `${DOC_TYPE_NAMES[doc.type]} ${doc.number}${doc.status === 'draft' ? ' (draft)' : ''}`, description: doc.status === 'draft' ? 'Check what was entered, then preview and finalise.' : 'Download the finalised document and copy a covering email.' };
 }
+
+// A draft shows page 1 of the real document, which takes a few seconds to draw the first time.
+export const maxDuration = 60;
 
 const longFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });
 const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
@@ -56,6 +61,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
       <div className="doc-layout">
         <div className="doc-main">
           <Summary sections={doc.summary} />
+          <DraftPreview id={doc.id} noun={doc.type === 'quotation' ? 'quote' : doc.type === 'survey' ? 'report' : name.toLowerCase()} quoteJobId={doc.type === 'quotation' ? doc.jobId : null} />
         </div>
         <aside className="doc-side" aria-label="What next">
           <div className="doc-next">
@@ -155,10 +161,16 @@ function Final({ doc, justFinalised, quoteFailed }: { doc: DocumentPage; justFin
 }
 
 export default async function DocumentPageRoute({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireSession();
+  const session = await requireSession();
   const { id } = await params;
   const sp = await searchParams;
-  const doc = await getDocumentPage(id);
+  let doc = await getDocumentPage(id);
   if (!doc) notFound();
+  // A draft quote opened from Home (Quotes to finish) with an approval from before 15 October: checked and upgraded
+  // here as on the preview page, so its page 1 and summary do not ask for an approval the owner already gave.
+  if (doc.status === 'draft' && doc.type === 'quotation') {
+    const up = await upgradeLegacyApproval({ userId: session.userId, tenantId: session.tenantId }, doc.jobId).catch(() => 'failed' as const);
+    if (up === 'upgraded') doc = (await getDocumentPage(id)) ?? doc;
+  }
   return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} quoteFailed={sp.quote === 'failed'} />;
 }

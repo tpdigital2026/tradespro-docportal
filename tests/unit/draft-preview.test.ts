@@ -65,6 +65,10 @@ describe('missingFacts', () => {
     ]);
     expect(r.map((m) => (m.fix?.kind === 'step' ? m.fix.step : m.fix?.kind === 'link' ? m.fix.href : null))).toEqual(['plan', 'price', 'customer', 'job', '/settings', null]);
   });
+  it('a missing title or introduction opens the Scope step, where the cover is written', () => {
+    const r = missingFacts(['The quote is not finished: give the quote a title.']);
+    expect(r[0].fix).toMatchObject({ kind: 'step', step: 'scope' });
+  });
   it('encodes the page address', () => {
     expect(pageImageUrl('a b', 'k/1')).toBe('/api/documents/a%20b/pages/1?key=k%2F1');
   });

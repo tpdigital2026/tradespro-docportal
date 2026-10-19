@@ -28,7 +28,7 @@ export async function previewDraftPageAction(documentIdRaw: unknown): Promise<Dr
     const st = await getPreview(documentId);
     const previewHref = `/documents/${encodeURIComponent(documentId)}/preview`;
     if (!st) return { state: 'error', message: 'We could not find this draft. Go back to Home and open it again.', diag: 'PV-NOT-FOUND' };
-    if (st.state === 'final') return { state: 'error', message: 'This quote has already been finalised.', diag: 'PV-FINAL' };
+    if (st.state === 'final') return { state: 'error', message: 'This document has already been finalised.', diag: 'PV-FINAL' };
     if (st.state === 'missing') return { state: 'missing', documentId, missing: missingFacts(st.missing), previewHref };
     return { state: 'ready', documentId, key: st.key, pageCount: st.pageCount, imageUrl: pageImageUrl(documentId, st.key), previewHref };
   } catch (e) {

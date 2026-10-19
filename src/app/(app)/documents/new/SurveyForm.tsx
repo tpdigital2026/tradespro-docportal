@@ -1,5 +1,7 @@
 'use client';
 
+import { ReviewPreview } from '../../../../components/quote/ReviewPreview';
+import type { DraftPreview } from '../../../../lib/documents/draft-preview';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../../components/Button';
@@ -75,6 +77,8 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
   const [stepIx, setStepIx] = useState(startIx);
   const [announce, setAnnounce] = useState('');
   const dictation = useDictation();
+  // The last page drawn on the Check step, so coming back to it shows that page while the new one is drawn.
+  const lastPreview = useRef<Extract<DraftPreview, { state: 'ready' }> | null>(null);
 
   const rev = useRef(0);
   const savedRev = useRef(0);
@@ -705,6 +709,15 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
             <ul className="missing-list sv-todo">
               {problems.map((p) => <li key={p}>{p}</li>)}
             </ul>
+          ) : null}
+          {docId && !problems.length ? (
+            <ReviewPreview
+              watch={values}
+              noun="report"
+              memory={lastPreview}
+              unsavedHint="The preview appears once the report is saved."
+              getDocumentId={async () => ((await flushSave()) ? docRef.current : null)}
+            />
           ) : null}
           <dl className="doc-facts sv-facts">
             <div><dt>Report</dt><dd>{number || 'Not saved yet'}</dd></div>

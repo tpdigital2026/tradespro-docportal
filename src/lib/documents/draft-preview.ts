@@ -31,6 +31,8 @@ export function missingFacts(lines: readonly string[]): MissingFact[] {
     else if (/no price|amounts are too large/.test(t)) fix = step('price');
     else if (/customer has no name/.test(t)) fix = step('customer');
     else if (/property address|has no date/.test(t)) fix = step('job');
+    // The title and introduction are written on the Scope step (cover and introduction).
+    else if (/title|introduction/.test(t)) fix = step('scope');
     else if (/the quote is not finished/.test(t)) fix = null;
     return { text, fix };
   });

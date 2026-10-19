@@ -15,7 +15,8 @@ type View =
   | { kind: 'shown'; preview: DraftPreview };
 
 /**
- * Page 1 of the real quote, drawn from the saved draft, at the centre of the Review step. Redrawn after every change
+ * Page 1 of the real document, drawn from the saved draft: the quote's Review step, the survey's Check step and the
+ * draft page of any document (invoices and receipts land there when saved). Redrawn after every change
  * (once the owner pauses), with the old page left in place and a calm note while the new one is drawn. If something
  * the document needs is missing, the list of what and where to fix it shows instead of a failure.
  */
@@ -24,15 +25,29 @@ export function ReviewPreview({
   getDocumentId,
   onFix,
   memory,
+  noun = 'quote',
+  unsavedHint = 'The preview appears once the draft is saved. Choose a customer and a quote number first.',
+  fixHref,
+  headingLevel = 3,
 }: {
   /** Anything that changes when the quote changes (the form values). */
   watch: unknown;
   /** Saves the draft if it needs saving, then gives the document id (null when it cannot be saved yet). */
   getDocumentId: () => Promise<string | null>;
-  onFix: (step: PreviewFixStep) => void;
+  /** Opens a step of the quote. Left out where there are no quote steps: the missing list then has no step links. */
+  onFix?: (step: PreviewFixStep) => void;
   /** The last page drawn, kept by the form, so coming back to Review shows it while the new one is drawn. */
   memory?: { current: Extract<DraftPreview, { state: 'ready' }> | null };
+  /** What the document is called in the copy: "quote", "report", "invoice", "receipt". */
+  noun?: string;
+  /** Shown while there is no saved draft to draw. */
+  unsavedHint?: string;
+  /** Where a quote step can be opened from a page with no stepper (the draft page): used when there is no onFix. */
+  fixHref?: (step: PreviewFixStep) => string;
+  /** 3 inside a step, 2 where the preview is a section of its own page. */
+  headingLevel?: 2 | 3;
 }) {
+  const H = headingLevel === 2 ? 'h2' : 'h3';
   const [view, setView] = useState<View>(() => (memory?.current ? { kind: 'loading', last: memory.current } : { kind: 'waiting' }));
   const [imgState, setImgState] = useState<'loading' | 'ok' | 'failed'>('loading');
   const [attempt, setAttempt] = useState(0);
@@ -73,23 +88,25 @@ export function ReviewPreview({
   return (
     <section className="rv-doc" aria-labelledby="rv-doc-h">
       <div className="rv-doc-head">
-        <h3 id="rv-doc-h" className="rv-doc-title">Your quote</h3>
+        <H id="rv-doc-h" className="rv-doc-title">Your {noun}</H>
         <p className="rv-doc-status" aria-live="polite">
-          {updating && ready ? 'Updating the preview...' : updating ? 'Drawing page 1 of your quote...' : ready && imgState === 'ok' ? `Page 1 of ${ready.pageCount}, exactly as your customer will see it.` : ''}
+          {updating && ready ? 'Updating the preview...' : updating ? `Drawing page 1 of your ${noun}...` : ready && imgState === 'ok' ? `Page 1 of ${ready.pageCount}, exactly as your customer will see it.` : ''}
         </p>
       </div>
 
       {missing ? (
         <div className="rv-missing">
-          <p className="rv-missing-h">Before we can draw your quote</p>
+          <p className="rv-missing-h">Before we can draw your {noun}</p>
           <ul>
             {missing.missing.map((m) => {
               const f = m.fix;
               return (
                 <li key={m.text}>
                   <span>{m.text}</span>
-                  {f?.kind === 'step' ? (
+                  {f?.kind === 'step' && onFix ? (
                     <button type="button" className="linklike" onClick={() => onFix(f.step)}>{f.label}</button>
+                  ) : f?.kind === 'step' && fixHref ? (
+                    <a className="flash-link rv-missing-link" href={fixHref(f.step)}>{f.label}</a>
                   ) : f?.kind === 'link' ? (
                     <a className="flash-link rv-missing-link" href={f.href}>{f.label}</a>
                   ) : null}
@@ -99,7 +116,7 @@ export function ReviewPreview({
           </ul>
         </div>
       ) : view.kind === 'unsaved' ? (
-        <p className="hint rv-note">The preview appears once the draft is saved. Choose a customer and a quote number first.</p>
+        <p className="hint rv-note">{unsavedHint}</p>
       ) : problem && !ready ? (
         <div className="rv-error" role="alert">
           <p>{problem.message}</p>
@@ -111,7 +128,7 @@ export function ReviewPreview({
           <a
             className={`rv-page${updating ? ' is-updating' : ''}`}
             href={ready?.previewHref ?? undefined}
-            aria-label={ready ? `Page 1 of your quote. Open all ${ready.pageCount} pages full size` : 'Page 1 of your quote is being drawn'}
+            aria-label={ready ? `Page 1 of your ${noun}. Open all ${ready.pageCount} pages full size` : `Page 1 of your ${noun} is being drawn`}
             aria-busy={!ready || imgState !== 'ok' || undefined}
           >
             {ready && imgState !== 'failed' ? (
