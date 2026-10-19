@@ -347,49 +347,49 @@ describe('demo mode', () => {
   });
 
   it('marking the full invoice paid moves the job on and offers a receipt', async () => {
-    const r = await markAsPaid('DEMO-3002', 1, { amount: '2220', paidOn: today, method: 'bank transfer', note: '' });
+    const r = await markAsPaid('QT-BR-002', 1, { amount: '2220', paidOn: today, method: 'bank transfer', note: '' });
     expect(r.remainingPence).toBe(0);
-    const j = await getJobSummary('DEMO-3002');
+    const j = await getJobSummary('QT-BR-002');
     expect(j?.billing?.progress.steps[j.billing.progress.currentIndex].label).toBe('Paid in full');
     expect(j?.billing?.progress.receiptsDue).toEqual([1]);
     expect(j?.billing?.documents.find((d) => d.type === 'invoice-full')?.status).toBe('final'); // the invoice itself is untouched
   });
 
   it('a part payment leaves the rest owing; over-paying and a missing invoice are refused', async () => {
-    const part = await markAsPaid('DEMO-3002', 1, { amount: '1000', paidOn: today, method: 'cash', note: '' });
+    const part = await markAsPaid('QT-BR-002', 1, { amount: '1000', paidOn: today, method: 'cash', note: '' });
     expect(part.remainingPence).toBe(122000);
-    await expect(markAsPaid('DEMO-3002', 1, { amount: '1220.01', paidOn: today, method: 'cash', note: '' })).rejects.toMatchObject({ code: 'invalid', errors: { amount: expect.any(String) } });
-    await expect(markAsPaid('DEMO-3001', 2, { amount: '10', paidOn: today, method: 'cash', note: '' })).rejects.toMatchObject({ code: 'not_payable' }); // balance not raised
+    await expect(markAsPaid('QT-BR-002', 1, { amount: '1220.01', paidOn: today, method: 'cash', note: '' })).rejects.toMatchObject({ code: 'invalid', errors: { amount: expect.any(String) } });
+    await expect(markAsPaid('QT-BR-001', 2, { amount: '10', paidOn: today, method: 'cash', note: '' })).rejects.toMatchObject({ code: 'not_payable' }); // balance not raised
     await expect(markAsPaid('DEMO-9999', 1, { amount: '10', paidOn: today, method: 'cash', note: '' })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(markAsPaid('DEMO-3002', 1, { amount: '10', paidOn: '2999-01-01', method: 'cash', note: '' })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(markAsPaid('QT-BR-002', 1, { amount: '10', paidOn: '2999-01-01', method: 'cash', note: '' })).rejects.toMatchObject({ code: 'invalid' });
   });
 
   it('a repeated identical payment within 30 seconds is recorded once and flagged as a repeat', async () => {
     const f = { amount: '100', paidOn: today, method: 'cash', note: '' };
-    const a = await markAsPaid('DEMO-3002', 1, f);
-    const b = await markAsPaid('DEMO-3002', 1, f);
+    const a = await markAsPaid('QT-BR-002', 1, f);
+    const b = await markAsPaid('QT-BR-002', 1, f);
     expect(a.repeat).toBe(false);
     expect(b.repeat).toBe(true);
     expect(b.paymentId).toBe(a.paymentId);
-    expect((await getJobSummary('DEMO-3002'))?.billing?.payments).toHaveLength(1);
+    expect((await getJobSummary('QT-BR-002'))?.billing?.payments).toHaveLength(1);
   });
 
   it('saving a receipt draft links it to its payment and clears the receipt due', async () => {
-    expect((await getJobSummary('DEMO-3003'))?.billing?.progress.receiptsDue).toEqual([2, 3]);
-    const saved = await saveFollowOnDraft('DEMO-3003', 'receipt', 2, null);
-    expect(saved).toMatchObject({ number: 'RCP-DEMO-3003-S2', created: true });
-    expect((await getJobSummary('DEMO-3003'))?.billing?.progress.receiptsDue).toEqual([3]);
+    expect((await getJobSummary('QT-BR-003'))?.billing?.progress.receiptsDue).toEqual([2, 3]);
+    const saved = await saveFollowOnDraft('QT-BR-003', 'receipt', 2, null);
+    expect(saved).toMatchObject({ number: 'RCP-BR-003-S2', created: true });
+    expect((await getJobSummary('QT-BR-003'))?.billing?.progress.receiptsDue).toEqual([3]);
     // Its payment is linked now, so there is no second receipt for it.
-    await expect(saveFollowOnDraft('DEMO-3003', 'receipt', 2, null)).rejects.toMatchObject({ code: 'invalid' });
-    expect((await saveFollowOnDraft('DEMO-3003', 'receipt', 2, 'demo-payment-3003-2')).created).toBe(false);
+    await expect(saveFollowOnDraft('QT-BR-003', 'receipt', 2, null)).rejects.toMatchObject({ code: 'invalid' });
+    expect((await saveFollowOnDraft('QT-BR-003', 'receipt', 2, 'demo-payment-3003-2')).created).toBe(false);
   });
 
   it('the same payment is a new one after the 30 second window', async () => {
     const f = { amount: '100', paidOn: today, method: 'cash', note: '' };
-    const a = await markAsPaid('DEMO-3002', 1, f);
+    const a = await markAsPaid('QT-BR-002', 1, f);
     vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 31_000 });
     try {
-      const b = await markAsPaid('DEMO-3002', 1, f);
+      const b = await markAsPaid('QT-BR-002', 1, f);
       expect(b.repeat).toBe(false);
       expect(b.paymentId).not.toBe(a.paymentId);
     } finally {
@@ -398,8 +398,8 @@ describe('demo mode', () => {
   });
 
   it('a stage invoice draft takes the number from the schedule', async () => {
-    const saved = await saveFollowOnDraft('DEMO-3003', 'invoice-stage', 4, null);
-    expect(saved.number).toBe('INV-DEMO-3003-S4');
-    await expect(saveFollowOnDraft('DEMO-3001', 'invoice-stage', 1, null)).rejects.toMatchObject({ code: 'invalid' });
+    const saved = await saveFollowOnDraft('QT-BR-003', 'invoice-stage', 4, null);
+    expect(saved.number).toBe('INV-BR-003-S4');
+    await expect(saveFollowOnDraft('QT-BR-001', 'invoice-stage', 1, null)).rejects.toMatchObject({ code: 'invalid' });
   });
 });

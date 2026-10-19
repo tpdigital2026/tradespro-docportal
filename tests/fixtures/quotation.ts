@@ -90,3 +90,29 @@ export const quotationFixture: QuotationInput = {
   disclaimer:
     'This quotation is generated using third-party software. The platform is not a party to any contract formed between the customer and the trader for the services listed within this document. The platform has not benchmarked, endorsed, or verified the services or prices stated. For information on how personal data is processed, please refer to the relevant Privacy Notice.',
 };
+
+/** A short job with no guarantee and no diagram: its scope shares the specification page, and the last contents cell is split into Pricing and Terms. */
+export const shortQuotationFixture: QuotationInput = {
+  ...quotationFixture,
+  ref: 'QT-BR-003',
+  coverEyebrow: 'Residential · Fascia Replacement Quotation',
+  coverTitle: 'Fascia Replacement Quotation',
+  coverSub: 'Full replacement fascias to the entire property, full scope of works and pricing',
+  introText: 'FJC Roofing Ltd is pleased to present this quotation for fascia replacement at 123 Bromley Road. This document sets out the full scope of works and pricing.',
+  specHeading: 'Your new roofline',
+  specEyebrow: 'Specification',
+  specCards: [
+    { big: '18mm', label: 'Full replacement fascias' },
+    { big: 'White', label: 'Fascia finish' },
+    { big: 'Guttering', label: 'Re-installed' },
+    { big: 'Entire Property', label: 'Including the apex' },
+  ],
+  diagram: null,
+  scope: [
+    { heading: 'Removal process', bullets: ['Remove all guttering and fittings to allow access to the fascias.', 'Remove the current fascia boards to the entire property.'] },
+    { heading: 'Fascias', bullets: ['Install full-replacement 18mm fascias (white) to the entire property, including the apex.'] },
+    { heading: 'Guttering', bullets: ['Re-install guttering, changing any damaged or broken fittings.'] },
+  ],
+  guarantee: null,
+  lines: [{ description: 'Fascia replacement – 123 Bromley Road, complete works as specified above', kind: 'Work', qty: 1, unitNetPence: 167833, vatApplies: true }],
+};

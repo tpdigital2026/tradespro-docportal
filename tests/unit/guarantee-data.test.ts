@@ -28,7 +28,7 @@ afterEach(() => {
 
 async function firstJob() {
   const ctx = await getGuaranteeContext();
-  const job = ctx.jobs.find((j) => j.reference === 'DEMO-3002');
+  const job = ctx.jobs.find((j) => j.reference === 'QT-BR-002');
   if (!job) throw new Error('no demo job');
   return { ctx, job };
 }
@@ -43,9 +43,9 @@ describe('guarantee drafts (demo mode)', () => {
   it('creates a draft numbered after the job, then a second roof gets -G2, and the same roof twice is refused', async () => {
     const { job } = await firstJob();
     const a = await saveGuarantee({ documentId: null, job: { kind: 'existing', id: job.id }, values: values() });
-    expect(a.number).toBe('GC-DEMO-3002');
+    expect(a.number).toBe('GC-BR-002');
     const b = await saveGuarantee({ documentId: null, job: { kind: 'existing', id: job.id }, values: values({ roofType: 'flat', years: '20' }) });
-    expect(b.number).toBe('GC-DEMO-3002-G2');
+    expect(b.number).toBe('GC-BR-002-G2');
     const dup = await saveGuarantee({ documentId: null, job: { kind: 'existing', id: job.id }, values: values({ years: '10' }) }).catch((e) => e);
     expect(dup).toBeInstanceOf(GuaranteeError);
     expect((dup as GuaranteeError).code).toBe('exists');
@@ -89,7 +89,7 @@ describe('guarantee drafts (demo mode)', () => {
     const mk = (reference: string) => saveGuarantee({ documentId: null, job: { kind: 'new', customerId: c.id, reference }, values: values() }).catch((e) => e as GuaranteeError);
     expect(((await mk('GC-5')) as GuaranteeError).code).toBe('invalid');
     expect(((await mk('Q-5-G2')) as GuaranteeError).code).toBe('invalid');
-    expect(((await mk('DEMO-3002')) as GuaranteeError).code).toBe('number_used');
+    expect(((await mk('QT-BR-002')) as GuaranteeError).code).toBe('number_used');
     const made = (await mk('NEW-77')) as { number: string };
     expect(made.number).toBe('GC-NEW-77');
   });

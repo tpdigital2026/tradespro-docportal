@@ -102,7 +102,7 @@ describe('demo appointments', () => {
     if (!ok.ok) throw new Error('form');
     const id = await data.saveAppointment(null, ok.value);
     const got = await data.getAppointment(id);
-    expect(got).toMatchObject({ customerId: 'demo-customer-1', quoteNumber: 'DEMO-3003' });
+    expect(got).toMatchObject({ customerId: 'demo-customer-1', quoteNumber: 'QT-BR-003' });
     const wrong = checkAppointment({ ...base, jobId: 'demo-job-3003', customerId: 'demo-customer-2' });
     if (!wrong.ok) throw new Error('form');
     await expect(data.saveAppointment(null, wrong.value)).rejects.toThrow(/different customer/);

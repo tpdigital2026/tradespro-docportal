@@ -87,11 +87,11 @@ b,strong{color:var(--ink);font-weight:600}
 .scope-sec h4{font-family:"Mono";font-size:6.9pt;letter-spacing:.22em;text-transform:uppercase;color:var(--navy);font-weight:500;margin:1.2mm 0 2mm}
 .scope-sec ul{list-style:none}
 .scope-sec li{position:relative;padding-left:5mm;margin-bottom:1.5mm;color:var(--body)}
-.scope-sec li:before{content:"";position:absolute;left:0;top:1.7mm;width:2.2mm;height:.45mm;background:var(--blue)}
-.scope-compact .scope-sec{padding:2mm 0 1.4mm;grid-template-columns:9mm 1fr}
+.scope-sec li:before{content:"";position:absolute;left:0;top:1.65mm;width:2.2mm;height:2px;background:var(--blue)}
+.scope-compact .scope-sec{padding:1.7mm 0 1.2mm;grid-template-columns:9mm 1fr}
 .scope-compact .scope-sec .n{font-size:12pt}
 .scope-compact .scope-sec h4{margin:.4mm 0 1.2mm}
-.scope-compact li{margin-bottom:.7mm}
+.scope-compact li{margin-bottom:.8mm}
 
 /* guarantee band */
 .gband{display:grid;grid-template-columns:27mm 1fr;gap:6mm;align-items:center;background:var(--navy);color:#dbe5f2;padding:5.5mm 7mm;border-left:1.4mm solid var(--gold)}

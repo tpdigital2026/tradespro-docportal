@@ -8,6 +8,7 @@
  */
 import { isIsoDate } from '../london';
 import { MAX_GUARANTEES_PER_JOB } from '../job-stage';
+import { jobStem } from '../doc-numbers';
 import { NUMBER_RE } from '../validation/quote';
 import { tidyLine } from '../survey/model';
 
@@ -125,9 +126,11 @@ export function parseGuaranteeInput(input: unknown): GuaranteeValues | null {
 /** The first free place among a job's certificates, from the numbers already used (GC-{q}, GC-{q}-G2 ...). null when there are none left. */
 export function nextCertificateSeq(reference: string, usedNumbers: readonly string[]): number | null {
   const used = new Set(usedNumbers);
+  // GC-{code}-{number}: built from the quote number's stem, so QT-GW-001 gives GC-GW-001 (not GC-QT-GW-001). A certificate numbered the
+  // older way (GC-QT-GW-001) still holds its place.
+  const stems = [...new Set([jobStem(reference), reference])];
   for (let seq = 1; seq <= MAX_GUARANTEES_PER_JOB; seq += 1) {
-    const n = seq === 1 ? `GC-${reference}` : `GC-${reference}-G${seq}`;
-    if (!used.has(n)) return seq;
+    if (!stems.some((stem) => used.has(seq === 1 ? `GC-${stem}` : `GC-${stem}-G${seq}`))) return seq;
   }
   return null;
 }

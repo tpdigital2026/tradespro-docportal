@@ -34,7 +34,7 @@ describe.skipIf(!referenceAvailable)('quotation', () => {
     const labels = await page.$$eval('.page:nth-of-type(2) .rh .eyebrow', (e) => e.map((x) => x.textContent));
     expect(labels).toEqual([quotationFixture.coverTitle]);
     const h2s = await page.$$eval('.page:last-of-type h2', (e) => e.map((x) => x.textContent));
-    expect(h2s).toContain('Your investment');
+    expect(h2s).toContain('Your quotation');
   });
 
   it('escapes customer-supplied text', async () => {

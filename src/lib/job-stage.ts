@@ -15,6 +15,8 @@
  * and no issued quote yet is shown with surveyedOnlyProgress (next step: write the quote).
  */
 
+import { jobStem } from './doc-numbers';
+
 export const DOC_TYPES = [
   'quotation',
   'deposit-invoice',
@@ -248,7 +250,7 @@ export const MAX_GUARANTEES_PER_JOB = 20;
  * the plain number, the next ones add -2 to -99 (RCP-{q}-S3-2). seq is that 1-based position; it is ignored for invoices.
  * The database enforces the same patterns.
  */
-export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, index: number, seq = 1): string | null {
+function buildNumber(type: DocType, quote: string, kind: PlanKind, index: number, seq: number): string | null {
   if (type === 'receipt') {
     if (!Number.isInteger(seq) || seq < 1 || seq > MAX_RECEIPTS_PER_INSTALMENT) return null;
     let base: string | null;
@@ -266,10 +268,28 @@ export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, 
   return null;
 }
 
+/**
+ * The number a new document gets. It is built from the quote number's stem: QT-GW-001 gives INV-GW-001-D, RCP-GW-001-D,
+ * GC-GW-001, and a number without QT- in front (FJC1003) is used as it is (INV-FJC1003-D).
+ */
+export function documentNumberFor(type: DocType, quoteNumber: string, kind: PlanKind, index: number, seq = 1): string | null {
+  return buildNumber(type, jobStem(quoteNumber), kind, index, seq);
+}
+
+/**
+ * Every number a document of this kind could carry for the job: the new form first, then the form built from the whole quote
+ * number (INV-QT-GW-001-D). Documents made before the QT-{CODE}-{NNN} numbering was introduced used the second form and stay valid:
+ * they are recognised, and re-opened under the number they already have.
+ */
+export function documentNumberForms(type: DocType, quoteNumber: string, kind: PlanKind, index: number, seq = 1): string[] {
+  const forms = [buildNumber(type, jobStem(quoteNumber), kind, index, seq), buildNumber(type, quoteNumber, kind, index, seq)].filter((n): n is string => n !== null);
+  return [...new Set(forms)];
+}
+
 /** The instalment a stored invoice or receipt number refers to, or null when it does not match the job's patterns. */
 export function instalmentFromNumber(type: DocType, number: string, quote: string, kind: PlanKind, count: number): number | null {
   const seqs = type === 'receipt' ? MAX_RECEIPTS_PER_INSTALMENT : 1;
-  for (let i = 1; i <= count; i += 1) for (let k = 1; k <= seqs; k += 1) if (documentNumberFor(type, quote, kind, i, k) === number) return i;
+  for (let i = 1; i <= count; i += 1) for (let k = 1; k <= seqs; k += 1) if (documentNumberForms(type, quote, kind, i, k).includes(number)) return i;
   return null;
 }
 

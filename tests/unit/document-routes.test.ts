@@ -25,7 +25,7 @@ describe('document routes (demo mode, files placed directly in the in-memory sto
     const { GET } = await import('../../src/app/api/documents/[id]/pdf/route');
     const res = await GET(new Request('http://x/api/documents/demo-doc-3001-d/pdf'), ctx('demo-doc-3001-d'));
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="INV-DEMO-3001-D.pdf"/);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="INV-BR-001-D.pdf"/);
     expect(res.headers.get('cache-control')).toBe('private, no-store');
   });
 

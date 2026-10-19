@@ -105,6 +105,12 @@ describe('certificate numbers', () => {
     expect(nextCertificateSeq('Q1', ['GC-Q1'])).toBe(2);
     expect(nextCertificateSeq('Q1', ['GC-Q1', 'GC-Q1-G2'])).toBe(3);
     expect(nextCertificateSeq('Q1', ['GC-Q1-G2'])).toBe(1);
+    // A quote numbered QT-{CODE}-{NNN} gives GC-{CODE}-{NNN}, never GC-QT-...
+    expect(nextCertificateSeq('QT-GW-001', [])).toBe(1);
+    expect(nextCertificateSeq('QT-GW-001', ['GC-GW-001'])).toBe(2);
+    expect(nextCertificateSeq('QT-GW-001', ['GC-GW-001', 'GC-GW-001-G2'])).toBe(3);
+    // A certificate made the older way still holds its place.
+    expect(nextCertificateSeq('QT-GW-001', ['GC-QT-GW-001'])).toBe(2);
     const all = ['GC-Q1', ...Array.from({ length: 19 }, (_, i) => `GC-Q1-G${i + 2}`)];
     expect(nextCertificateSeq('Q1', all)).toBeNull();
   });

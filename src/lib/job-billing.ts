@@ -8,7 +8,7 @@
 import { buildSchedule, computeTotals, formatPct, paymentShare, type Instalment, type Pence, type PaymentPlan, type Totals } from './money';
 import {
   deriveJobStage,
-  documentNumberFor,
+  documentNumberForms,
   instalmentFromNumber,
   invoiceTypeFor,
   isInvoiceType,
@@ -168,7 +168,9 @@ export function followOnFor(b: JobBilling, type: DocType, instalment: number | n
   const inst = b.instalments.find((i) => i.index === n);
   if (!inst) return { ok: false, message: MISMATCH };
   if (type !== 'receipt' && invoiceTypeFor(b.kind, n) !== type) return { ok: false, message: MISMATCH };
-  let number: string | null = documentNumberFor(type, b.quoteNumber, b.kind, n);
+  // A document that already exists under an older form of the number (INV-QT-9-D) keeps it.
+  const existingForm = (forms: string[]): string | null => forms.find((f) => b.documents.some((d) => d.number === f)) ?? forms[0] ?? null;
+  let number: string | null = existingForm(documentNumberForms(type, b.quoteNumber, b.kind, n));
   if (!number) return { ok: false, message: MISMATCH };
 
   let payment: BillingPayment | null = null;
@@ -183,7 +185,7 @@ export function followOnFor(b: JobBilling, type: DocType, instalment: number | n
       return { ok: false, message: here.length === 0 ? 'There is no recorded payment to make a receipt for. Mark the invoice as paid first.' : 'Every payment on this invoice already has a receipt.' };
     }
     const position = here.findIndex((p) => p.id === payment!.id);
-    number = documentNumberFor('receipt', b.quoteNumber, b.kind, n, position + 1);
+    number = existingForm(documentNumberForms('receipt', b.quoteNumber, b.kind, n, position + 1));
     if (!number) return { ok: false, message: `A receipt can be made for up to ${MAX_RECEIPTS_PER_INSTALMENT} payments on one invoice.` };
     linked = payment.receiptDocumentId ? b.documents.find((d) => d.id === payment!.receiptDocumentId) : undefined;
     if (linked) number = linked.number;

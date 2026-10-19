@@ -22,11 +22,17 @@ export type SurveyWording = z.infer<typeof surveyWordingSchema>;
 export const tenantWordingSchema = z.strictObject({
   quote: z.strictObject({ terms: text }),
   deposit_invoice: z.strictObject({ terms: text, dueLabel: text, balanceDueLabel: text }),
-  balance_invoice: z.strictObject({ terms: text, dueNote: text }),
+  /** dueLabel is the header's "Due" line ("On receipt"). Without it the row is left out: it is never invented. */
+  balance_invoice: z.strictObject({ terms: text, dueNote: text, dueLabel: text.max(60).optional() }),
   /** Optional. Without it, a full invoice uses the business's balance invoice wording (both are paid on receipt). */
-  invoice_full: z.strictObject({ terms: text, dueNote: text }).optional(),
+  invoice_full: z.strictObject({ terms: text, dueNote: text, dueLabel: text.max(60).optional() }).optional(),
   /** Optional. Without it, a stage invoice uses the business's balance invoice wording. */
-  invoice_stage: z.strictObject({ terms: text, dueNote: text }).optional(),
+  invoice_stage: z.strictObject({ terms: text, dueNote: text, dueLabel: text.max(60).optional() }).optional(),
+  /**
+   * Optional. What the "Payment reference" on an invoice's pay card says: the first line of the job's address (the default,
+   * so the owner can match a bank credit to a job) or the invoice number. With no job address the invoice number is used.
+   */
+  paymentReference: z.enum(['address_line_1', 'invoice_number']).optional(),
   /**
    * Optional. The confirmation the owner ticks before a document is finalised. Without it the default wording in
    * src/lib/documents/confirmation.ts is used (draft wording, to be reviewed by a solicitor before wider use).
@@ -62,14 +68,17 @@ export const FJC_WORDING: TenantWording = {
       'This quotation is valid for 30 days from the date above. All materials supplied and installed as part of this contract remain the property of FJC Roofing Ltd until paid for in full.',
   },
   deposit_invoice: {
-    terms: 'The 30% deposit is payable before works start. The remaining balance is due on completion of works.',
+    // {balance} becomes the amount still to pay after the deposit.
+    terms: 'The 30% deposit is payable before works start. The remaining balance of {balance} is due on completion of works.',
     dueLabel: 'Before works start',
     balanceDueLabel: 'Balance due on completion',
   },
   balance_invoice: {
     terms: 'Payment is due upon receipt of this invoice.',
     dueNote: 'Payment is due upon receipt of this invoice',
+    dueLabel: 'On receipt',
   },
+  paymentReference: 'address_line_1',
   receipt: { balanceDueLabel: 'Due on completion of works' },
   guarantee: {
     statement: 'Any defect in installation that occurs within this period will be repaired at no cost to the customer.',

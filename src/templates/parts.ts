@@ -27,8 +27,8 @@ export function page(inner: Raw, head: Raw | null, foot: Raw | null): Raw {
   return html`<section class="page">${head}<div class="body">${inner}</div>${foot}</section>`;
 }
 
-export function kv(k: string, v: string): Raw {
-  return html`<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+export function kv(k: string, v: string, nowrap = false): Raw {
+  return html`<div class="kv"><div class="k">${k}</div><div class="v"${nowrap ? raw(' style="white-space:nowrap"') : null}>${v}</div></div>`;
 }
 
 export interface ScopeSection {

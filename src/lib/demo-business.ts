@@ -233,10 +233,10 @@ function seedAppointments(): Appointment[] {
   return [
     mk(1, 'site_visit', 'Measure up for new fascias (demo)', 0, '09:00', '10:00', 'demo-customer-2', null, null, 'Demo note: side gate code is on the job sheet.'),
     mk(2, 'survey', 'Roof survey (demo)', 1, '14:00', '15:30', 'demo-customer-1', null, null, null),
-    mk(3, 'job_start', 'Start tiled re-roof (demo)', 3, '08:00', null, 'demo-customer-1', 'demo-job-3003', 'DEMO-3003', 'Demo note: scaffold arrives the day before.'),
+    mk(3, 'job_start', 'Start tiled re-roof (demo)', 3, '08:00', null, 'demo-customer-1', 'demo-job-3003', 'QT-BR-003', 'Demo note: scaffold arrives the day before.'),
     mk(4, 'other', 'Pick up materials (demo)', 3, '07:00', '07:45', null, null, null, null),
-    mk(5, 'job_finish', 'Handover walk round (demo)', 9, '15:00', '16:00', 'demo-customer-1', 'demo-job-3003', 'DEMO-3003', null),
-    mk(6, 'site_visit', 'Check gutter leak (demo)', -2, '11:00', '11:30', 'demo-customer-2', 'demo-job-3002', 'DEMO-3002', null),
+    mk(5, 'job_finish', 'Handover walk round (demo)', 9, '15:00', '16:00', 'demo-customer-1', 'demo-job-3003', 'QT-BR-003', null),
+    mk(6, 'site_visit', 'Check gutter leak (demo)', -2, '11:00', '11:30', 'demo-customer-2', 'demo-job-3002', 'QT-BR-002', null),
   ];
 }
 

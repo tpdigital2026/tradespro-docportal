@@ -513,7 +513,7 @@ export async function getSurveyContext(): Promise<SurveyContext> {
   const today = todayLondon();
   if (isDemo()) {
     const st = demo();
-    const used = [...st.jobs.map((j) => j.reference), 'DEMO-3003', 'DEMO-3002', 'DEMO-3001'];
+    const used = [...st.jobs.map((j) => j.reference), 'QT-BR-003', 'QT-BR-002', 'QT-BR-001'];
     return {
       customers: (await listCustomers()).map((c) => ({ id: c.id, name: c.name, addressLine: c.addressLines[0] ?? '', postcode: c.postcode })),
       jobs: st.jobs.filter((j) => !st.surveys.some((x) => x.jobId === j.jobId)).map((j) => ({ id: j.jobId, reference: j.reference, customerId: j.customerId, propertyAddress: j.propertyAddress })),
@@ -874,7 +874,7 @@ async function demoSave(req: SaveSurveyRequest): Promise<SavedSurvey> {
     const ref = req.job.reference.trim();
     if (!NUMBER_RE.test(ref)) throw new SurveyError('invalid', 'Use 2 to 40 letters, numbers, dots, dashes or slashes, starting with a letter or number', 'jobReference');
     if (quoteNumberReserved(ref) !== null) throw new SurveyError('invalid', NUMBER_SUFFIX_MESSAGE, 'jobReference');
-    if (st.jobs.some((j) => j.reference === ref) || ['DEMO-3003', 'DEMO-3002', 'DEMO-3001'].includes(ref)) throw new SurveyError('number_used', 'That job number has already been used. Choose another.', 'jobReference');
+    if (st.jobs.some((j) => j.reference === ref) || ['QT-BR-003', 'QT-BR-002', 'QT-BR-001'].includes(ref)) throw new SurveyError('number_used', 'That job number has already been used. Choose another.', 'jobReference');
     job = { jobId: `demo-sjob-${randomUUID().slice(0, 8)}`, reference: ref, customerId, propertyAddress: tidyPara(req.values.propertyAddress).replace(/\n+/g, ', ') };
     st.jobs.push(job);
   }

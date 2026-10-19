@@ -109,7 +109,27 @@ export function slashDate(iso: string): string {
 }
 
 const NOT_SET_UP = 'Contact TradesPro Digital to set it up.';
-const WORKS_LINE = 'The works as set out in the scope above';
+
+/** "Fascia Replacement Quotation" gives "Fascia Replacement": a quote's cover title without its last word, for invoices and receipts. */
+export function jobTitleOf(coverTitle: string): string {
+  const t = coverTitle.trim();
+  return t.replace(/\s+quotation$/i, '').trim() || t;
+}
+const sentenceCase = (t: string) => {
+  const l = t.toLowerCase();
+  return l.charAt(0).toUpperCase() + l.slice(1);
+};
+/** The first line of an address as written: everything before the first comma or new line. */
+export function firstAddressLine(address: string): string {
+  return (address.split(/[,\n]/)[0] ?? '').trim();
+}
+/** The quote's price row, in the owner's pattern: "Fascia replacement – 205 Example Road, complete works as specified above". */
+function worksLine(f: DocumentFacts): string {
+  const title = sentenceCase(jobTitleOf(f.quoteForm.scope.coverTitle));
+  // A quote with no separate property address is for the customer's own address (the quotation page says the same).
+  const where = firstAddressLine(f.propertyAddress) || (f.customer.addressLines[0] ?? '').trim();
+  return `${title || 'The works'}${where ? ` – ${where}` : ''}, complete works as specified above`;
+}
 
 function quoteMoney(f: DocumentFacts, vatRateBp: number) {
   const { input, errors } = normaliseQuote(f.quoteForm, 'draft', vatRateBp);
@@ -117,8 +137,21 @@ function quoteMoney(f: DocumentFacts, vatRateBp: number) {
   const money = { priceNetPence: input.priceNetPence, vatApplies: input.vatApplies, extras: input.extras, discountPence: input.discountPence, plan: null };
   const totals = computeQuoteTotals(money, vatRateBp);
   if (totals.error) return null;
-  const lines = quoteLines(money).map((l) => (l.kind === 'Works' ? { ...l, description: WORKS_LINE } : l));
+  const lines = quoteLines(money).map((l) => (l.kind === 'Works' ? { ...l, description: worksLine(f) } : l));
   return { input, money, totals, lines };
+}
+
+/** The pay card's reference: the job address's first line by default (so a bank credit can be matched to a job), else the invoice number. */
+export function paymentReferenceFor(f: Pick<DocumentFacts, 'number' | 'propertyAddress'>, convention: 'address_line_1' | 'invoice_number' | undefined): string {
+  if (convention === 'invoice_number') return f.number;
+  return firstAddressLine(f.propertyAddress) || f.number;
+}
+
+/** How the owner's receipts start their row: "30% Deposit", "Balance payment"; other receipts keep the instalment's own heading. */
+function receiptLead(kind: ReceiptInput['kind'], depositPctBp: number | null, heading: string): string {
+  if (kind === 'deposit' && depositPctBp !== null) return `${formatPct(depositPctBp)}% Deposit`;
+  if (kind === 'balance') return 'Balance payment';
+  return heading;
 }
 
 function partyCustomer(c: CustomerFacts): PartyCustomer {
@@ -252,7 +285,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
       paidDateLabel,
       customer,
       kind,
-      description: `${fo.heading} – ${scope.value.coverTitle}${showVat ? ' (inc. VAT)' : ''}`,
+      description: `${receiptLead(kind, bl.depositPctBp, fo.heading)} – ${jobTitleOf(scope.value.coverTitle).toLowerCase()}${showVat ? ' (inc. VAT)' : ''}`,
       method: PAYMENT_METHOD_LABELS[p.method as PaymentMethod] ?? p.method,
       amountPaidPence: p.amountPence,
       previousPaymentsPence: previous,
@@ -270,14 +303,15 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
     quoteRef: f.quoteNumber,
     dateLabel,
     customer,
-    jobTitle: scope.value.coverTitle,
+    jobTitle: jobTitleOf(scope.value.coverTitle),
     scope: scope.value.scope,
-    jobDescription: 'the works as set out above',
+    // "Balance payment – full roof replacement as specified above"
+    jobDescription: `${jobTitleOf(scope.value.coverTitle).toLowerCase()} as specified above`,
     vatRateBp: rate,
     quoteLines: m.lines,
     guarantee: guaranteeOf(f, b),
     bank: f.bank as BankDetails,
-    paymentRef: f.number,
+    paymentRef: paymentReferenceFor(f, w?.paymentReference),
     disclaimer: b.disclaimer,
   };
   if (f.type === 'deposit-invoice') {
@@ -298,7 +332,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
     const receipt = bl.documents.find((x) => x.type === 'receipt' && x.instalment === 1 && (x.status === 'final' || x.status === 'sent'));
     return {
       ok: true,
-      mapped: { kind: 'balance-invoice', input: { ...common, depositPctBp: bl.depositPctBp ?? 0, adjustmentLines: [], depositReceiptRef: receipt?.number ?? null, depositReceivedPence: received, dueNote: d.dueNote, terms: d.terms } },
+      mapped: { kind: 'balance-invoice', input: { ...common, depositPctBp: bl.depositPctBp ?? 0, adjustmentLines: [], depositReceiptRef: receipt?.number ?? null, depositReceivedPence: received, dueNote: d.dueNote, dueLabel: d.dueLabel, terms: d.terms } },
       money,
     };
   }
@@ -307,12 +341,12 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
   if (!d) missing.push(`Your invoice wording is not set up yet. ${NOT_SET_UP}`);
   if (missing.length > 0 || !d) return { ok: false, missing };
   if (f.type === 'invoice-full') {
-    return { ok: true, mapped: { kind: 'invoice-full', input: { ...common, dueNote: d.dueNote, terms: d.terms } }, money };
+    return { ok: true, mapped: { kind: 'invoice-full', input: { ...common, dueNote: d.dueNote, dueLabel: d.dueLabel, terms: d.terms } }, money };
   }
   const stage = bl.instalments.find((i) => i.index === fo.instalment);
   if (!stage) return { ok: false, missing: ['That stage is not part of this job.'] };
   const receivedPence = bl.payments.filter((p) => p.instalment < fo.instalment).reduce((s, p) => s + p.amountPence, 0);
-  return { ok: true, mapped: { kind: 'invoice-stage', input: { ...common, stage, stageCount: bl.instalments.length, receivedPence, dueNote: d.dueNote, terms: d.terms } }, money };
+  return { ok: true, mapped: { kind: 'invoice-stage', input: { ...common, stage, stageCount: bl.instalments.length, receivedPence, dueNote: d.dueNote, dueLabel: d.dueLabel, terms: d.terms } }, money };
 }
 
 export function mapDocument(f: DocumentFacts, b: BusinessFacts): MapResult {

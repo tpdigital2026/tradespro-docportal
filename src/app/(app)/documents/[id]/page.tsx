@@ -134,7 +134,7 @@ function Final({ doc, justFinalised, quoteFailed }: { doc: DocumentPage; justFin
           </div>
           {doc.revise ? (
             doc.revise.allowed ? (
-              doc.type === 'survey' ? <SurveyReviseForm id={doc.id} /> : <ReviseForm id={doc.id} />
+              doc.type === 'survey' ? <SurveyReviseForm id={doc.id} /> : <ReviseForm id={doc.id} number={doc.number} />
             ) : (
               <p className="hint doc-revise-no">{doc.revise.reason}</p>
             )

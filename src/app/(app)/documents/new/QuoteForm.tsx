@@ -28,7 +28,7 @@ import {
   type QuoteFormValues,
   type QuoteStep,
 } from '../../../../lib/validation/quote';
-import { checkNumberAction, finishQuoteAction, saveDraftAction, saveForLaterAction, type FinishResult, type FixTarget } from './actions';
+import { checkNumberAction, finishQuoteAction, saveDraftAction, saveForLaterAction, suggestNumberAction, type FinishResult, type FixTarget } from './actions';
 import { FinishPanel, type Outcome } from './FinishPanel';
 import '../../../../styles/finish.css';
 
@@ -67,6 +67,7 @@ export function QuoteForm({
   const [save, setSave] = useState<Save>({ kind: 'idle' });
   const [serverErrors, setServerErrors] = useState<QuoteErrors>({});
   const [numberStatus, setNumberStatus] = useState<NumberStatus>('idle');
+  const [suggestion, setSuggestion] = useState('');
   const [reverted, setReverted] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const [scopeView, setScopeView] = useState<'review' | undefined>(undefined);
@@ -79,6 +80,8 @@ export function QuoteForm({
   const lastPreview = useRef<Extract<DraftPreview, { state: 'ready' }> | null>(null);
   const claimed = useRef<{ quoteNumber: string; customerId: string } | null>(initialJobId ? { quoteNumber: initial.quoteNumber, customerId: initial.customerId } : null);
   const valuesRef = useRef(values);
+  /** The number the page put in the field itself (from the address). Until the owner has looked at it, it is not saved. */
+  const autoNumber = useRef<string | null>(null);
   const inFlight = useRef<Promise<void> | null>(null);
   const headingBox = useRef<HTMLDivElement>(null);
   const focusAfter = useRef(false);
@@ -138,8 +141,32 @@ export function QuoteForm({
     };
   }, [values.quoteNumber, locked]);
 
+  // ---- the suggested number: QT-, the street's initials and the running number for them. Worked out on the server.
+  useEffect(() => {
+    if (locked) return;
+    const name = ctx.customers.find((c) => c.id === values.customerId)?.name ?? '';
+    if (values.propertyAddress.trim() === '' && name === '') return;
+    let stale = false;
+    const t = setTimeout(async () => {
+      const r = await suggestNumberAction(values.propertyAddress, name).catch(() => ({ number: '' }));
+      if (stale || !r.number) return;
+      setSuggestion(r.number);
+      const now = valuesRef.current.quoteNumber.trim();
+      // Fill the field only while it is empty or still holds an earlier suggestion: never over the owner's own number.
+      if (now !== '' && now !== autoNumber.current) return;
+      autoNumber.current = r.number;
+      if (now !== r.number) patch({ quoteNumber: r.number });
+    }, CHECK_DELAY_MS);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [values.propertyAddress, values.customerId, locked, ctx.customers, patch]);
+
   // ---- autosave: through the owner's session, one at a time, never losing the newest edit
-  const canSave = !errors.quoteNumber && !errors.customerId && values.quoteNumber.trim() !== '' && values.customerId !== '' && (locked || numberStatus === 'free' || numberStatus === 'error');
+  // A number the page filled in is not claimed until the owner has been to the Job step, where they can change it.
+  const heldForReview = !locked && autoNumber.current !== null && values.quoteNumber.trim() === autoNumber.current && reached < QUOTE_STEPS.indexOf('job');
+  const canSave = !errors.quoteNumber && !errors.customerId && values.quoteNumber.trim() !== '' && values.customerId !== '' && !heldForReview && (locked || numberStatus === 'free' || numberStatus === 'error');
 
   const runSave = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
@@ -388,7 +415,7 @@ export function QuoteForm({
 
           <div ref={headingBox} className="qt-body">
             {step === 'customer' ? <CustomerStep {...stepProps} /> : null}
-            {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} /> : null}
+            {step === 'job' ? <JobStep {...stepProps} numberStatus={numberStatus} suggestion={suggestion} /> : null}
             {step === 'scope' ? <ScopeStep {...stepProps} startView={scopeView} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
             {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
             {step === 'plan' ? <PlanStep {...stepProps} /> : null}

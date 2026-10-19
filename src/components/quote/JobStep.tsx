@@ -22,10 +22,11 @@ export function JobStep({
   ctx,
   locked,
   numberStatus,
-}: StepProps & { numberStatus: NumberStatus }) {
+  suggestion,
+}: StepProps & { numberStatus: NumberStatus; suggestion: string }) {
   const type = ctx.jobTypes.find((t) => t.id === values.jobTypeId);
   const numErr = err('quoteNumber') ?? (numberStatus === 'taken' ? STATUS_TEXT.taken : undefined);
-  const showSuggest = !locked && ctx.suggestedNumber !== '' && values.quoteNumber.trim() !== ctx.suggestedNumber;
+  const showSuggest = !locked && suggestion !== '' && values.quoteNumber.trim() !== suggestion;
   return (
     <section aria-labelledby="step-h" className="qt-step">
       <div className="qt-step-head">
@@ -40,7 +41,7 @@ export function JobStep({
         <Field announce={false}
           id="quote-number"
           label="Quote number"
-          hint={locked ? 'Fixed once the draft is saved. This number is the job reference.' : 'You choose it. It identifies this job on every document.'}
+          hint={locked ? 'Fixed once the draft is saved. This number is the job reference.' : 'Suggested from the street name: QT, its initials, then the running number. You can change it until the draft is saved. It identifies this job on every document.'}
           autoComplete="off"
           autoCapitalize="characters"
           spellCheck={false}
@@ -55,8 +56,8 @@ export function JobStep({
           {!numErr && !locked ? STATUS_TEXT[numberStatus] : ''}
         </p>
         {showSuggest ? (
-          <button type="button" className="linklike" onClick={() => set({ quoteNumber: ctx.suggestedNumber })}>
-            Use {ctx.suggestedNumber}, the next free number
+          <button type="button" className="linklike" onClick={() => set({ quoteNumber: suggestion })}>
+            Use {suggestion}, the next free number for this street
           </button>
         ) : null}
       </div>
