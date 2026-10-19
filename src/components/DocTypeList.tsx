@@ -3,7 +3,7 @@ import { DocTypeIcon } from './DocTypeIcon';
 import { newDocumentHref, type DocType } from '../lib/job-stage';
 
 type Group = 'start' | 'paid' | 'finish';
-type Item = { type: DocType; name: string; blurb: string; group: Group };
+type Item = { type: DocType; name: string; blurb: string; group: Group; soon?: true };
 
 const GROUP_LABEL: Record<Group, string> = { start: 'Start a job', paid: 'Get paid', finish: 'Finish up' };
 
@@ -17,7 +17,7 @@ const items: Item[] = [
   { type: 'invoice-full', name: 'Full invoice', blurb: 'Bill the whole job in one go, no deposit.', group: 'paid' },
   { type: 'invoice-stage', name: 'Stage invoice', blurb: 'Bill the next stage of a staged job.', group: 'paid' },
   { type: 'receipt', name: 'Receipt', blurb: 'Confirm a payment you have received.', group: 'paid' },
-  { type: 'guarantee', name: 'Guarantee certificate', blurb: 'Hand over the guarantee for finished work.', group: 'finish' },
+  { type: 'guarantee', name: 'Guarantee certificate', blurb: 'Hand over the guarantee for finished work.', group: 'finish', soon: true },
 ];
 
 const Arrow = () => (
@@ -43,6 +43,8 @@ export function DocTypeList() {
               <span className="tile-text">
                 <span className="sr-only">{GROUP_LABEL[i.group]}: </span>
                 <span className="tile-name">{i.name}</span>
+                {/* Not built yet: said on the tile, so the tile never looks broken. */}
+                {i.soon ? <span className="tile-soon">Coming soon</span> : null}
                 <span className="tile-blurb">{i.blurb}</span>
               </span>
               {i.type === 'quotation' ? (

@@ -124,6 +124,8 @@ describe('Home in demo mode: every link and button lands on a working page', () 
     expect(html).toMatch(/Mark [^<]* as paid|Record the rest/);
     expect(html).toMatch(/Create (<!-- -->)?receipt/);
     expect(hrefs.some((h) => h.startsWith('/documents/jobs/'))).toBe(true);
+    // The one document not built yet says so on its tile, so it never looks like a broken button.
+    expect(html).toMatch(/Guarantee certificate<\/span><span class="tile-soon">Coming soon<\/span>/);
   });
 
   it('guards the checker itself: a missing job, a missing document and a missing route are all reported', async () => {

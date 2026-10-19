@@ -308,6 +308,8 @@ select.input { appearance: auto; }
 .tile-text { display: grid; gap: var(--space-1); min-width: 0; }
 .tile-name { font-family: var(--font-head); font-weight: 600; font-size: var(--fs-title); line-height: var(--lh-snug); }
 .tile-blurb { font-size: var(--fs-small); color: var(--ink-muted); line-height: 1.4; }
+.tile-soon { justify-self: start; padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--paper); color: var(--ink-muted); font-size: var(--fs-meta); font-weight: 600; }
+.empty-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .tile.is-start .tile-blurb { color: var(--on-accent); }
 .tile-go { width: var(--icon); height: var(--icon); color: var(--accent-ink); transition: transform var(--dur) var(--ease); }
 .tile.is-finish .tile-go { color: var(--ink-muted); }

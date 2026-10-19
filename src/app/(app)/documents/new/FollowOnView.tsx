@@ -56,8 +56,8 @@ async function Chooser({ type }: { type: DocType }) {
           ))}
         </ul>
       ) : (
-        <EmptyState icon="jobs" title={`No job needs a ${DOC_TYPE_NAMES[type].toLowerCase()} right now`} action={<ButtonLink href="/" variant="secondary">Back to Home</ButtonLink>}>
-          Jobs show up here once their quote has been issued and the payment plan has a {DOC_TYPE_NAMES[type].toLowerCase()} due.
+        <EmptyState icon="jobs" title={`No job needs a ${DOC_TYPE_NAMES[type].toLowerCase()} right now`} action={<span className="empty-actions"><ButtonLink href="/documents/new?type=quotation">Start a quotation</ButtonLink><ButtonLink href="/" variant="secondary">Back to Home</ButtonLink></span>}>
+          {DOC_TYPE_NAMES[type]}s are made from a job whose quotation has been finalised. Finalise a quote first, and its jobs show up here when the payment plan has a {DOC_TYPE_NAMES[type].toLowerCase()} due.
         </EmptyState>
       )}
       {options.length > 0 ? <Back /> : null}
