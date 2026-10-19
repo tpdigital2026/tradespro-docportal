@@ -43,15 +43,17 @@ export function SignIn({ brand, children }: { brand: TenantBrand; children: Reac
 
         <div className="signin-body">{children}</div>
 
-        <footer className="signin-foot">
-          <p>Not invited yet? Access is by invitation from TradesPro Digital.</p>
-          {brand.isOwnBrand ? null : <PoweredBy variant="light" />}
-        </footer>
+        {brand.isOwnBrand ? null : (
+          <footer className="signin-foot">
+            <PoweredBy variant="light" />
+          </footer>
+        )}
       </main>
 
       {photo ? (
         <aside className="signin-art is-photo">
           <BrandPhoto img={photo} className="signin-photo" sizes="50vw" />
+          {brand.heroImage ? <BrandPhoto img={brand.heroImage} className="signin-hero" sizes="50vw" /> : null}
           <p className="signin-photo-cap">Quotes, invoices, receipts and guarantees, ready to send.</p>
         </aside>
       ) : (

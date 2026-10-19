@@ -29,7 +29,7 @@ describe('brand images from the brand kit', () => {
   });
 
   it('the banner image follows the brand data, not the slug', () => {
-    expect(DEMO_BRAND.heroImage?.src).toBe('/brands/fjc/hero-1400.jpg');
+    expect(DEMO_BRAND.heroImage?.src).toBe('/brands/fjc/hero-wide-1400.jpg');
     expect(TRADESPRO_BRAND.heroImage ?? null).toBeNull();
   });
 });
@@ -44,7 +44,7 @@ describe('FJC brand images: one list for the seed and demo mode', () => {
     expect(b.heroImage?.width).toBe(hero.width);
     expect(b.heroImage?.srcSetJpg).toContain('-800.jpg 800w');
     // A wider export dropped next to it joins the srcset with no code change.
-    const wide = demoBrand(() => [hero.file, 'hero-2400.jpg', 'van-1600.jpg']);
-    expect(wide.heroImage?.srcSetJpg).toContain('/brands/fjc/hero-2400.jpg 2400w');
+    const wide = demoBrand(() => [hero.file, 'hero-wide-2400.jpg', 'van-1600.jpg']);
+    expect(wide.heroImage?.srcSetJpg).toContain('/brands/fjc/hero-wide-2400.jpg 2400w');
   });
 });

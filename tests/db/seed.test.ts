@@ -27,7 +27,7 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       expect(kit.rows[0].colours.navy).toBe('#0f2b4a');
       const imgs = await c.query(`select kind::text as kind, storage_path from public.brand_assets where tenant_id = $1 and kind::text in ('hero_image', 'sign_in_photo', 'share_card') order by kind`, [first.tenantId]);
       expect(imgs.rows).toEqual([
-        { kind: 'hero_image', storage_path: `${first.tenantId}/hero-1400.jpg` },
+        { kind: 'hero_image', storage_path: `${first.tenantId}/hero-wide-1400.jpg` },
         { kind: 'share_card', storage_path: `${first.tenantId}/og.jpg` },
         { kind: 'sign_in_photo', storage_path: `${first.tenantId}/van-1600.jpg` },
       ]);
@@ -35,7 +35,7 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       await c.query(`update public.brand_assets set storage_path = $2, width = 10, height = 10 where tenant_id = $1 and kind::text = 'hero_image'`, [first.tenantId, `${first.tenantId}/old-hero-10.jpg`]);
       await seedFjc(c);
       const hero = await c.query(`select storage_path, width, height from public.brand_assets where tenant_id = $1 and kind::text = 'hero_image'`, [first.tenantId]);
-      expect(hero.rows).toEqual([{ storage_path: `${first.tenantId}/hero-1400.jpg`, width: 1400, height: 864 }]);
+      expect(hero.rows).toEqual([{ storage_path: `${first.tenantId}/hero-wide-1400.jpg`, width: 1400, height: 304 }]);
       const bank = await c.query(`select count(*)::int n from public.bank_accounts where tenant_id = $1`, [first.tenantId]);
       expect(bank.rows[0].n).toBe(0);
       const users = await c.query(`select count(*)::int n from public.profiles where tenant_id = $1`, [first.tenantId]);

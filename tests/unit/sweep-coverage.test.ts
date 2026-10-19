@@ -46,7 +46,7 @@ describe('orphan sweep covers every stored file shape', () => {
   });
 
   it('brand images ({tenant}/{file}) are kept: referenced through brand_assets, never deleted when unknown', () => {
-    for (const f of ['logo.png', 'logo_white.png', 'hero-1400.jpg', 'van-1600.jpg', 'og.jpg']) {
+    for (const f of ['logo.png', 'logo_white.png', 'hero-wide-1400.jpg', 'van-1600.jpg', 'og.jpg']) {
       const p = `${T}/${f}`;
       expect(classify(p, T, { ...none(), paths: new Set([p]) })).toBe('referenced');
       expect(classify(p, T, none())).toBe('unknown');

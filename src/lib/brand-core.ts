@@ -63,7 +63,7 @@ export const DEMO_BRAND: TenantBrand = {
   accent: '#2f6fbf',
   isOwnBrand: false,
   // As seeded for FJC (npm run db:seed). The banner stays FJC's until the owner confirms the image licence.
-  heroImage: { src: '/brands/fjc/hero-1400.jpg', width: 1400, height: 864, srcSetJpg: '/brands/fjc/hero-800.jpg 800w, /brands/fjc/hero-1400.jpg 1400w', srcSetWebp: '/brands/fjc/hero-800.webp 800w, /brands/fjc/hero-1400.webp 1400w', alt: '' },
+  heroImage: { src: '/brands/fjc/hero-wide-1400.jpg', width: 1400, height: 304, srcSetJpg: '/brands/fjc/hero-wide-800.jpg 800w, /brands/fjc/hero-wide-1400.jpg 1400w', srcSetWebp: '/brands/fjc/hero-wide-800.webp 800w, /brands/fjc/hero-wide-1400.webp 1400w', alt: '' },
   signInPhoto: { src: '/brands/fjc/van-1600.jpg', width: 1600, height: 1200, srcSetJpg: '/brands/fjc/van-900.jpg 900w, /brands/fjc/van-1600.jpg 1600w', srcSetWebp: '/brands/fjc/van-900.webp 900w, /brands/fjc/van-1600.webp 1600w', alt: 'FJC Roofing van' },
   shareCard: { url: '/brands/fjc/og.jpg', width: 1200, height: 630, alt: 'FJC Roofing Ltd DocPortal' },
 };

@@ -16,7 +16,7 @@ export interface BrandImageSeed {
 }
 
 export const FJC_BRAND_IMAGES: readonly BrandImageSeed[] = [
-  { kind: 'hero_image', file: 'hero-1400.jpg', width: 1400, height: 864, alt: '' },
+  { kind: 'hero_image', file: 'hero-wide-1400.jpg', width: 1400, height: 304, alt: '' },
   { kind: 'sign_in_photo', file: 'van-1600.jpg', width: 1600, height: 1200, alt: 'FJC Roofing van' },
   { kind: 'share_card', file: 'og.jpg', width: 1200, height: 630, alt: 'FJC Roofing Ltd DocPortal' },
 ];
