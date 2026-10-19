@@ -19,7 +19,8 @@
     "test:db:ci": "REQUIRE_DB=1 vitest run -c vitest.db.config.mts",
     "invite": "tsx --env-file-if-exists=.env.local scripts/invite-user.ts",
     "dev:demo": "DEMO_MODE=1 next dev",
-    "ci": "npm run typecheck && npm test && npm run test:render && npm run check:render-bundle && npm audit"
+    "ci": "npm run typecheck && npm test && npm run test:render && npm run check:render-bundle && npm audit",
+    "check:home-fold": "tsx scripts/check-home-fold.ts"
   },
   "keywords": [],
   "author": "",

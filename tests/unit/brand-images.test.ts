@@ -35,3 +35,18 @@ describe('brand images from the brand kit', () => {
     expect(homeBannerFor(TRADESPRO_BRAND)).toBeNull();
   });
 });
+
+describe('FJC brand images: one list for the seed and demo mode', () => {
+  it('demo mode builds its banner and sign-in photo from FJC_BRAND_IMAGES and the files on disk', async () => {
+    const { demoBrand } = await import('../../src/lib/brand');
+    const { FJC_BRAND_IMAGES } = await import('../../src/lib/brand-images-fjc');
+    const hero = FJC_BRAND_IMAGES.find((i) => i.kind === 'hero_image')!;
+    const b = demoBrand(() => [hero.file, hero.file.replace(/-\d+\.jpg$/, '-800.jpg'), hero.file.replace(/\.jpg$/, '.webp'), 'van-1600.jpg']);
+    expect(b.heroImage?.src).toBe(`/brands/fjc/${hero.file}`);
+    expect(b.heroImage?.width).toBe(hero.width);
+    expect(b.heroImage?.srcSetJpg).toContain('-800.jpg 800w');
+    // A wider export dropped next to it joins the srcset with no code change.
+    const wide = demoBrand(() => [hero.file, 'hero-2400.jpg', 'van-1600.jpg']);
+    expect(wide.heroImage?.srcSetJpg).toContain('/brands/fjc/hero-2400.jpg 2400w');
+  });
+});

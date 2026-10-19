@@ -31,6 +31,11 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
         { kind: 'share_card', storage_path: `${first.tenantId}/og.jpg` },
         { kind: 'sign_in_photo', storage_path: `${first.tenantId}/van-1600.jpg` },
       ]);
+      // A changed list (a swapped banner) brings the stored row up to date on the next seed; nothing is duplicated.
+      await c.query(`update public.brand_assets set storage_path = $2, width = 10, height = 10 where tenant_id = $1 and kind::text = 'hero_image'`, [first.tenantId, `${first.tenantId}/old-hero-10.jpg`]);
+      await seedFjc(c);
+      const hero = await c.query(`select storage_path, width, height from public.brand_assets where tenant_id = $1 and kind::text = 'hero_image'`, [first.tenantId]);
+      expect(hero.rows).toEqual([{ storage_path: `${first.tenantId}/hero-1400.jpg`, width: 1400, height: 864 }]);
       const bank = await c.query(`select count(*)::int n from public.bank_accounts where tenant_id = $1`, [first.tenantId]);
       expect(bank.rows[0].n).toBe(0);
       const users = await c.query(`select count(*)::int n from public.profiles where tenant_id = $1`, [first.tenantId]);

@@ -4,6 +4,7 @@ import { cache } from 'react';
 import { DEMO_BRAND, TRADESPRO_BRAND, planAccent, type BrandImage, type Logo, type ShareCard, type TenantBrand } from './brand-core';
 import { withServiceConnection, type ServiceDb } from './data/customer-admin';
 import { isDemo } from './demo';
+import { FJC_BRAND_IMAGES } from './brand-images-fjc';
 import { isValidSlug } from './slug';
 
 export * from './brand-core';
@@ -103,6 +104,13 @@ export function brandImagesFrom(slug: string | null, tenantId: string, rows: Ima
   };
 }
 
+/** Demo mode: the FJC brand with its images read from the same list the seed uses (src/lib/brand-images-fjc.ts). */
+export function demoBrand(list?: (slug: string) => string[]): TenantBrand {
+  const rows = FJC_BRAND_IMAGES.map((i) => ({ kind: i.kind, storage_path: `demo/${i.file}`, width: i.width, height: i.height, alt: i.alt }));
+  const imgs = brandImagesFrom('fjc', 'demo', rows, list);
+  return { ...DEMO_BRAND, heroImage: imgs.heroImage ?? DEMO_BRAND.heroImage, signInPhoto: imgs.signInPhoto ?? DEMO_BRAND.signInPhoto };
+}
+
 /* ---------- loading ---------- */
 
 interface BrandRow {
@@ -161,14 +169,14 @@ async function lookup(slug: string | null, tenantId: string | null, open?: () =>
 
 /** Brand for a signed-in business. Falls back to TradesPro Digital's own. */
 export const getTenantBrand: (tenantId: string) => Promise<TenantBrand> = cache(async (tenantId: string) => {
-  if (isDemo()) return DEMO_BRAND;
+  if (isDemo()) return demoBrand();
   return lookup(null, tenantId);
 });
 
 /** Brand for the public sign-in page. Unknown and malformed slugs give the same plain TradesPro brand. */
 export const getBrandBySlug: (slug: string) => Promise<TenantBrand> = cache(async (slug: string) => {
   if (!isValidSlug(slug)) return TRADESPRO_BRAND;
-  if (isDemo()) return slug === 'fjc' ? DEMO_BRAND : TRADESPRO_BRAND;
+  if (isDemo()) return slug === 'fjc' ? demoBrand() : TRADESPRO_BRAND;
   return lookup(slug, null);
 });
 

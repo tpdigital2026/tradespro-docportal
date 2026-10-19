@@ -3,6 +3,7 @@ import { scopeExamplesSchema } from '../lib/scope/examples';
 import { FJC_SCOPE_EXAMPLES } from '../lib/scope/fjc-examples';
 import { FJC_WORDING, tenantWordingSchema } from './wording';
 import { seedSurveyWording } from './seed-survey';
+import { FJC_BRAND_IMAGES } from '../lib/brand-images-fjc';
 
 // Taken from tests/fixtures/fjc.ts (the approved FJC brand).
 export const FJC_COLOURS: Record<string, string> = {
@@ -67,24 +68,27 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
 }
 
 /**
- * FJC's banner, sign-in photo and share card (files in public/brands/fjc). Only adds a kind that is missing. The
- * banner's licence is still to be confirmed by the owner; until then it is FJC's alone, and removing this row
- * removes it from Home.
+ * FJC's banner, sign-in photo and share card (files in public/brands/fjc), from src/lib/brand-images-fjc.ts. Adds a
+ * kind that is missing, and brings an existing row up to date when that list changes (a swapped banner). The banner's
+ * licence is still to be confirmed by the owner; until then it is FJC's alone, and removing this row removes it from Home.
  */
-const BRAND_IMAGES: [string, string, number, number, string][] = [
-  ['hero_image', 'hero-1400.jpg', 1400, 864, ''],
-  ['sign_in_photo', 'van-1600.jpg', 1600, 1200, 'FJC Roofing van'],
-  ['share_card', 'og.jpg', 1200, 630, 'FJC Roofing Ltd DocPortal'],
-];
 async function seedBrandImages(db: Db, tenantId: string): Promise<void> {
   const kit = await db.query(`select id from public.brand_kits where tenant_id = $1`, [tenantId]);
   if (!kit.rows[0]) return;
-  for (const [kind, file, w, h, alt] of BRAND_IMAGES) {
+  for (const { kind, file, width, height, alt } of FJC_BRAND_IMAGES) {
+    const path = `${tenantId}/${file}`;
+    const upd = await db.query(
+      `update public.brand_assets set storage_path = $3, width = $4, height = $5, alt = $6
+        where tenant_id = $1 and kind::text = $2 and (storage_path, width, height, coalesce(alt, '')) is distinct from ($3, $4, $5, $6)
+       returning 1`,
+      [tenantId, kind, path, width, height, alt],
+    );
+    if (upd.rows.length) continue;
     await db.query(
       `insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt)
        select $1, $2, $3::text::public.asset_kind, $4, $5, $6, $7
        where not exists (select 1 from public.brand_assets where tenant_id = $1 and kind::text = $3::text)`,
-      [tenantId, kit.rows[0].id, kind, `${tenantId}/${file}`, w, h, alt],
+      [tenantId, kit.rows[0].id, kind, path, width, height, alt],
     );
   }
 }

@@ -1,9 +1,10 @@
 import type { TenantBrand } from '../lib/brand-core';
 
 /**
- * The Home banner: the business's own banner image from its brand kit (FJC: the banknotes image the owner chose),
- * shown whole at its natural shape, never cropped, its own fades doing the blending. A business with no banner image
- * gets a plain band. The image is decorative (alt=""), the words carry the meaning.
+ * The Home banner: the business's own banner image from its brand kit (FJC: the banknotes image the owner chose), in a
+ * band of capped height (app.css --hero-band-h) so the document tiles start above the fold; the image covers the band,
+ * anchored by --hero-focus. A business with no banner image gets a plain band. The image is decorative (alt=""), the
+ * words carry the meaning.
  */
 export function homeBannerFor(brand: TenantBrand) {
   return brand.heroImage ?? null;

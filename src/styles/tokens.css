@@ -104,6 +104,11 @@
   --content-max: 76rem;
   --tile-min-h: 112px;
   --hero-copy-w: 46rem;
+  /* The Home banner is a capped band, never the image's natural height, so the document tiles start above the fold. */
+  --hero-band-h: clamp(240px, 30vh, 360px);
+  --hero-band-h-phone: clamp(140px, 24vh, 200px);
+  /* Where the image is anchored inside the band: keeps the banknotes in frame. */
+  --hero-focus: center 35%;
   --main-x: var(--space-4);
   --main-top: var(--space-5);
   --hairline: 1px;

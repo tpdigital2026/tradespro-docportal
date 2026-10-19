@@ -240,23 +240,33 @@ select.input { appearance: auto; }
 .hero-h { font-size: var(--fs-hero); font-weight: 700; line-height: var(--lh-hero); letter-spacing: var(--track-hero); text-wrap: balance; }
 .hero-lead { display: block; color: var(--hero-lead); }
 .hero-ask { display: block; color: var(--w); }
-.hero-art { display: block; margin-top: calc(var(--space-7) * -1); }
-@media (min-width: 760px) { .hero-art { margin-top: 0; } }
-.hero-art img { display: block; width: 100%; height: auto; }
+/*
+ * The banner image fills a capped band (object-fit: cover, anchored by --hero-focus), so it is never the image's full
+ * natural height. A soft fade at the bottom blends any cropped edge into the page; a wide, short export (about
+ * 2400x520 with its own fades) fits the band almost exactly. Swapping it is one entry in src/lib/brand-images-fjc.ts.
+ */
+.hero-art { position: relative; display: block; height: var(--hero-band-h-phone); margin-top: calc(var(--space-5) * -1); overflow: hidden; }
+.hero-art img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--hero-focus); }
+.hero-art::after { content: ''; position: absolute; inset: auto 0 0; height: 28%; background: linear-gradient(to bottom, transparent, var(--paper)); pointer-events: none; }
+/* Phones: the band sits under the navy copy, so its cropped top edge fades in from the navy. */
+.hero-art::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 1; height: 34%; background: linear-gradient(to bottom, var(--navy-900), transparent); pointer-events: none; }
+.hero.has-image { background: var(--navy-900); }
 
 @media (min-width: 760px) {
-  .hero.has-image { background: var(--paper); }
-  /* The copy sits in the navy and sky part of the image, a little below the top, over a soft left-hand scrim. */
+  .hero.has-image { height: var(--hero-band-h); overflow: hidden; background: var(--hero-navy); }
+  .hero.has-image .hero-art { position: absolute; inset: 0; height: auto; margin-top: 0; }
+  .hero.has-image .hero-art::before { content: none; }
+  /* The copy sits over the left of the band on a navy scrim, so both headline lines keep AA contrast whatever the image does. */
   .hero.has-image .hero-copy {
-    position: absolute; inset: 0 auto auto 0; height: 74%; width: 100%; max-width: none;
-    align-content: center; padding: var(--space-6) var(--main-x) 0;
-    background: radial-gradient(ellipse 62% 78% at 0% 42%, color-mix(in srgb, var(--hero-navy) 80%, transparent) 0%, color-mix(in srgb, var(--hero-navy) 52%, transparent) 48%, transparent 78%);
+    position: absolute; inset: 0; width: 100%; max-width: none;
+    align-content: center; padding: var(--space-4) var(--main-x) var(--space-5);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--hero-navy) 88%, transparent) 0%, color-mix(in srgb, var(--hero-navy) 72%, transparent) 38%, transparent 72%);
   }
-  .hero.has-image .hero-h, .hero.has-image .hero-hello { max-width: min(var(--hero-copy-w), 64%); }
+  .hero.has-image .hero-h, .hero.has-image .hero-hello { max-width: min(var(--hero-copy-w), 60%); }
 }
 @media (min-width: 760px) and (max-width: 1199px) {
-  /* Narrower banners: a smaller headline so the light blue line stays on the dark sky, clear of the notes. */
-  .hero.has-image .hero-h { font-size: var(--fs-hero-md); max-width: 56%; }
+  /* Narrower banners: a smaller headline so both lines fit the band. */
+  .hero.has-image .hero-h { font-size: var(--fs-hero-md); max-width: 60%; }
 }
 
 .home-body { display: grid; gap: var(--space-6); padding-top: var(--space-5); min-width: 0; }
