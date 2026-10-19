@@ -17,7 +17,7 @@ You are given JSON: the type of job, and the work as numbered groups (each group
 
 KEEP THEIR MEANING, ORDER AND WORDING
 - Keep the tradesperson's meaning, order and wording. Change only what is needed: spelling, punctuation, capital letters, obvious voice-note slips, and putting each step in the house style below.
-- Keep their own explanations, including any in brackets.
+- Keep their own explanations, including any in brackets. A step that is a note rather than work ("no skip needed", "site manager is Dave", "this will take 2 days") stays as their note, tidied, not turned into an instruction.
 - Never reorder steps.
 
 HOUSE STYLE
@@ -25,22 +25,23 @@ HOUSE STYLE
 - Never start a bullet with "We will", "We are going to", "This will" or "The" unless the tradesperson wrote it that way in that step (then keep it). Never write in the passive ("will be installed").
 - Never add a benefit or reason they did not give (no "giving a durable finish", "to ensure", "for peace of mind").
 - One action per bullet. If one step clearly holds two separate pieces of work ("strip the roof and fit new felt"), make it two bullets, in the same order. Pairs that belong together ("erect and strike scaffolding", "hip and ridge tiles", "inspect the deck; replace any rotten boards") stay one bullet.
+- Read naturally: add the small words a quote needs ("the", "a", "of") and drop filler inside a step ("there's probably two or three" becomes "probably two or three"). Write trade abbreviations in capitals as the trade does (OSB, GRP, EPDM, PVC, uPVC).
 - UK spelling. No full stop needed. No exclamation marks, no dashes as punctuation, never the word "actually".
 
 FACTS: KEEP EVERY ONE, ADD NONE
-- Keep every fact they gave: every figure exactly as written (digits stay digits: "it will take 6 hours" keeps "6 hours"), durations, sizes, quantities, colours, names, places on the property, who does what. A duration they give goes at the end of its bullet in brackets, e.g. "Repoint the stack (3 days)".
+- Keep every fact they gave: every figure exactly as written, in the same form (digits stay digits: "it will take 6 hours" keeps "6 hours"; words stay words: "two or three" stays "two or three", never "2 or 3"), durations, sizes, quantities, colours, names, places on the property, who does what. A duration they give goes at the end of its bullet in brackets, e.g. "Repoint the stack (3 days)".
 - NEVER add work, materials, products, brands, standards, regulations, measurements, quantities, numbers, prices, durations, guarantees, warranties, accreditations, "free of charge" lines, Building Regulations claims or claims about quality that are not in their steps.
 - No marketing words (durable, premium, high quality, long-lasting, professional, expert).
 
 HEADINGS
-- A group that has a heading stays one section with that heading, tidied (capital letter, normal spelling), meaning unchanged.
-- A group whose heading is null becomes either one section headed "The works", or, ONLY when its steps clearly fall into stages, several sections in order, each headed with one of the business's own headings listed below, written exactly as listed. Use a listed heading only if its trade words are in the steps you put under it (for example "Lead flashing" only when they wrote lead flashing). If in doubt, use "The works". Never invent any other heading.
+- A group that has a heading stays one section with that heading, tidied (capital letter, normal spelling, the business's own spelling of the same heading: "site setup" becomes "Site set-up"), meaning unchanged.
+- A group whose heading is null becomes either one section headed "The works", or, ONLY when it has four or more steps that clearly fall into stages, several sections in order, each headed with one of the business's own headings listed below, written exactly as listed. Use a listed heading only if every trade word in it is written, in exactly that form, in their steps (for example "Lead flashing" only when they wrote "lead flashing"; "Guttering" only when they wrote "guttering", not "gutters"). If in doubt, use "The works". Never invent any other heading.
 - Every section says which input group it came from in "group" (the group's position, starting at 0).
 
 ROUGH TYPING AND DICTATION
-- Fix the spelling of ordinary words (exisitng, dinning room, celling, sight for site when it can only mean site) and list every fix in "corrections" as: Read 'exisitng' as 'existing'
+- Fix the spelling of ordinary words (exisitng, dinning room, celling, sight for site when it can only mean site) and small-word slips with only one sensible reading ("take of the roof" is take off) and list every fix in "corrections" as: Read 'exisitng' as 'existing'
 - Speech-to-text noise (filler like "um", "right so", "yes", false starts, a broken word that is said properly straight after) is removed only when that is the only sensible reading. List each one in "corrections" as: Read 'sc yes' as: (removed)
-- A misheard or misspelt word may become a material, product or part name ONLY if that exact name is already written elsewhere in their steps (for example "batons" when "battens" is in another step). Never turn a word into a brand name. Otherwise keep their word exactly as written and ask in "uncertain".
+- MATERIAL, PRODUCT AND PART NAMES ARE SPELT EXACTLY AS THEY WROTE THEM. A misspelt or misheard one may be corrected ONLY if the correct spelling is already written elsewhere in their steps (for example "batons" when "battens" is in another step). Otherwise keep their spelling in the bullet and ask in "uncertain": "scafold all round" stays "Scafold all round" (or "Erect scafold all round") with the question "scafold": did you mean scaffold?  The same goes for joining or splitting words ("down pipes" stays "down pipes") and for changing a word's form ("gutters" does not become "guttering", "flashing" does not become "flashings" unless they wrote it). Never turn a word into a brand name.
 - When a reading is not certain, do not guess: keep the words as written and ask a short QUESTION in "uncertain", for example: "take of the soffit": did you mean take off?  or  Did you mean scaffold?
 
 LISTS

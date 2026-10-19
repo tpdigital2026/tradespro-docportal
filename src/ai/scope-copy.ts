@@ -1,6 +1,6 @@
 import { aiConfig, anthropicClient, type ModelClient } from './client';
 import { stripInvisible } from '../lib/scope/invisible';
-import { addedWork, missingFacts } from './facts';
+import { addedWork, missingFacts, newDigits } from './facts';
 import { findInventions } from './invention';
 import { buildScopeCopySystem, buildScopeCopyUser, SCOPE_COPY_PROMPT_VERSION, SCOPE_COPY_RETRY_NOTE } from './prompts/scope-copy.v2';
 import { extractJsonObject, scopeCopyResponseSchemaV2, type ScopeCopyResponseV2 } from './schemas';
@@ -53,6 +53,8 @@ export interface GenerateDeps {
    * skipped step or an unconfigured AI). False means over the limit: the basic tidy is used and the result says so.
    */
   permit?: () => boolean;
+  /** Told why an answer was thrown away (a short code, never any text). For the evaluation script and tests. */
+  onReject?: (reason: string) => void;
 }
 
 export class NothingToTidyError extends Error {
@@ -116,7 +118,7 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
         system,
         user: attempt === 0 ? buildScopeCopyUser(sent) : `${buildScopeCopyUser(sent)}\n\n${SCOPE_COPY_RETRY_NOTE}`,
         // Enough for every step said twice over plus the lists; a cap, not a cost.
-        maxTokens: Math.min(4096, 700 + stepCount * 90),
+        maxTokens: Math.min(4096, 1200 + stepCount * 120),
         signal: AbortSignal.timeout(Math.max(1, left)),
       });
       text = reply.text;
@@ -127,7 +129,12 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
       break;
     }
     const parsed = parseReply(text);
-    if (!parsed || !acceptable(parsed, groups, inputTexts, voice.headings)) continue;
+    const why = parsed ? rejection(parsed, groups, inputTexts, voice.headings) : 'shape';
+    if (why) {
+      deps.onReject?.(why);
+      continue;
+    }
+    if (!parsed) continue;
     const sections = parsed.sections.map((s) => ({ heading: tidyHeading(s.heading), steps: s.steps.map(tidyStep).filter(Boolean) }));
     if (sections.some((s) => s.heading === '' || s.steps.length === 0)) continue;
     return {
@@ -166,32 +173,46 @@ export function acceptable(
   inputTexts: readonly string[],
   ownHeadings: readonly string[] = [],
 ): boolean {
+  return rejection(parsed, groups, inputTexts, ownHeadings) === null;
+}
+
+/** Why an answer fails the checks (a short code naming the check, and for inventions the kind), or null. */
+export function rejection(
+  parsed: ScopeCopyResponseV2,
+  groups: readonly { heading: string | null; steps: string[] }[],
+  inputTexts: readonly string[],
+  ownHeadings: readonly string[] = [],
+): string | null {
   const sections = parsed.sections;
   const hasGroups = sections.every((s) => s.group !== undefined);
-  if (!hasGroups && sections.some((s) => s.group !== undefined)) return false;
+  if (!hasGroups && sections.some((s) => s.group !== undefined)) return 'groups';
   const groupOf = (i: number) => (hasGroups ? sections[i]!.group! : i);
-  if (!hasGroups && sections.length !== groups.length) return false;
+  if (!hasGroups && sections.length !== groups.length) return 'groups';
   const own = new Set(ownHeadings.map(headingKey));
   let next = 0;
   for (let gi = 0; gi < groups.length; gi++) {
     const mine: typeof sections = [];
     while (next < sections.length && groupOf(next) === gi) mine.push(sections[next++]!);
-    if (mine.length === 0) return false;
+    if (mine.length === 0) return 'groups';
     const g = groups[gi]!;
-    if (g.heading !== null && mine.length !== 1) return false;
-    if (g.heading === null && mine.length > 1 && mine.some((s) => !own.has(headingKey(s.heading)))) return false;
-    if (g.heading === null && mine.length === 1 && headingKey(mine[0]!.heading) !== headingKey(DEFAULT_SECTION_HEADING) && !own.has(headingKey(mine[0]!.heading))) return false;
+    if (g.heading !== null && mine.length !== 1) return 'groups';
+    if (g.heading === null && mine.length > 1 && mine.some((s) => !own.has(headingKey(s.heading)))) return 'heading';
+    if (g.heading === null && mine.length === 1 && headingKey(mine[0]!.heading) !== headingKey(DEFAULT_SECTION_HEADING) && !own.has(headingKey(mine[0]!.heading))) return 'heading';
     const bullets = mine.reduce((n, s) => n + s.steps.length, 0);
-    if (bullets > Math.min(SCOPE_LIMITS.stepsPerSection, g.steps.length * MAX_BULLETS_PER_STEP)) return false;
+    if (bullets > Math.min(SCOPE_LIMITS.stepsPerSection, g.steps.length * MAX_BULLETS_PER_STEP)) return 'too-many-bullets';
   }
-  if (next !== sections.length) return false;
+  if (next !== sections.length) return 'groups';
 
   const wording = sections.flatMap((s) => [s.heading, ...s.steps]);
-  if (findInventions(inputTexts, [...wording, ...parsed.corrections]).length > 0) return false;
-  if (findInventions(inputTexts, parsed.uncertain).some((i) => i.kind !== 'product')) return false;
-  if (missingFacts(groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps]), wording, parsed.corrections).length > 0) return false;
-  if (addedWork(inputTexts, sections.flatMap((s) => s.steps)).length > 0) return false;
-  return true;
+  const invented = findInventions(inputTexts, [...wording, ...parsed.corrections]);
+  if (invented.length > 0) return `invention:${invented.map((x) => x.kind).join(',')}`;
+  const askedBadly = findInventions(inputTexts, parsed.uncertain).filter((i) => i.kind !== 'product');
+  if (askedBadly.length > 0) return `question-invention:${askedBadly.map((x) => x.kind).join(',')}`;
+  const lost = missingFacts(groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps]), wording, parsed.corrections);
+  if (lost.length > 0) return `lost-fact:${lost.map((x) => x.kind).join(',')}`;
+  if (newDigits(inputTexts, wording).length > 0) return 'figure-form';
+  if (addedWork(inputTexts, sections.flatMap((s) => s.steps)).length > 0) return 'added-work';
+  return null;
 }
 
 const headingKey = (h: string) => h.toLocaleLowerCase('en-GB').replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

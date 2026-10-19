@@ -135,7 +135,7 @@ export function ScopeReview({ items, copy, notice, approved, editCopy, errors, o
       {suggestions.length > 0 && onAddStep ? (
         <section className="sc-suggest" aria-labelledby="sc-suggest-h">
           <h3 id="sc-suggest-h" className="sc-check-h">Things you could add</h3>
-          <p className="hint">Questions about steps you usually include. Nothing here is on the quote unless you add it.</p>
+          <p className="hint">Questions about things your quotes usually cover. Nothing here is on the quote unless you add it.</p>
           <ul className="sc-suggest-list">
             {suggestions.map((sg, i) => (
               <li key={i} className="sc-suggest-item">

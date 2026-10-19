@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelClient, ModelRequest } from '../../src/ai/client';
-import { addedWork, missingFacts } from '../../src/ai/facts';
+import { addedWork, missingFacts, newDigits } from '../../src/ai/facts';
 import { generateScopeCopy } from '../../src/ai/scope-copy';
 import { scopeCopyResponseSchemaV2 } from '../../src/ai/schemas';
 import { suggestionsFor, typicalStepsFrom } from '../../src/ai/suggestions';
@@ -78,6 +78,17 @@ describe('prompt v2 answers (stubbed client)', () => {
       expect((await run(items('lead work done by Dave'), reply([{ group: 0, heading: 'The works', steps: ['Do the lead work'] }]))).engine).toBe('fallback');
       expect((await run(items('fit new Harris rails'), reply([{ group: 0, heading: 'The works', steps: ['Fit new arris rails'] }], ["Read 'Harris rails' as 'arris rails'"]))).engine).toBe('ai');
       expect(missingFacts(['fit new Harris rails'], ['Fit new arris rails'])).toEqual([{ kind: 'name', text: 'Harris' }]);
+    });
+    it("keeps the owner's form of a figure: words stay words, and says why an answer was refused", async () => {
+      expect(newDigits(['replace two or three joists'], ['Replace 2 or 3 joists'])).toEqual(['2', '3']);
+      expect(newDigits(['replace 2 joists'], ['Replace 2 joists'])).toEqual([]);
+      const reasons: string[] = [];
+      const r = await generateScopeCopy(
+        { steps: items('replace two or three joists'), jobType: '' },
+        { client: stub([reply([{ group: 0, heading: 'The works', steps: ['Replace 2 or 3 joists'] }])]), onReject: (w) => reasons.push(w) },
+      );
+      expect(r.engine).toBe('fallback');
+      expect(reasons).toEqual(['figure-form', 'figure-form']);
     });
     it('refuses a bullet that is new work (nothing in common with what the owner wrote)', async () => {
       const r = await run(items('strip off the old felt'), reply([{ group: 0, heading: 'The works', steps: ['Strip off the old felt', 'Lay protection to floors and walls'] }]));

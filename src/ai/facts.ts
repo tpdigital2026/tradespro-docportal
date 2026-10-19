@@ -119,3 +119,13 @@ export function addedWork(inputTexts: readonly string[], bullets: readonly strin
     return shared === 0 && fresh.length >= 2;
   });
 }
+
+/**
+ * Figures written in digits in the output that the owner did not write in digits. The invention check already
+ * refuses a figure the owner never gave in any form; this also keeps the owner's form ("two or three" may not become
+ * "2 or 3"), so a quote reads the way they said it.
+ */
+export function newDigits(inputTexts: readonly string[], outputTexts: readonly string[]): string[] {
+  const inDigits = new Set(figures(inputTexts.join('\n')).map((f) => f.n));
+  return [...new Set(figures(outputTexts.join('\n')).map((f) => f.n))].filter((n) => !inDigits.has(n));
+}
