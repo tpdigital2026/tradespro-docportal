@@ -66,12 +66,14 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   let failed = false;
   try {
     // Filters and search run in the database, so older documents are found however many there are.
-    const page = await listLibrary({ kind, status, q });
+    // The list and the drafts strip load side by side; the "anything at all" check only runs for an empty filter.
+    const draftsAreList = status === 'draft' && !kind && !q;
+    const [page, draftPage] = await Promise.all([listLibrary({ kind, status, q }), draftsAreList ? null : listLibrary({ status: 'draft', limit: 8 })]);
     items = page.items;
     truncated = page.truncated;
     if (items.length === 0 && filtering) anyAtAll = (await listLibrary({ limit: 1 })).items.length > 0;
     else anyAtAll = items.length > 0;
-    drafts = status === 'draft' && !kind && !q ? items : (await listLibrary({ status: 'draft', limit: 8 })).items;
+    drafts = draftPage ? draftPage.items : items;
   } catch {
     failed = true;
   }

@@ -213,3 +213,40 @@ describe('getSession session policy (the limits stored for the business now)', (
     expect(failed?.limits).toEqual({ idleMinutes: 30, maxDays: 7 });
   });
 });
+
+describe('resolveSession with a real-shaped token', () => {
+  const jwt = (claims: Record<string, unknown>) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
+  it('reads the profile for the claimed id at the same time as the token check (one round trip)', async () => {
+    let releaseUser: () => void = () => undefined;
+    const order: string[] = [];
+    const { c, eq } = client();
+    const slow: SessionClient = {
+      ...c,
+      auth: {
+        getUser: () =>
+          new Promise((res) => {
+            releaseUser = () => res({ data: { user: { id: USER } }, error: null });
+          }),
+      },
+      from: ((t: string) => {
+        order.push(t);
+        return (c.from as (t: string) => unknown)(t);
+      }) as never,
+    };
+    const p = resolveSession(jwt({ sub: USER }), () => slow);
+    await Promise.resolve();
+    expect(order).toContain('profiles');
+    expect(eq).toHaveBeenCalledWith('id', USER);
+    releaseUser();
+    expect((await p)?.userId).toBe(USER);
+  });
+  it('is null when Supabase verifies a different person from the one the token claims', async () => {
+    const other = '22222222-2222-2222-2222-222222222222';
+    const { c } = client({ user: { id: other }, row: { ...row, id: USER } });
+    expect(await resolveSession(jwt({ sub: USER }), () => c)).toBeNull();
+  });
+  it('is null when the token does not verify, even if a profile row came back', async () => {
+    expect(await resolveSession(jwt({ sub: USER }), () => client({ getUserError: new Error('bad signature') }).c)).toBeNull();
+    expect(await resolveSession(jwt({ sub: USER }), () => client({ user: null }).c)).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { connect } from '../db/connect';
 import type { Db } from '../security/login-guard';
+import { tracedFetch } from './perf/trace';
 
 /** Thrown when Supabase keys are missing. The message is generic and safe to log. */
 export class AuthNotConfiguredError extends Error {
@@ -24,7 +25,7 @@ export function anonClient(accessToken?: string): SupabaseClient {
   const { url, anonKey } = supabaseConfig();
   return createClient(url, anonKey, {
     ...STATELESS,
-    ...(accessToken ? { global: { headers: { Authorization: `Bearer ${accessToken}` } } } : {}),
+    global: { fetch: tracedFetch, ...(accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : {}) },
   });
 }
 

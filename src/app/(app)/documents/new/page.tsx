@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ButtonLink } from '../../../../components/Button';
@@ -22,13 +23,16 @@ export const maxDuration = 60;
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
+/** The draft read once per request for both the title and the page (React cache: per request only). */
+const draftOnce = cache((id: string) => getQuoteDraft(id));
+
 export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
   const sp = await searchParams;
   const type = first(sp.type) ?? '';
   if (type === 'quotation') {
     const draftId = first(sp.draft);
     if (draftId && isKnownId(draftId)) {
-      const draft = await getQuoteDraft(draftId).catch(() => null);
+      const draft = await draftOnce(draftId).catch(() => null);
       if (draft?.values.quoteNumber) return { title: `Quote ${draft.values.quoteNumber}`, description: 'Carry on with a draft quotation.' };
     }
     return { title: 'New quotation', description: 'Price a job step by step. The draft saves as you go.' };
@@ -71,6 +75,13 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
     );
   }
 
+  // The form's lists and the draft load side by side. The draft's own errors surface below, exactly as before.
+  const jobRef = first(sp.job);
+  const draftLoad = (async () => {
+    const draftId = first(sp.draft) ?? (jobRef ? ((await jobIdForReference(jobRef)) ?? undefined) : undefined);
+    return { draftId, draft: draftId && isKnownId(draftId) ? await draftOnce(draftId) : null };
+  })();
+  draftLoad.catch(() => undefined); // awaited below; never an unhandled rejection if the context fails first
   let ctx: QuoteContext;
   try {
     ctx = await getQuoteContext();
@@ -83,9 +94,9 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
     );
   }
   // From a job's next step ("Write the quote" after a survey): the job number names the job.
-  const jobRef = first(sp.job);
-  const draftId = first(sp.draft) ?? (jobRef ? ((await jobIdForReference(jobRef)) ?? undefined) : undefined);
-  let draft = draftId && isKnownId(draftId) ? await getQuoteDraft(draftId) : null;
+  const loaded = await draftLoad;
+  const draftId = loaded.draftId;
+  let draft = loaded.draft;
   // An approval made before 15 October under the first fingerprint: checked against it and its audit row, and upgraded
   // when that proves the same person approved exactly this content. Otherwise the screen asks for it to be approved again.
   if (draft && approvalState(draft.values.scope) === 'legacy') {

@@ -1,4 +1,4 @@
-import { connect } from '../../db/connect';
+import { openPooled } from '../../db/pool';
 import { writeAudit } from '../../security/audit';
 import type { Db } from '../../security/login-guard';
 import type { StorageDeleter } from '../storage';
@@ -6,7 +6,11 @@ import type { StorageDeleter } from '../storage';
 /** A single service connection (no app JWT). Always ended by the caller of withServiceConnection. */
 export type ServiceDb = Db & { end(): Promise<void> };
 
-export async function withServiceConnection<T>(fn: (db: ServiceDb) => Promise<T>, open: () => Promise<ServiceDb> = connect): Promise<T> {
+/**
+ * Runs fn on one service connection, from the warm pool by default (src/db/pool.ts), and always hands it back. A
+ * connection left inside a transaction or after a connection failure is discarded by the pool, never reused.
+ */
+export async function withServiceConnection<T>(fn: (db: ServiceDb) => Promise<T>, open: () => Promise<ServiceDb> = openPooled as () => Promise<ServiceDb>): Promise<T> {
   const db = await open();
   try {
     return await fn(db);

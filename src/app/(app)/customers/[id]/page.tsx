@@ -39,9 +39,9 @@ export default async function CustomerPage({
 }) {
   const session = await requireSession();
   const [{ id }, flags] = await Promise.all([params, searchParams]);
-  const customer = await getCustomer(id);
+  // All three side by side (row level security scopes each read); a customer that is not found still shows the 404.
+  const [customer, docs, retentionDays] = await Promise.all([getCustomer(id), listCustomerDocuments(id), getRetentionDays()]);
   if (!customer) notFound();
-  const [docs, retentionDays] = await Promise.all([listCustomerDocuments(id), getRetentionDays()]);
   const saved = savedKindFrom(flags.saved);
   const stamp = Date.now(); // a new notice for every save, even two in a row
   const left = daysLeft(customer.purgeAt, new Date());

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ButtonLink } from '../../../../components/Button';
 import { PageHeader } from '../../../../components/PageHeader';
-import { getDocumentPage, pdfFilename, type DocumentPage } from '../../../../lib/data/documents';
+import { getDocumentPage, loadDocumentPage, pdfFilename, type DocumentPage } from '../../../../lib/data/documents';
 import { SEND_REMINDER } from '../../../../lib/documents/confirmation';
 import type { SummarySection } from '../../../../lib/documents/summary';
 import { DOC_TYPE_NAMES, jobHref } from '../../../../lib/job-stage';
@@ -170,7 +170,7 @@ export default async function DocumentPageRoute({ params, searchParams }: { para
   // here as on the preview page, so its page 1 and summary do not ask for an approval the owner already gave.
   if (doc.status === 'draft' && doc.type === 'quotation') {
     const up = await upgradeLegacyApproval({ userId: session.userId, tenantId: session.tenantId }, doc.jobId).catch(() => 'failed' as const);
-    if (up === 'upgraded') doc = (await getDocumentPage(id)) ?? doc;
+    if (up === 'upgraded') doc = (await loadDocumentPage(id)) ?? doc;
   }
   return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} quoteFailed={sp.quote === 'failed'} />;
 }

@@ -57,17 +57,23 @@ interface JobRow {
  * `reference` picks one job; otherwise the most recent jobs whose quote has been issued.
  */
 export async function loadJobSummariesWith(client: DataClient, opts: { reference?: string; limit?: number } = {}): Promise<JobSummary[]> {
-  const defaults = await getQuoteDefaultsWith(client);
+  // Three round trips, not six: defaults with the jobs, then documents, payments and customers together, then the
+  // quote versions (which need the documents). Errors are still checked, and thrown, in the same order as before.
   const jobsQ = client.from('jobs').select('id, reference, customer_id, property_address, payment_plan');
-  const jobsRes = opts.reference
-    ? await jobsQ.eq('reference', opts.reference).limit(1)
-    : await jobsQ.order('created_at', { ascending: false }).limit(opts.limit ?? 50);
+  const [defaults, jobsRes] = await Promise.all([
+    getQuoteDefaultsWith(client),
+    opts.reference ? jobsQ.eq('reference', opts.reference).limit(1) : jobsQ.order('created_at', { ascending: false }).limit(opts.limit ?? 50),
+  ]);
   if (jobsRes.error) throw new BillingError('failed', 'Could not load jobs');
   const jobs = (jobsRes.data ?? []) as JobRow[];
   if (jobs.length === 0) return [];
   const jobIds = jobs.map((j) => j.id);
 
-  const docsRes = await client.from('documents').select('id, job_id, type, number, status, current_version_id').in('job_id', jobIds).limit(2000);
+  const [docsRes, payRes, custRes] = await Promise.all([
+    client.from('documents').select('id, job_id, type, number, status, current_version_id').in('job_id', jobIds).limit(2000),
+    client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000),
+    client.from('customers').select('id, name').in('id', [...new Set(jobs.map((j) => j.customer_id))]),
+  ]);
   if (docsRes.error) throw new BillingError('failed', 'Could not load documents');
   const docRows = (docsRes.data ?? []) as { id: string; job_id: string; type: string; number: string; status: string; current_version_id?: string | null }[];
 
@@ -91,11 +97,9 @@ export async function loadJobSummariesWith(client: DataClient, opts: { reference
     const r = v.final_content?.content?.input?.vatRateBp;
     if (doc.status !== 'draft' && typeof r === 'number' && Number.isSafeInteger(r)) issuedRate.set(doc.id, r);
   }
-  const payRes = await client.from('payments').select('id, job_id, document_id, amount_pence, paid_on, method, note, receipt_document_id').in('job_id', jobIds).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(2000);
   if (payRes.error) throw new BillingError('failed', 'Could not load payments');
   const payRows = (payRes.data ?? []) as { id: string; job_id: string; document_id: string; amount_pence: number; paid_on: string; method: string; note: string | null; receipt_document_id: string | null }[];
 
-  const custRes = await client.from('customers').select('id, name').in('id', [...new Set(jobs.map((j) => j.customer_id))]);
   if (custRes.error) throw new BillingError('failed', 'Could not load customers');
   const names = new Map(((custRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
 

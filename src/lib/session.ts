@@ -49,9 +49,6 @@ export async function resolveSessionAndLimits(token: string | undefined, makeCli
   if (!token) return null;
   try {
     const client = makeClient(token);
-    const { data, error } = await client.auth.getUser(token);
-    if (error || !data?.user?.id) return null;
-    const userId = data.user.id;
     const limitsQuery = (async (): Promise<SessionLimits> => {
       try {
         const q = client.from('tenant_defaults').select('idle_logout_minutes, max_session_days');
@@ -61,10 +58,30 @@ export async function resolveSessionAndLimits(token: string | undefined, makeCli
         return DEFAULT_LIMITS;
       }
     })();
-    const [{ data: row, error: pErr }, limits] = await Promise.all([
-      client.from('profiles').select('id, tenant_id, role, full_name, email, tenants(name)').eq('id', userId).maybeSingle(),
-      limitsQuery,
-    ]);
+    const profileOf = (id: string) => client.from('profiles').select('id, tenant_id, role, full_name, email, tenants(name)').eq('id', id).maybeSingle();
+    // One round trip instead of two: the profile read starts at the same time as Supabase's check of the token, using
+    // the id the token claims. Nothing is trusted until both answer: the verified id must equal the claimed one, and the
+    // row must be that person's (row level security already scopes it to the token's own user).
+    const claimed = tokenSubject(token);
+    const verify = client.auth.getUser(token);
+    let userId: string;
+    let row: unknown;
+    let pErr: unknown;
+    let limits: SessionLimits;
+    if (claimed) {
+      const [{ data, error }, prof, lim] = await Promise.all([verify, profileOf(claimed), limitsQuery]);
+      if (error || !data?.user?.id || data.user.id !== claimed) return null;
+      userId = data.user.id;
+      ({ data: row, error: pErr } = prof);
+      limits = lim;
+    } else {
+      const { data, error } = await verify;
+      if (error || !data?.user?.id) return null;
+      userId = data.user.id;
+      const [prof, lim] = await Promise.all([profileOf(userId), limitsQuery]);
+      ({ data: row, error: pErr } = prof);
+      limits = lim;
+    }
     if (pErr || !row) return null;
     const p = row as { id?: unknown; tenant_id?: unknown; role?: unknown; full_name?: unknown; email?: unknown; tenants?: unknown };
     const tenant = Array.isArray(p.tenants) ? p.tenants[0] : p.tenants;
@@ -83,6 +100,18 @@ export async function resolveSessionAndLimits(token: string | undefined, makeCli
     return { session: { userId, tenantId: p.tenant_id, role: p.role as Role, email: p.email, fullName: p.full_name, businessName }, limits };
   } catch {
     // Missing keys, network trouble or a malformed answer all mean "not signed in", never a crash.
+    return null;
+  }
+}
+
+/** The user id a JWT claims (its `sub`), or null. Never trusted on its own: resolveSessionAndLimits checks it against Supabase. */
+export function tokenSubject(token: string): string | null {
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    const sub = (JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as { sub?: unknown }).sub;
+    return typeof sub === 'string' && /^[0-9a-f-]{36}$/i.test(sub) ? sub : null;
+  } catch {
     return null;
   }
 }

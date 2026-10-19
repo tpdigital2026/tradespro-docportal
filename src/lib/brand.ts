@@ -154,6 +154,16 @@ export function brandFromRow(row: BrandRow | undefined, exists?: (p: string) => 
 async function lookup(slug: string | null, tenantId: string | null, open?: () => Promise<ServiceDb>): Promise<TenantBrand> {
   try {
     return await withServiceConnection(async (db) => {
+      // Brand and its images in one round trip. If the images half fails, the two-step read below keeps the brand.
+      const one = await db
+        .query(`select b.*, (select coalesce(json_agg(i), '[]'::json) from private.public_brand_images($1::text, $2::uuid) i) as images from private.public_brand($1::text, $2::uuid) b`, [slug, tenantId])
+        .catch(() => null);
+      if (one) {
+        const row = one.rows[0] as (BrandRow & { images?: unknown }) | undefined;
+        const brand = brandFromRow(row);
+        if (brand.isOwnBrand || !row) return brand;
+        return { ...brand, ...brandImagesFrom(brand.slug, row.tenant_id, Array.isArray(row.images) ? (row.images as ImageRow[]) : []) };
+      }
       const r = await db.query(`select * from private.public_brand($1::text, $2::uuid)`, [slug, tenantId]);
       const brand = brandFromRow(r.rows[0] as BrandRow | undefined);
       if (brand.isOwnBrand) return brand;

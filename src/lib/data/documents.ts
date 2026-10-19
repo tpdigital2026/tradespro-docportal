@@ -6,6 +6,7 @@
  * connection with every query filtered by the session's tenant (src/lib/documents/*). Demo mode keeps it all in memory.
  */
 import 'server-only';
+import { cache } from 'react';
 import { demoBusiness, demoCustomers, demoQuoteDefaults } from '../demo-data';
 import { demoSignatureForDocuments, demoWordingForDocuments } from './settings';
 import { demoSlot, isDemo } from '../demo';
@@ -358,7 +359,8 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
   };
 }
 
-export async function getDocumentPage(id: string): Promise<DocumentPage | null> {
+/** One document's page, read fresh. Most callers want getDocumentPage, which reads it once per request. */
+export async function loadDocumentPage(id: string): Promise<DocumentPage | null> {
   const s = await requireSession();
   if (!isKnownId(id)) return null;
   if (isDemo()) {
@@ -382,6 +384,9 @@ export async function getDocumentPage(id: string): Promise<DocumentPage | null> 
     return pageFrom(l, { otherDocuments: Number(others.rows[0]?.n ?? 0) });
   });
 }
+
+/** One document's page, read once per request however many times the page and its metadata ask (React cache: per request only). */
+export const getDocumentPage: (id: string) => Promise<DocumentPage | null> = cache(loadDocumentPage);
 
 // ---------------------------------------------------------------- preview (read the pages)
 

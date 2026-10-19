@@ -227,3 +227,15 @@
 @media (pointer: coarse) {
   .jt-extra, .jobs-table td.jt-next .jt-extra { min-height: var(--tap); }
 }
+
+/* Loading skeletons (PageSkeleton): shown instantly on navigation while a tab's data loads. */
+.skel { display: block; border-radius: var(--radius-sm); background: var(--steel-100); }
+.skel-title { width: min(40%, calc(var(--space-8) * 4)); height: var(--space-7); }
+.skel-rows { display: grid; gap: var(--space-3); }
+.skel-row { height: var(--tap); }
+.skel-row:nth-child(3n + 2) { width: 92%; }
+.skel-row:nth-child(3n) { width: 84%; }
+@media (prefers-reduced-motion: no-preference) {
+  .skel { animation: skel-pulse 1.6s ease-in-out infinite; }
+  @keyframes skel-pulse { 50% { opacity: 0.55; } }
+}
