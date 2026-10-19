@@ -28,7 +28,7 @@ async function errorOf(c: Client, sql: string, params: unknown[]): Promise<{ cod
 
 const POLICY_TABLES = [
   'tenants', 'profiles', 'brand_kits', 'brand_assets', 'job_types', 'bank_accounts', 'tenant_defaults', 'customers', 'jobs',
-  'used_numbers', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs', 'audit_log', 'payments',
+  'used_numbers', 'documents', 'document_versions', 'job_photos', 'share_links', 'document_emails', 'ai_runs', 'audit_log', 'payments', 'appointments',
 ];
 
 describe.skipIf(!dbAvailable)('002b hardening', () => {

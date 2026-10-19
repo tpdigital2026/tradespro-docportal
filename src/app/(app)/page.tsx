@@ -5,6 +5,7 @@ import { DocTypeList } from '../../components/DocTypeList';
 import { EmptyState } from '../../components/EmptyState';
 import { HomeHero } from '../../components/HomeHero';
 import { JobRow, type Job } from '../../components/JobRow';
+import { MoneyStrip } from '../../components/MoneyStrip';
 import { getTenantBrand } from '../../lib/brand';
 import { isDemo } from '../../lib/demo';
 import { initials } from '../../lib/initials';
@@ -102,6 +103,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
             </ul>
           </nav>
         ) : null}
+
+        <MoneyStrip />
 
         <div className="home-lower">
           <section aria-labelledby="jobs-h" className="home-jobs">
