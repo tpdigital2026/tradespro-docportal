@@ -13,6 +13,8 @@ interface Props {
   /** Change the wording. Any change takes the approval away. */
   editCopy: (fn: (c: ScopeCopy) => ScopeCopy) => void;
   errors: Record<string, string>;
+  /** "Add a step" on a suggestion: adds it to the owner's steps (the wording then has to be made again). */
+  onAddStep?: (text: string) => void;
 }
 
 /** The time of approval for the screen. A value that is not a real date shows nothing rather than breaking the page. */
@@ -29,7 +31,8 @@ export function engineLine(copy: ScopeCopy): string {
 }
 
 /** Their steps beside the tidied wording. Everything on the right can be edited. */
-export function ScopeReview({ items, copy, notice, approved, editCopy, errors }: Props) {
+export function ScopeReview({ items, copy, notice, approved, editCopy, errors, onAddStep }: Props) {
+  const suggestions = copy.suggestions ?? [];
   const groups = groupItems(items);
   const edited = wordingEdited(copy);
   let n = 0;
@@ -128,6 +131,23 @@ export function ScopeReview({ items, copy, notice, approved, editCopy, errors }:
           )}
         </section>
       </div>
+
+      {suggestions.length > 0 && onAddStep ? (
+        <section className="sc-suggest" aria-labelledby="sc-suggest-h">
+          <h3 id="sc-suggest-h" className="sc-check-h">Things you could add</h3>
+          <p className="hint">Questions about things your quotes usually cover. Nothing here is on the quote unless you add it.</p>
+          <ul className="sc-suggest-list">
+            {suggestions.map((sg, i) => (
+              <li key={i} className="sc-suggest-item">
+                <span>{sg.question}</span>
+                <button type="button" className="btn btn-secondary sc-suggest-add" onClick={() => onAddStep(sg.step ?? '')} aria-label={`Add a step: ${sg.question}`}>
+                  Add a step
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

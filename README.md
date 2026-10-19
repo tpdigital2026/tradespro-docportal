@@ -9,6 +9,11 @@ Branded trade paperwork from a short form. See `docs/superpowers/specs/` for the
 - `npm run check:render-bundle` runs `next build` and fails unless every rendering route's trace carries the serverless Chromium, the fonts, the document stylesheet and the brand files (`--no-build` checks an existing `.next`).
 - `npm run ci` runs typecheck, unit tests, both render runs, the bundle check and `npm audit`.
 - `npm run spike` renders the quotation to `out/`.
+- Scope wording evaluation (real model, never in CI or `npm test`): `npx tsx --conditions=react-server --env-file=.env.local scripts/eval-scope-ai.ts --label r1 [--only 1,4]`. It runs twelve made-up rough scopes through the prompt (`src/ai/prompts/scope-copy.v2.ts`) and the business voice (`src/ai/voices/`), applies the live checks, and writes `out/eval-scope-ai/report-<label>.md`. Every model call is counted in `out/eval-scope-ai/ledger.json` and the script stops at `EVAL_MAX_CALLS` (default 60) in total. The key is read from the environment only and is never printed.
+
+### Scope wording (AI)
+
+The owner's steps go to the model with the business's voice (versioned tenant data in `src/ai/voices/`: its section headings, its own vetted one-tap bullets as style references, made-up worked examples). An answer is thrown away for the basic tidy unless it passes every check in `src/ai/scope-copy.ts`: the invention check (`src/ai/invention.ts`, unchanged), figures and names kept in the owner's form and no added work (`src/ai/facts.ts`), groups and headings (the business's own headings only, and only when their trade words are in the steps), at most two bullets per step. "Please check" questions may name a part, never a figure, brand or claim. "Things you could add" (`src/ai/suggestions.ts`) are worked out without the model from the business's checklist and the job type's usual steps; they are questions only and never part of the wording.
 
 ## Rendering on Vercel
 

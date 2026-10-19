@@ -4,7 +4,12 @@ import { writeAudit } from '../../security/audit';
 import type { Db } from '../../security/login-guard';
 import { isDemo } from '../demo';
 import { compactId, withServiceConnection, type ServiceDb } from './customer-admin';
-import { getJobTypeLabel, getQuoteDraft, QuoteError, saveQuoteDraft, storedScopeWith, type SaveOptions, type SavedDraft } from './quotes';
+import { typicalStepsFrom } from '../../ai/suggestions';
+import { scopeVoiceFor } from '../../ai/voices';
+import { parseScopeExamples, type ScopeExamples } from '../scope/examples';
+import { demoJobTypes } from '../demo-data';
+import { requireSession } from '../session';
+import { getJobTypeLabel, getQuoteDraft, isRealId, QuoteError, saveQuoteDraft, storedScopeWith, type SaveOptions, type SavedDraft } from './quotes';
 import { ownerClient } from './customers';
 import { APPROVAL_OUT_OF_DATE, approvalHash, approvalHashV1, approvalState, copyErrors, countSteps, isApproved, scopeKey, sectionsKey, withoutApproval, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../scope/model';
 import { sameGeneration, signGenerated, verifyGenerated } from '../scope/proof';
@@ -33,14 +38,23 @@ export async function generateForOwner(
   who: Who,
   steps: readonly ScopeItem[],
   jobTypeId: string,
-  deps: GenerateDeps & { now?: () => Date; recordRun?: (r: GenerateResult) => Promise<void>; label?: (id: string) => Promise<string> } = {},
+  deps: GenerateDeps & {
+    now?: () => Date;
+    recordRun?: (r: GenerateResult) => Promise<void>;
+    label?: (id: string) => Promise<string>;
+    /** The job type's stored examples (tenant data), for "Things you could add". */
+    examples?: (id: string) => Promise<ScopeExamples | null>;
+  } = {},
 ): Promise<GenerateOutcome> {
   if (countSteps(steps) === 0) return { ok: false, code: 'empty', message: 'Add at least one step first.' };
   // The person's limit is taken only when a model call is really about to be made (not for a skipped step, not for the basic tidy).
   const useDeps: GenerateDeps = { ...deps, permit: () => scopeCopyLimiter.take(who.userId) };
   try {
-    const label = await (deps.label ?? getJobTypeLabel)(jobTypeId).catch(() => '');
-    const result = await generateScopeCopy({ steps, jobType: label }, useDeps);
+    const [label, examples] = await Promise.all([
+      (deps.label ?? getJobTypeLabel)(jobTypeId).catch(() => ''),
+      (deps.examples ?? (deps.label ? async () => null : getJobTypeExamples))(jobTypeId).catch(() => null),
+    ]);
+    const result = await generateScopeCopy({ steps, jobType: label, typicalSteps: typicalStepsFrom(examples), voice: scopeVoiceFor(who.tenantId) }, useDeps);
     await (deps.recordRun ?? ((r) => recordAiRun(who.tenantId, r)))(result).catch(() => undefined);
     const base = {
       engine: result.engine,
@@ -56,6 +70,7 @@ export async function generateForOwner(
         sections: result.sections,
         corrections: result.corrections,
         uncertain: result.uncertain,
+        suggestions: result.suggestions,
         ...base,
         proof: signGenerated(who.tenantId, base),
         approvedAt: null,
@@ -65,6 +80,16 @@ export async function generateForOwner(
   } catch {
     return { ok: false, code: 'failed', message: FAILED };
   }
+}
+
+/** The job type's stored examples, read through row level security (so only this business's own). */
+async function getJobTypeExamples(id: string): Promise<ScopeExamples | null> {
+  await requireSession();
+  if (id === '') return null;
+  if (isDemo()) return demoJobTypes.find((t) => t.id === id)?.scopeExamples ?? null;
+  if (!isRealId(id)) return null;
+  const { data } = await (await ownerClient()).from('job_types').select('scope_examples').eq('id', id).maybeSingle();
+  return parseScopeExamples((data as { scope_examples?: unknown } | null)?.scope_examples);
 }
 
 /** One row per model call: the model and the token counts, never the wording. */

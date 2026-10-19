@@ -24,6 +24,8 @@ export const SCOPE_LIMITS = {
   items: 12 + 13 * 30,
   /** corrections and uncertain lists */
   notes: 60,
+  /** "Things you could add" questions */
+  suggestions: 5,
 } as const;
 
 /** The old one-box scope notes were limited to 4000 characters, so real overflow is far below this. */
@@ -47,10 +49,17 @@ export interface CopySection {
   steps: string[];
 }
 export type ScopeEngine = 'ai' | 'fallback';
+export interface ScopeCopySuggestion {
+  question: string;
+  /** The business's usual step that one tap adds to the owner's steps, or null for an empty step. */
+  step: string | null;
+}
 export interface ScopeCopy {
   sections: CopySection[];
   corrections: string[];
   uncertain: string[];
+  /** "Things you could add": questions for the owner only, never part of the wording, so not covered by the approval. */
+  suggestions?: ScopeCopySuggestion[];
   engine: ScopeEngine;
   generatedAt: string;
   /** Which steps this copy was made from. Checked by the server's proof. */
@@ -107,6 +116,7 @@ export const scopeCopySchema = z.object({
   sections: z.array(copySectionSchema).max(SCOPE_LIMITS.sections + 1),
   corrections: z.array(line(SCOPE_LIMITS.step)).max(SCOPE_LIMITS.notes),
   uncertain: z.array(line(SCOPE_LIMITS.step)).max(SCOPE_LIMITS.notes),
+  suggestions: z.array(z.object({ question: line(SCOPE_LIMITS.step), step: line(SCOPE_LIMITS.step).nullable() })).max(SCOPE_LIMITS.suggestions).optional(),
   engine: z.enum(['ai', 'fallback']),
   generatedAt: z.string().max(40),
   sourceKey: z.string().max(60),
