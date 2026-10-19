@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ButtonLink } from '../../../components/Button';
+import { DeleteDraft } from '../../../components/DeleteDraft';
 import { DocTypeIcon } from '../../../components/DocTypeIcon';
+import type { DeleteBack } from './delete-actions';
 import { EmptyState } from '../../../components/EmptyState';
 import { NewDocumentMenu } from '../../../components/NewDocumentMenu';
 import { PageHeader } from '../../../components/PageHeader';
@@ -24,7 +26,7 @@ function href(f: { kind?: string | null; status?: string | null; q?: string | nu
   return s ? `/documents?${s}` : '/documents';
 }
 
-function Row({ d }: { d: LibraryItem }) {
+function Row({ d, back }: { d: LibraryItem; back: DeleteBack }) {
   const final = d.status === 'final';
   return (
     <li className={`lib-row${final ? '' : ' is-draft'}`}>
@@ -44,6 +46,8 @@ function Row({ d }: { d: LibraryItem }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" /></svg>
           <span>PDF</span>
         </a>
+      ) : !d.everIssued ? (
+        <DeleteDraft variant="row" documentId={d.id} label={`${DOC_TYPE_NAMES[d.type]} ${d.number}`} back={back} />
       ) : null}
     </li>
   );
@@ -57,6 +61,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const statusRaw = first(sp.status);
   const status = statusRaw === 'draft' || statusRaw === 'final' ? statusRaw : null;
   const q = (first(sp.q) ?? '').trim().slice(0, 60);
+  const deleted = first(sp.deleted) === 'draft';
 
   const filtering = kind !== null || status !== null || q !== '';
   let items: LibraryItem[] = [];
@@ -88,6 +93,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
         action={<NewDocumentMenu />}
       />
 
+      {deleted ? <p className="flash" role="status">Draft deleted.</p> : null}
       {failed ? (
         <p className="form-error" role="alert">We could not load your documents just now. Please try again.</p>
       ) : !anyAtAll ? (
@@ -155,7 +161,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                     </header>
                     <ul className="lib-list">
                       {g.items.map((d) => (
-                        <Row key={d.id} d={d} />
+                        <Row key={d.id} d={d} back={status === 'draft' ? 'drafts' : 'documents'} />
                       ))}
                     </ul>
                   </section>

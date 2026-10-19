@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { connect } from '../../src/db/connect';
 import { createTenantWithUser, dbAvailable } from './helpers';
@@ -11,7 +12,7 @@ describe.skipIf(!dbAvailable)('draft lock reads the status under a share lock', 
     let userId: string | undefined;
     let primary: unknown;
     try {
-      const t = await createTenantWithUser(setup, 'ShareLockTest');
+      const t = await createTenantWithUser(setup, `ShareLockTest ${randomUUID().slice(0, 8)}`);
       tenantId = t.tenantId;
       userId = t.userId;
       const cust = await setup.query(`insert into public.customers (tenant_id, name) values ($1, 'C') returning id`, [tenantId]);
@@ -47,7 +48,11 @@ describe.skipIf(!dbAvailable)('draft lock reads the status under a share lock', 
     await finaliser.query('rollback').catch(() => undefined);
     try {
       if (tenantId) {
+        // A fixture document that left draft can only go with the purge flag (070), as in a real business.
+        await setup.query('begin');
+        await setup.query(`select set_config('app.allow_final_delete', 'on', true)`);
         await setup.query(`delete from public.tenants where id = $1`, [tenantId]);
+        await setup.query('commit');
         await setup.query(`delete from auth.users where id = $1`, [userId]);
         const left = await setup.query(`select count(*)::int n from public.tenants where id = $1`, [tenantId]);
         if (left.rows[0].n !== 0) errors.push(new Error('ShareLockTest tenant left behind'));

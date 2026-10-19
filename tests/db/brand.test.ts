@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
-import { brandFromRow } from '../../src/lib/brand';
+import { brandFromRow, lookupBrandForTest } from '../../src/lib/brand';
 import { RESERVED_SLUGS } from '../../src/lib/slug';
 import { createTenantWithUser, dbAvailable, withRollback } from './helpers';
 
@@ -96,6 +96,22 @@ describe.skipIf(!dbAvailable)('brand images come from the brand kit (migration 0
       expect((await c.query(`select * from private.public_brand_images(null, $1)`, [other.tenantId])).rows).toEqual([]);
       const anon = await c.query(`select has_function_privilege('authenticated', 'private.public_brand_images(text, uuid)', 'execute') as a`);
       expect(anon.rows[0].a).toBe(false);
+    });
+  });
+
+  it('the signed-in brand loads in one query (brand and its images together) and stays in its business', async () => {
+    await withRollback(async (c) => {
+      const t = await createTenantWithUser(c, 'One Trip Co');
+      await c.query(`update public.tenants set slug = 'one-trip-co-test' where id = $1`, [t.tenantId]);
+      const kit = await c.query(`insert into public.brand_kits (tenant_id) values ($1) returning id`, [t.tenantId]);
+      await c.query(`insert into public.brand_assets (tenant_id, brand_kit_id, kind, storage_path, width, height, alt) values ($1, $2, 'hero_image', $3, 1400, 864, '')`, [t.tenantId, kit.rows[0].id, `${t.tenantId}/hero-1400.jpg`]);
+      const seen: string[] = [];
+      const db = { query: (text: string, values?: unknown[]) => (seen.push(text), c.query(text, values)), end: async () => undefined };
+      const brand = await lookupBrandForTest(null, t.tenantId, async () => db as never);
+      expect(brand.name).toBe('One Trip Co');
+      expect(seen).toHaveLength(1);
+      const raw = await c.query(`select (select coalesce(json_agg(i), '[]'::json) from private.public_brand_images(null, $1::uuid) i) as images`, [t.tenantId]);
+      expect(raw.rows[0].images).toEqual([expect.objectContaining({ kind: 'hero_image', storage_path: `${t.tenantId}/hero-1400.jpg` })]);
     });
   });
 });

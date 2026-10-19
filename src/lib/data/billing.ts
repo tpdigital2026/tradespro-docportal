@@ -161,6 +161,18 @@ export function demoBillingState(): Readonly<Pick<DemoState, 'jobs' | 'documents
   return demo();
 }
 
+/** Demo mode only: a draft invoice or receipt is deleted, unless a recorded payment points at it. */
+export function demoDeleteFollowOn(jobId: string, documentId: string): 'deleted' | 'in_use' | 'not_found' | 'issued' {
+  const st = demo();
+  const docs = st.documents.get(jobId) ?? [];
+  const d = docs.find((x) => x.id === documentId);
+  if (!d) return 'not_found';
+  if (d.status !== 'draft') return 'issued';
+  if ((st.payments.get(jobId) ?? []).some((p) => p.documentId === documentId || p.receiptDocumentId === documentId)) return 'in_use';
+  st.documents.set(jobId, docs.filter((x) => x.id !== documentId));
+  return 'deleted';
+}
+
 /** Demo mode only: a quote has been finalised, so its job is issued. */
 export function demoIssueQuote(job: { jobId: string; form: QuoteFormValues; documentId: string }): void {
   const st = demo();

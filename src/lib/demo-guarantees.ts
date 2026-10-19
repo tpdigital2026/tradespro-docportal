@@ -38,3 +38,9 @@ export function demoGuaranteeMarkFinal(id: string, today: string): void {
     r.finalisedAt = new Date().toISOString();
   }
 }
+
+/** Demo mode: a draft certificate is deleted. */
+export function demoGuaranteeDelete(id: string): void {
+  const st = box.get();
+  st.rows = st.rows.filter((x) => !(x.id === id && x.status === 'draft'));
+}

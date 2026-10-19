@@ -25,9 +25,9 @@ import { normaliseQuote, type QuoteFormValues } from '../validation/quote';
 import { requireSession, type Session } from '../session';
 import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
-import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
+import { demoBillingState, demoDeleteFollowOn, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
 import { demoBusinessFacts as demoBusinessFactsAll } from '../demo-business';
-import { demoSurveyAudited, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRevise, demoSurveyRows } from './surveys';
+import { demoSurveyAudited, demoSurveyDelete, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRevise, demoSurveyRows } from './surveys';
 import { surveyEditHref, surveyEditStep, surveyNotes, surveySummary } from '../survey/page';
 import { demoGuaranteeMarkFinal, demoGuaranteeRows } from '../demo-guarantees';
 import { parseGuaranteeInput, type GuaranteeValues } from '../guarantee/model';
@@ -35,6 +35,8 @@ import { guaranteeEditHref, guaranteeSummary } from '../guarantee/page';
 import { todayLondon } from '../london';
 import { isFindingApproved, isOpinionApproved } from '../survey/model';
 import { withServiceConnection } from './customer-admin';
+import { deleteDraftWith, mayDeleteDrafts, type DeleteDraftResult } from '../documents/delete-draft';
+import { demoGuaranteeDelete } from '../demo-guarantees';
 import { tagFailures } from '../../pdf/diagnostics';
 import { ownerClient } from './customers';
 import type { Db } from '../../security/login-guard';
@@ -67,6 +69,8 @@ export interface LibraryItem {
   quoteNumber: string;
   totalPence: number | null;
   createdAt: string;
+  /** A draft that has an issued version behind it (a quote changed after it was issued): it can never be deleted. */
+  everIssued?: boolean;
 }
 
 export interface LibraryGroup {
@@ -136,7 +140,8 @@ export async function listLibrarySql(db: Db, tenantId: string, f: LibraryFilter 
   if (raw.includes('\u0000')) return { items: [], truncated: false };
   const q = raw.replace(/[\u0001-\u001f\u007f]/g, ' ').trim().toLowerCase().slice(0, 60);
   const r = await db.query(
-    `select d.id, d.job_id, d.type::text as type, d.number, d.status::text as status, d.doc_date, d.total_pence, d.created_at, j.reference, c.name as customer
+    `select d.id, d.job_id, d.type::text as type, d.number, d.status::text as status, d.doc_date, d.total_pence, d.created_at, j.reference, c.name as customer,
+            (d.status = 'draft' and exists (select 1 from public.document_versions v where v.document_id = d.id and v.tenant_id = d.tenant_id and v.finalised_at is not null)) as ever_issued
        from public.documents d
        join public.jobs j on j.id = d.job_id and j.tenant_id = d.tenant_id
        join public.customers c on c.id = j.customer_id and c.tenant_id = j.tenant_id
@@ -153,7 +158,7 @@ export async function listLibrarySql(db: Db, tenantId: string, f: LibraryFilter 
     const type = docTypeFromDb(x.type);
     if (!type) return [];
     const date = sqlDate(x.doc_date);
-    return [{ id: String(x.id), type, number: String(x.number), status: statusOf(x.status), date, customerName: String(x.customer), jobId: String(x.job_id), quoteNumber: String(x.reference), totalPence: x.total_pence === null ? null : Number(x.total_pence), createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at) }];
+    return [{ id: String(x.id), type, number: String(x.number), status: statusOf(x.status), date, customerName: String(x.customer), jobId: String(x.job_id), quoteNumber: String(x.reference), totalPence: x.total_pence === null ? null : Number(x.total_pence), createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at), everIssued: x.ever_issued === true }];
   });
   return { items, truncated: r.rows.length > limit };
 }
@@ -539,6 +544,37 @@ export async function reviseDocument(id: string): Promise<{ jobId: string }> {
   return { jobId: r.jobId };
 }
 
+/**
+ * Deletes a draft that was never issued (src/lib/documents/delete-draft.ts). Tenant and person come from the session;
+ * the database re-checks every rule. Demo mode removes it from the in-memory demo lists.
+ */
+export async function deleteDraftDocument(id: string): Promise<DeleteDraftResult> {
+  const s = await requireSession();
+  if (!mayDeleteDrafts(s.role)) return { status: 'not_allowed' };
+  if (!isKnownId(id)) return { status: 'not_found' };
+  if (isDemo()) return demoDeleteDraft(id);
+  if (!isRealId(id)) return { status: 'not_found' };
+  return retryOnDeadlock(() => withServiceConnection((db) => deleteDraftWith(db, getStorage(), { tenantId: s.tenantId, userId: s.userId, role: s.role }, id)));
+}
+
+function demoDeleteDraft(id: string): DeleteDraftResult {
+  const l = demoLoad(id);
+  if (!l) return { status: 'not_found' };
+  if (l.head.status !== 'draft' || l.head.versions.some((v) => v.finalisedAt)) return { status: 'issued' };
+  if (l.head.type === 'quotation') {
+    demoRemoveDraft(l.head.jobId);
+  } else if (l.head.type === 'survey') {
+    demoSurveyDelete(id);
+  } else if (l.head.type === 'guarantee') {
+    demoGuaranteeDelete(id);
+  } else {
+    const r = demoDeleteFollowOn(l.head.jobId, id);
+    if (r !== 'deleted') return { status: r };
+  }
+  demoDocs.delete(id);
+  return { status: 'deleted', jobDeleted: false };
+}
+
 /** Which document is the quote of a job, for links from the Home "saved" notice. */
 export async function quoteDocumentIdFor(reference: string): Promise<string | null> {
   await requireSession();
@@ -629,6 +665,10 @@ function demoRefs(): DemoDocRef[] {
 }
 
 function demoLibrary(): LibraryItem[] {
+  return demoLibraryRows().map((i) => (i.status === 'draft' && (demoDocs.get(i.id)?.finals.length ?? 0) > 0 ? { ...i, everIssued: true } : i));
+}
+
+function demoLibraryRows(): LibraryItem[] {
   const surveys: LibraryItem[] = demoSurveyRows().map((r) => ({ id: r.id, type: 'survey', number: r.number, status: r.status, date: r.values.surveyDate || r.createdAt.slice(0, 10), customerName: r.customerName, jobId: r.jobId, quoteNumber: demoSurveyJob(r.jobId)?.reference ?? '', totalPence: null, createdAt: r.createdAt }));
   const guarantees: LibraryItem[] = demoGuaranteeRows().map((r) => ({ id: r.id, type: 'guarantee', number: r.number, status: r.status, date: r.docDate, customerName: demoCustomerFacts(r.customerId).name, jobId: r.jobId, quoteNumber: demoGuaranteeJobRef(r.jobId), totalPence: null, createdAt: r.createdAt }));
   return [...guarantees, ...surveys, ...demoQuoteLibrary()];

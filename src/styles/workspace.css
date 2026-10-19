@@ -239,3 +239,18 @@
   .skel { animation: skel-pulse 1.6s ease-in-out infinite; }
   @keyframes skel-pulse { 50% { opacity: 0.55; } }
 }
+
+/* Delete draft (DeleteDraft): a quiet text button or a row action, and its confirmation dialog. */
+button.del-draft-text { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; cursor: pointer; min-height: var(--tap); color: var(--danger-ink); }
+.jt-next .del-draft-text { display: flex; font-size: var(--fs-14); }
+button.lib-delete { border: 0; border-left: var(--hairline) solid var(--line); background: none; font: inherit; font-size: var(--fs-eyebrow); cursor: pointer; color: var(--danger-ink); }
+.del-dialog { width: min(var(--form-w), calc(100vw - var(--space-5))); padding: var(--space-6) var(--space-5); border: 0; border-radius: var(--radius-xl); background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lg); }
+.del-dialog::backdrop { background: color-mix(in srgb, var(--navy-900) 60%, transparent); }
+.del-dialog-h { margin: 0 0 var(--space-2); font-size: var(--fs-20); font-weight: 600; }
+.del-dialog-p { margin: 0 0 var(--space-4); color: var(--ink-muted); }
+.del-dialog-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.del-dialog .btn-danger { background: var(--danger-ink); color: var(--w); }
+.del-dialog .btn-danger:hover { background: color-mix(in srgb, var(--danger-ink) 86%, black); }
+.del-dialog .btn-danger[disabled] { background: var(--paper-alt); color: var(--ink-muted); }
+@media (max-width: 519px) { .del-dialog-actions .btn { flex: 1 1 100%; } }
+.doc-next .del-draft-btn { color: var(--danger-ink); }

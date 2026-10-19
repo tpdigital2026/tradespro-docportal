@@ -443,7 +443,7 @@ describe.skipIf(!dbAvailable)('saveFollowOnWith (atomic, repairable)', () => {
       const r1 = await saveFollowOnWith(c, actor(a), write(a, { paymentId: p1, grossPence: 3000 }), { nested: true });
       const r2 = await saveFollowOnWith(c, actor(a), write(a, { number: `RCP-${ref('Alpha')}-P2`, paymentId: p2, grossPence: 2000 }), { nested: true });
       expect(r1.documentId).not.toBe(r2.documentId);
-      const links = await c.query(`select id, receipt_document_id from public.payments order by amount_pence desc`);
+      const links = await c.query(`select id, receipt_document_id from public.payments where tenant_id = $1 order by amount_pence desc`, [a.tenantId]);
       expect(links.rows.map((x) => x.receipt_document_id)).toEqual([r1.documentId, r2.documentId]);
     });
   });

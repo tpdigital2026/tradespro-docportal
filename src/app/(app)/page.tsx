@@ -79,6 +79,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const savedRaw = sp.quote;
   const saved = typeof savedRaw === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{1,39}$/.test(savedRaw) ? savedRaw : null;
   const view: HomeView = parseView(sp.view);
+  const deleted = sp.deleted === 'draft';
   const demo = isDemo();
 
   // Each load logs one safe line (stage and error class only) if it fails, and says so on the page, so a failed
@@ -125,9 +126,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     <div className="ws ws-home">
       <PageHeader title="Home" action={<NewDocumentMenu />} />
 
-      {demo || saved ? (
+      {demo || saved || deleted ? (
         <div className="ws-notes">
           {demo ? <p className="demo-chip">Demo mode. Everything here is dummy data.</p> : null}
+          {deleted ? <p className="flash" role="status">Draft deleted.</p> : null}
           {saved ? (
             <p className="flash" role="status">
               <span>

@@ -37,6 +37,7 @@ export function fakeClient(seed: Record<string, Row[]> = {}, opts: { failOn?: (t
         update: (p: Row) => ((op = 'update'), (payload = p), b),
         eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), b),
         is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), b),
+        not: (c: string, o: string, v: unknown) => (filters.push((r) => (o === 'is' ? (r[c] ?? null) !== v : r[c] !== v)), b),
         in: (c: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[c])), b),
         ilike: (c: string, pattern: string) => {
           const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`, 'i');

@@ -802,6 +802,16 @@ async function demoCustomerName(id: string): Promise<string> {
   return (await getCustomer(id))?.name ?? demoCustomers.find((c) => c.id === id)?.name ?? 'Customer';
 }
 
+/** Demo mode: a draft survey report is deleted with its photos. */
+export function demoSurveyDelete(id: string): void {
+  const st = demo();
+  const r = st.surveys.find((x) => x.id === id && x.status === 'draft');
+  if (!r) return;
+  st.surveys = st.surveys.filter((x) => x.id !== id);
+  for (const [k, p] of st.photos) if (p.jobId === r.jobId) st.photos.delete(k);
+  st.audited.delete(id);
+}
+
 /** For the documents library and the document pages in demo mode. */
 export function demoSurveyRows(): readonly DemoSurvey[] {
   return demo().surveys;

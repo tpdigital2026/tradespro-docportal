@@ -33,6 +33,8 @@ export interface HomeRow {
   /** yyyy-mm-dd, or null when nothing is dated. */
   updated: string | null;
   kind: 'draft' | 'surveyed' | 'job';
+  /** A draft quote that was never issued: it can be deleted from the row. */
+  deleteDoc?: { id: string; label: string } | null;
   needsAction: boolean;
   waiting: boolean;
   readyToInvoice: boolean;
@@ -50,6 +52,7 @@ export interface DraftIn {
   quoteNumber: string;
   customerName: string;
   date: string;
+  deletable?: boolean;
 }
 
 export const draftHref = (d: Pick<DraftIn, 'jobId' | 'documentId'>) => (d.documentId ? `/documents/${d.documentId}` : `/documents/new?type=quotation&draft=${d.jobId}`);
@@ -106,6 +109,7 @@ export function buildHomeRows(jobs: JobIn[], drafts: DraftIn[], updated: Map<str
       href,
       updated: d.date || null,
       kind: 'draft',
+      deleteDoc: d.documentId && d.deletable !== false ? { id: d.documentId, label: `Quote ${d.quoteNumber} for ${d.customerName}` } : null,
       needsAction: true,
       waiting: false,
       readyToInvoice: false,

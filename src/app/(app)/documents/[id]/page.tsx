@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { DeleteDraft } from '../../../../components/DeleteDraft';
 import { notFound } from 'next/navigation';
 import { ButtonLink } from '../../../../components/Button';
 import { PageHeader } from '../../../../components/PageHeader';
@@ -74,6 +75,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
               <p className="hint">The figures come from the quote and the payments you recorded, so there is nothing to edit here.</p>
             )}
             <p className="hint">A draft cannot be downloaded or sent.</p>
+            {doc.isRevision ? null : <DeleteDraft variant="button" documentId={doc.id} label={doc.type === 'quotation' ? `Quote ${doc.number}` : `${name} ${doc.number}`} back="documents" />}
           </div>
         </aside>
       </div>

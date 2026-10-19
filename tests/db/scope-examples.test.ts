@@ -6,7 +6,10 @@ import { actAs, createTenantWithUser, dbAvailable, withRollback } from './helper
 describe.skipIf(!dbAvailable)('job_types.scope_examples (migration 010)', () => {
   it('the FJC seed fills it for every job type, and the app can parse every value', async () => {
     await withRollback(async (c) => {
+      // Rolled back at the end. A live FJC row may have issued documents, which only the purge flag lets go.
+      await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
       await c.query(`delete from public.tenants where name = 'FJC Roofing Ltd'`);
+      await c.query(`select set_config('app.allow_final_delete', '', true)`);
       const { tenantId } = await seedFjc(c);
       const rows = await c.query(`select key, scope_examples from public.job_types where tenant_id = $1 order by key`, [tenantId]);
       expect(rows.rows.map((r) => r.key)).toEqual(['fascia', 'flat_roof', 'other', 'tiled_roof']);
@@ -17,7 +20,10 @@ describe.skipIf(!dbAvailable)('job_types.scope_examples (migration 010)', () => 
 
   it('a second seed fills only what is empty and never overwrites the business\'s own edits', async () => {
     await withRollback(async (c) => {
+      // Rolled back at the end. A live FJC row may have issued documents, which only the purge flag lets go.
+      await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
       await c.query(`delete from public.tenants where name = 'FJC Roofing Ltd'`);
+      await c.query(`select set_config('app.allow_final_delete', '', true)`);
       const { tenantId } = await seedFjc(c);
       await c.query(`update public.job_types set scope_examples = '{"specLabels":[],"headings":["Mine"],"starters":[],"sequences":[]}' where tenant_id = $1 and key = 'flat_roof'`, [tenantId]);
       await c.query(`update public.job_types set scope_examples = null where tenant_id = $1 and key = 'tiled_roof'`, [tenantId]);

@@ -30,7 +30,7 @@ describe.skipIf(!dbAvailable)('integrity triggers', () => {
       const doc = await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'quotation', 'QT-A-001') returning id`, [t.tenantId, jobId]);
       await c.query(`insert into public.document_versions (tenant_id, document_id, version, finalised_at) values ($1, $2, 1, now())`, [t.tenantId, doc.rows[0].id]);
       await c.query('savepoint s');
-      await expect(c.query(`delete from public.customers where id = $1`, [customerId])).rejects.toThrow(/finalised/i);
+      await expect(c.query(`delete from public.customers where id = $1`, [customerId])).rejects.toThrow(/finalised|never issued/i);
       await c.query('rollback to savepoint s');
       await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
       const del = await c.query(`delete from public.customers where id = $1`, [customerId]);

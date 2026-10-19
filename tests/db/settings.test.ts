@@ -124,7 +124,11 @@ describe.skipIf(!dbAvailable)('owner settings: the account cap under concurrency
     } finally {
       if (t) {
         // Audit rows are append only and hold ids only; they stay.
+        // A fixture document that left draft can only go with the purge flag (070), as in a real business.
+        await setup.query('begin');
+        await setup.query(`select set_config('app.allow_final_delete', 'on', true)`);
         await setup.query(`delete from public.tenants where id = $1`, [t.tenantId]);
+        await setup.query('commit');
         await setup.query(`delete from auth.users where id = $1`, [t.userId]);
       }
       await setup.end();

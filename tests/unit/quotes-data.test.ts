@@ -177,7 +177,14 @@ describe('reading drafts back', () => {
   it('lists draft quotations with the customer name', async () => {
     const { client } = fakeClient({ customers: [{ id: CUSTOMER, name: 'Mr John Smith' }] });
     await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
-    expect(await listDraftsWith(client)).toEqual([{ jobId: expect.any(String), documentId: expect.any(String), quoteNumber: 'QT-0100', customerName: 'Mr John Smith', date: '2026-10-14' }]);
+    expect(await listDraftsWith(client)).toEqual([{ jobId: expect.any(String), documentId: expect.any(String), quoteNumber: 'QT-0100', customerName: 'Mr John Smith', date: '2026-10-14', deletable: true }]);
+  });
+  it('a draft with an issued version behind it (a changed quote) is never offered for deletion', async () => {
+    const { client, tables } = fakeClient({ customers: [{ id: CUSTOMER, name: 'Mr John Smith' }] });
+    await saveDraftWith(client, TENANT, form(), null, 2000, '2026-10-14');
+    const doc = tables.documents[0];
+    tables.document_versions.push({ id: 'v-old', document_id: doc.id, finalised_at: '2026-10-01T09:00:00Z' });
+    expect((await listDraftsWith(client))[0].deletable).toBe(false);
   });
 });
 

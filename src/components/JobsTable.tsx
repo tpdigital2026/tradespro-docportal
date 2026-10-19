@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DeleteDraft } from './DeleteDraft';
 import { HOME_LOAD_MESSAGES } from '../lib/home-load-messages';
 import { HOME_VIEWS, viewHref, type HomeRow, type HomeView } from '../lib/home-rows';
 
@@ -80,6 +81,7 @@ export function JobsTable({ rows, view, counts, loadFailed = false }: { rows: Ho
                     <span className="jt-none">Nothing to do</span>
                   )}
                   {r.extra ? <Link href={r.extra.href} className="jt-text jt-extra">{r.extra.label}</Link> : null}
+                  {r.deleteDoc ? <DeleteDraft documentId={r.deleteDoc.id} label={r.deleteDoc.label} back="home" /> : null}
                 </td>
                 <td role="cell" className="jt-date is-num">
                   {r.updated ? <time dateTime={r.updated}>{fmt(r.updated)}</time> : <span aria-label="No date">&ndash;</span>}

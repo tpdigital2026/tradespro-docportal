@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { connect } from '../../src/db/connect';
@@ -44,7 +45,11 @@ async function committedFixture() {
     for (const c of open.slice(1)) await c.query('rollback').catch(() => undefined);
     try {
       if (tenantId) {
+        // A fixture document that left draft can only go with the purge flag (070), as in a real business.
+        await setup.query('begin');
+        await setup.query(`select set_config('app.allow_final_delete', 'on', true)`);
         await setup.query(`delete from public.tenants where id = $1`, [tenantId]);
+        await setup.query('commit');
         await setup.query(`delete from auth.users where id = $1`, [userId]);
         const left = await setup.query(
           `select (select count(*) from public.tenants where id = $1)::int tenants, (select count(*) from auth.users where id = $2)::int users`,
@@ -59,7 +64,7 @@ async function committedFixture() {
     if (errors.length) throw new AggregateError(errors, 'fixture cleanup failed');
   }
   try {
-    const t = await createTenantWithUser(setup, 'LockTest');
+    const t = await createTenantWithUser(setup, `LockTest ${randomUUID().slice(0, 8)}`);
     tenantId = t.tenantId;
     userId = t.userId;
     const cust = await setup.query(`insert into public.customers (tenant_id, name, purge_at) values ($1, 'Cust', now() + interval '1 day') returning id`, [tenantId]);

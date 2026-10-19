@@ -6,7 +6,10 @@ import { dbAvailable, withRollback } from './helpers';
 describe.skipIf(!dbAvailable)('seedFjc', () => {
   it('creates the FJC tenant, defaults, job types and brand kit, and is idempotent', async () => {
     await withRollback(async (c) => {
+      // Rolled back at the end. A live FJC row may have issued documents, which only the purge flag lets go.
+      await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
       await c.query(`delete from public.tenants where name = 'FJC Roofing Ltd'`);
+      await c.query(`select set_config('app.allow_final_delete', '', true)`);
       const first = await seedFjc(c);
       expect(first.created).toBe(true);
       const second = await seedFjc(c);

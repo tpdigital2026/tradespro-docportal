@@ -84,6 +84,8 @@ export interface DraftListItem {
   quoteNumber: string;
   customerName: string;
   date: string;
+  /** False for a quote changed after it was issued: its issued version must stay, so it can never be deleted. */
+  deletable?: boolean;
 }
 export interface SavedDraft {
   jobId: string;
@@ -188,14 +190,25 @@ export async function listDraftsWith(client: DataClient): Promise<DraftListItem[
   if (docs.error) throw new QuoteError('failed', 'Could not load drafts');
   const rows = (docs.data ?? []) as { id: string; job_id: string; number: string; doc_date: string }[];
   if (rows.length === 0) return [];
-  const jobs = await client.from('jobs').select('id, customer_id').in('id', rows.map((r) => r.job_id));
+  // The jobs, and which drafts have an issued version behind them, side by side.
+  const [jobs, issued] = await Promise.all([
+    client.from('jobs').select('id, customer_id').in('id', rows.map((r) => r.job_id)),
+    (async () => {
+      try {
+        return await client.from('document_versions').select('document_id').in('document_id', rows.map((r) => r.id)).not('finalised_at', 'is', null).limit(200);
+      } catch {
+        return null; // unknown: no draft is offered for deletion (the server would refuse an issued one anyway)
+      }
+    })(),
+  ]);
   if (jobs.error) throw new QuoteError('failed', 'Could not load drafts');
+  const revised = new Set(issued && !issued.error ? ((issued.data ?? []) as { document_id: string }[]).map((v) => v.document_id) : rows.map((r) => r.id));
   const jobRows = (jobs.data ?? []) as { id: string; customer_id: string }[];
   const custs = await client.from('customers').select('id, name').in('id', [...new Set(jobRows.map((j) => j.customer_id))]);
   if (custs.error) throw new QuoteError('failed', 'Could not load drafts');
   const names = new Map(((custs.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
   const customerOf = new Map(jobRows.map((j) => [j.id, j.customer_id]));
-  return rows.map((r) => ({ jobId: r.job_id, documentId: r.id ?? null, quoteNumber: r.number, customerName: names.get(customerOf.get(r.job_id) ?? '') ?? 'Customer', date: r.doc_date }));
+  return rows.map((r) => ({ jobId: r.job_id, documentId: r.id ?? null, quoteNumber: r.number, customerName: names.get(customerOf.get(r.job_id) ?? '') ?? 'Customer', date: r.doc_date, deletable: Boolean(r.id) && !revised.has(r.id) }));
 }
 
 export async function getDraftWith(client: DataClient, jobId: string): Promise<QuoteDraft | null> {
