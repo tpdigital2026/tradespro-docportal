@@ -4,6 +4,7 @@ import { stageOf } from '../../src/pdf/diagnostics';
 import { renderEngine } from '../../src/pdf/engine';
 import { PageOverflowError } from '../../src/pdf/render';
 import { fakeBrand, fakeTenant } from '../fixtures/fake';
+import { guaranteeFixture } from '../fixtures/guarantee';
 import { depositReceiptFixture } from '../fixtures/receipts';
 
 afterAll(() => closeRenderBrowser());
@@ -18,6 +19,14 @@ describe(`render service (${renderEngine()})`, () => {
     expect(out.pngPages).toHaveLength(pdfPages(out.pdf));
     expect(out.pngPages.every(isPng)).toBe(true);
     expect((await sharedRenderBrowserForTests())?.engine).toBe(renderEngine());
+  });
+
+  it('renders a guarantee certificate as one page through the service', async () => {
+    const out = await renderMapped({ kind: 'guarantee', input: guaranteeFixture }, fakeTenant, fakeBrand);
+    expect(out.pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pdfPages(out.pdf)).toBe(1);
+    expect(out.pngPages).toHaveLength(1);
+    expect(out.pngPages.every(isPng)).toBe(true);
   });
 
   it('relaunches once when the shared browser has died (a crashed browser on a warm instance)', async () => {

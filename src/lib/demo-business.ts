@@ -17,6 +17,8 @@ import type { FactDocument, FactPayment, JobFacts } from './business/facts';
 import type { Appointment, AppointmentKind } from './calendar/model';
 import { demoBillingState } from './data/billing';
 import { demoDraftRows } from './data/quotes';
+import { demoGuaranteeRows } from './demo-guarantees';
+import { parseYears } from './guarantee/model';
 
 /** When each dummy document was issued (yyyy-mm-dd). Anything not listed uses its quote's date. */
 const ISSUED_ON: Record<string, string> = {
@@ -178,13 +180,32 @@ function surveyedJob(): JobFacts | null {
   };
 }
 
+/** The certificates made in this demo session, added to their jobs (a job made for a certificate gets a plain entry). */
+function withGuarantees(jobs: JobFacts[]): { jobs: JobFacts[]; added: string[] } {
+  const out = jobs.map((j) => ({ ...j, documents: [...j.documents] }));
+  const added: string[] = [];
+  for (const g of demoGuaranteeRows()) {
+    let job = out.find((j) => j.jobId === g.jobId);
+    if (!job) {
+      const reference = g.number.replace(/^GC-/, '').replace(/-G\d+$/, '');
+      job = { jobId: g.jobId, quoteNumber: reference, customerId: g.customerId, customerName: customerName(g.customerId), addressLine: g.values.address, planKind: null, quote: null, draftQuoteId: null, documents: [], payments: [] };
+      out.push(job);
+      added.push(g.jobId);
+    }
+    const live = g.status === 'final';
+    job.documents.push({ id: g.id, type: 'guarantee', number: g.number, status: g.status, docDate: g.docDate, finalisedAt: live && g.finalisedAt ? g.finalisedAt : null, totalPence: null, dueWording: null, guaranteeYears: live ? parseYears(g.values.years) : null, certificateNo: live ? g.number : null });
+  }
+  return { jobs: out, added };
+}
+
 export function demoBusinessFacts() {
   const extra = extraJobs();
   const survey = surveyedJob();
+  const all = withGuarantees([...issuedJobs(), ...(survey ? [survey] : []), ...extra]);
   return {
-    jobs: [...issuedJobs(), ...(survey ? [survey] : []), ...extra],
+    jobs: all.jobs,
     truncated: false,
-    noJobPage: new Set([...extra.map((j) => j.jobId), ...(survey ? [survey.jobId] : [])]),
+    noJobPage: new Set([...extra.map((j) => j.jobId), ...(survey ? [survey.jobId] : []), ...all.added]),
   };
 }
 

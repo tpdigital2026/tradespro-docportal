@@ -47,6 +47,7 @@ export async function signatureWith(db: Db, tenantId: string, readFile: FileRead
   }
 }
 import type { SurveyFacts } from '../survey/map';
+import type { GuaranteeFacts } from '../guarantee/map';
 
 export interface VersionRow {
   id: string;
@@ -87,6 +88,8 @@ export interface Loaded {
   bankAccountId: string | null;
   /** Survey reports only (src/lib/survey/facts-sql.ts). */
   survey?: SurveyFacts | null;
+  /** Guarantee certificates only (src/lib/guarantee/facts-sql.ts). */
+  guarantee?: GuaranteeFacts | null;
 }
 
 /** A SQL date as 'yyyy-mm-dd' (never via toISOString: that moved dates a day early on machines in BST). */
@@ -247,6 +250,7 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
   const head = opts.head ?? (await loadHeadWith(db, tenantId, documentId, opts.lock));
   if (!head) return null;
   if (head.type === 'survey') return (await import('../survey/facts-sql')).loadSurveyWith(db, tenantId, head);
+  if (head.type === 'guarantee') return (await import('../guarantee/facts-sql')).loadGuaranteeWith(db, tenantId, head, { decryptBank: opts.decryptBank, files: opts.files });
   const problems: string[] = [];
   const newest = head.versions[0] ?? null;
 

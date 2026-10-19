@@ -53,13 +53,28 @@ describe('guarantee certificate', () => {
       'was installed by',
       'INSTALLATION COMPLETED · 06/10/2026',
       guaranteeFixture.statement,
-      'GC-JS-001',
       'Ben Cunningham',
       'COMPANY NO. 13855379',
     ]) {
       expect(t).toContain(s);
     }
     expect(t.toUpperCase()).toContain('WE CANNOT BE HELD RESPONSIBLE FOR MISUSE OF OUR PRODUCTS BY THE CUSTOMER');
+  });
+
+  it('prints what the owner’s reference certificate prints and nothing more: no certificate number, website, email and company number bottom right', async () => {
+    await renderPdf(page, buildGuarantee({ ...guaranteeFixture, workDescription: 'tiled roof', years: 25 }, fakeTenant, fakeBrand));
+    const t = await text();
+    expect(t).not.toContain('CERTIFICATE NO');
+    expect(t).not.toContain('GC-JS-001');
+    for (const s of [fakeTenant.web, fakeTenant.email, `COMPANY NO. ${fakeTenant.companyNo}`, 'Authorised signature · Director', '25 Year Guarantee']) expect(t).toContain(s);
+    expect(await page.$$eval('.page', (e) => e.length)).toBe(1);
+  });
+
+  it('leaves out the website, email, company number and tagline lines a business does not have', async () => {
+    await renderPdf(page, buildGuarantee(guaranteeFixture, { ...fakeTenant, web: '', email: '', companyNo: '', tagline: '' }, fakeBrand));
+    const t = await text();
+    expect(t).not.toContain('COMPANY NO');
+    expect(await page.$$eval('.mono div', (e) => e.filter((x) => (x.textContent ?? '').trim() === '').length)).toBe(0);
   });
 
   const sealFont = () => page.$eval('svg textPath', (el) => ({ text: el.textContent ?? '', px: parseFloat(getComputedStyle(el.parentElement as Element).fontSize) }));
@@ -107,4 +122,55 @@ describe('guarantee certificate', () => {
     const input = { ...guaranteeFixture, address: 'A very long address line '.repeat(60) };
     await expect(renderPdf(page, buildGuarantee(input, fakeTenant, fakeBrand))).rejects.toBeInstanceOf(PageOverflowError);
   });
+});
+
+/**
+ * The ring text must fill the circle exactly once with even spacing and never overlap itself, whatever the name length
+ * (the owner's reference certificate printed its ring text twice over where it wrapped). Measured on the drawn glyphs:
+ * the angle of each letter's start about the centre must rise steadily, the steps must be equal (monospace type), and the
+ * last letter must end before the first one starts.
+ */
+describe('seal ring text', () => {
+  const ring = () =>
+    page.$eval('svg textPath', (tp) => {
+      const t = tp as unknown as SVGTextContentElement;
+      const n = t.getNumberOfChars();
+      const angle = (p: DOMPoint) => (Math.atan2(p.y - 100, p.x - 100) * 180) / Math.PI;
+      const starts: number[] = [];
+      for (let i = 0; i < n; i += 1) starts.push(angle(t.getStartPositionOfChar(i)));
+      const unwrap = (a: number[]) => {
+        const out = [a[0]];
+        for (let i = 1; i < a.length; i += 1) {
+          let v = a[i];
+          while (v < out[i - 1] - 180) v += 360;
+          while (v > out[i - 1] + 180) v -= 360;
+          out.push(v);
+        }
+        return out;
+      };
+      const us = unwrap(starts);
+      // Each letter's end is its own start plus the (small, forward) angle it covers.
+      const ends = us.map((a, i) => a + ((((angle(t.getEndPositionOfChar(i)) - starts[i]) % 360) + 360) % 360));
+      return { text: t.textContent ?? '', starts: us, ends };
+    });
+
+  const names = ['AB Ltd', 'FJC Roofing Ltd', 'Bromley Kitchens and Bathrooms Roofing Ltd'];
+  for (const name of names) {
+    it(`fills the circle once, evenly, with no overlap: ${name}`, async () => {
+      await renderPdf(page, buildGuarantee({ ...guaranteeFixture, years: 25 }, { ...fakeTenant, name }, fakeBrand));
+      const r = await ring();
+      // The business name appears once, then the years once.
+      expect(r.text.split(name.toUpperCase()).length - 1).toBe(1);
+      expect(r.text.split('YEAR GUARANTEE').length - 1).toBe(1);
+      const steps = r.starts.slice(1).map((a, i) => a - r.starts[i]);
+      expect(Math.min(...steps)).toBeGreaterThan(0);
+      const spread = (Math.max(...steps) - Math.min(...steps)) / Math.max(...steps);
+      expect(spread).toBeLessThan(0.05);
+      // Round once: from the first letter to the end of the last is no more than a full turn, and the last letter ends before the first begins.
+      expect(r.ends[r.ends.length - 1] - r.starts[0]).toBeLessThanOrEqual(360 + 0.5);
+      expect(r.ends[r.ends.length - 1]).toBeLessThanOrEqual(r.starts[0] + 360 + 0.5);
+      for (let i = 0; i < r.starts.length; i += 1) expect(r.ends[i]).toBeGreaterThan(r.starts[i]);
+      for (let i = 1; i < r.starts.length; i += 1) expect(r.starts[i]).toBeGreaterThanOrEqual(r.ends[i - 1] - 0.2);
+    });
+  }
 });

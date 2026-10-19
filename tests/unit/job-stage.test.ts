@@ -181,7 +181,12 @@ describe('document numbers', () => {
     expect(documentNumberFor('balance-invoice', 'Q1', 'deposit', 1)).toBeNull();
     expect(documentNumberFor('invoice-stage', 'Q1', 'staged', 11)).toBeNull();
     expect(documentNumberFor('receipt', 'Q1', 'full', 2)).toBeNull();
-    expect(documentNumberFor('guarantee', 'Q1', 'full', 1)).toBeNull();
+    // A guarantee is not tied to an instalment: GC-{q} first, then GC-{q}-G2 to -G20, and nothing past the twentieth.
+    expect(documentNumberFor('guarantee', 'Q1', 'full', 1)).toBe('GC-Q1');
+    expect(documentNumberFor('guarantee', 'Q1', 'staged', 3, 2)).toBe('GC-Q1-G2');
+    expect(documentNumberFor('guarantee', 'Q1', 'full', 1, 20)).toBe('GC-Q1-G20');
+    expect(documentNumberFor('guarantee', 'Q1', 'full', 1, 21)).toBeNull();
+    expect(documentNumberFor('guarantee', 'Q1', 'full', 1, 0)).toBeNull();
   });
 
   it('gives each further payment on an instalment its own receipt number', () => {
@@ -234,5 +239,10 @@ describe('byUrgency', () => {
     const later = { quoteNumber: 'A', progress: deriveJobStage({ kind: 'full' }, inst(1), [], [doc('invoice-full', 1)]) };
     const done = { quoteNumber: 'C', progress: deriveJobStage({ kind: 'full' }, inst(1), [pay(1, 1000)], [doc('invoice-full', 1), doc('guarantee', null)]) };
     expect(byUrgency([later, done, early]).map((j) => j.quoteNumber)).toEqual(['B', 'A']);
+  });
+
+  it('the next step after paid in full opens the guarantee form with the job filled in', () => {
+    const next = { label: 'Issue guarantee certificate', type: 'guarantee', action: 'create', instalment: null } as const;
+    expect(nextStepHref(next, 'XX-002')).toBe('/documents/new?type=guarantee&job=XX-002');
   });
 });

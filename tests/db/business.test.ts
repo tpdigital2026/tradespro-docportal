@@ -78,11 +78,11 @@ describe.skipIf(!dbAvailable)('business facts (Pipeline, Money, Guarantees)', ()
   it('reads a finalised guarantee certificate when one exists', async () => {
     await withRollback(async (c) => {
       const a = await business(c, 'BizGua', 'BG-100');
-      const g = await c.query(`insert into public.documents (tenant_id, job_id, type, number, status, finalised_at) values ($1, $2, 'guarantee', 'GUA-BG-100', 'final', '2016-03-24T12:00:00Z') returning id`, [a.tenantId, a.jobId]);
-      const gv = await c.query(`insert into public.document_versions (tenant_id, document_id, version, final_content, finalised_at) values ($1, $2, 1, $3, '2016-03-24T12:00:00Z') returning id`, [a.tenantId, g.rows[0].id, JSON.stringify({ content: { kind: 'guarantee', input: { years: 10, certificateNo: 'GUA-BG-100' } } })]);
+      const g = await c.query(`insert into public.documents (tenant_id, job_id, type, number, status, finalised_at) values ($1, $2, 'guarantee', 'GC-BG-100', 'final', '2016-03-24T12:00:00Z') returning id`, [a.tenantId, a.jobId]);
+      const gv = await c.query(`insert into public.document_versions (tenant_id, document_id, version, final_content, finalised_at) values ($1, $2, 1, $3, '2016-03-24T12:00:00Z') returning id`, [a.tenantId, g.rows[0].id, JSON.stringify({ content: { kind: 'guarantee', input: { years: 10, certificateNo: 'GC-BG-100' } } })]);
       await c.query(`update public.documents set current_version_id = $1 where id = $2`, [gv.rows[0].id, g.rows[0].id]);
       const rows = guaranteeRows((await loadBusinessFactsSql(c, a.tenantId)).jobs);
-      expect(rows).toEqual([expect.objectContaining({ certificateNo: 'GUA-BG-100', years: 10, issuedOn: '2016-03-24', expiryYear: 2026 })]);
+      expect(rows).toEqual([expect.objectContaining({ certificateNo: 'GC-BG-100', years: 10, issuedOn: '2016-03-24', expiryYear: 2026 })]);
     });
   });
 });

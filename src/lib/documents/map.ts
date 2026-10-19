@@ -12,6 +12,7 @@ import type { BalanceInvoiceInput, DepositInvoiceInput, FullInvoiceInput, StageI
 import type { QuotationInput } from '../../templates/quotation';
 import type { ReceiptInput } from '../../templates/receipt';
 import type { SurveyMappedInput } from '../survey/map';
+import type { GuaranteeInput } from '../../templates/guarantee';
 import type { Tenant } from '../../themes/types';
 import { buildJobBilling, followOnFor, type RawDocument, type RawPayment } from '../job-billing';
 import { DOC_TYPE_NAMES, type DocType } from '../job-stage';
@@ -73,7 +74,8 @@ export type Mapped =
   | { kind: 'invoice-full'; input: FullInvoiceInput }
   | { kind: 'invoice-stage'; input: StageInvoiceInput }
   | { kind: 'receipt'; input: ReceiptInput }
-  | { kind: 'survey'; input: SurveyMappedInput };
+  | { kind: 'survey'; input: SurveyMappedInput }
+  | { kind: 'guarantee'; input: GuaranteeInput };
 
 /** The figures that are written to the version and the document row when it is finalised. */
 export interface DocumentMoney {
@@ -315,7 +317,8 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
 
 export function mapDocument(f: DocumentFacts, b: BusinessFacts): MapResult {
   if (f.type === 'quotation') return mapQuotation(f, b);
-  if (f.type === 'guarantee' || f.type === 'survey') return { ok: false, missing: [`${DOC_TYPE_NAMES[f.type]}s cannot be finalised here yet.`] };
+  // Survey reports and guarantee certificates are mapped from their own facts (src/lib/survey/map.ts, src/lib/guarantee/map.ts).
+  if (f.type === 'guarantee' || f.type === 'survey') return { ok: false, missing: [`${DOC_TYPE_NAMES[f.type]}s are put together from their own details.`] };
   return mapFollowOn(f, b);
 }
 

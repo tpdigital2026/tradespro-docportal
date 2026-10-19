@@ -25,8 +25,13 @@ import { requireSession, type Session } from '../session';
 import { getStorage, type DocumentStorage } from '../storage';
 import { isApproved } from '../scope/model';
 import { demoBillingState, demoIssueQuote, demoMarkFinal, demoUnissueQuote } from './billing';
+import { demoBusinessFacts as demoBusinessFactsAll } from '../demo-business';
 import { demoSurveyAudited, demoSurveyJob, demoSurveyMarkFinal, demoSurveyPhotos, demoSurveyRevise, demoSurveyRows } from './surveys';
 import { surveyEditHref, surveyEditStep, surveyNotes, surveySummary } from '../survey/page';
+import { demoGuaranteeMarkFinal, demoGuaranteeRows } from '../demo-guarantees';
+import { parseGuaranteeInput, type GuaranteeValues } from '../guarantee/model';
+import { guaranteeEditHref, guaranteeSummary } from '../guarantee/page';
+import { todayLondon } from '../london';
 import { isFindingApproved, isOpinionApproved } from '../survey/model';
 import { withServiceConnection } from './customer-admin';
 import { tagFailures } from '../../pdf/diagnostics';
@@ -252,6 +257,39 @@ function surveyPageFrom(l: Loaded, quote: { id: string; status: 'draft' | 'final
   };
 }
 
+/** A guarantee certificate's page: summarised from the version shown (a final one never changes), never from today's data. */
+function guaranteePageFrom(l: Loaded): DocumentPage {
+  const h = l.head;
+  const status = statusOf(h.status);
+  const newest = h.versions[0];
+  const shown = status === 'final' ? (h.versions.find((v) => v.id === h.currentVersionId) ?? newest) : newest;
+  const values: GuaranteeValues | null = l.guarantee?.values ?? parseGuaranteeInput(shown?.input);
+  const customerName = l.guarantee?.customerName || 'Customer';
+  return {
+    id: h.id,
+    type: h.type,
+    number: h.number,
+    status,
+    date: h.docDate,
+    quoteNumber: h.quoteNumber,
+    jobId: h.jobId,
+    customerId: h.customerId,
+    customerName,
+    versionId: shown?.id ?? null,
+    version: shown?.version ?? 1,
+    finalisedAt: shown?.finalisedAt ?? null,
+    pages: Number((shown?.finalContent as { pages?: unknown } | null)?.pages) || 0,
+    summary: guaranteeSummary(status === 'final' ? parseGuaranteeInput(shown?.input) : values, customerName, h.number, h.quoteNumber, { date: status === 'final' ? h.docDate : todayLondon(), final: status === 'final' }),
+    earlier: [],
+    editHref: status === 'draft' ? guaranteeEditHref(h.id) : null,
+    revise: null,
+    email: null,
+    corrections: [],
+    uncertain: [],
+    isRevision: false,
+  };
+}
+
 function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
   const h = l.head;
   const status = statusOf(h.status);
@@ -328,6 +366,7 @@ export async function getDocumentPage(id: string): Promise<DocumentPage | null> 
     if (first && first.head.status !== 'draft') await demoEnsureFinalFiles(first.head);
     const l = demoLoad(id);
     if (l?.head.type === 'survey') return surveyPageFrom(l, demoQuoteOfJob(l.head.jobId));
+    if (l?.head.type === 'guarantee') return guaranteePageFrom(l);
     return l ? pageFrom(l, { otherDocuments: demoOtherDocs(l.head) }) : null;
   }
   if (!isRealId(id)) return null;
@@ -338,6 +377,7 @@ export async function getDocumentPage(id: string): Promise<DocumentPage | null> 
       const q = await db.query(`select id, status::text as status from public.documents where job_id = $1 and tenant_id = $2 and type = 'quotation'`, [l.head.jobId, s.tenantId]);
       return surveyPageFrom(l, q.rows[0] ? { id: String(q.rows[0].id), status: statusOf(String(q.rows[0].status)) } : null);
     }
+    if (l.head.type === 'guarantee') return guaranteePageFrom(l);
     const others = await db.query(`select count(*)::int as n from public.documents where job_id = $1 and tenant_id = $2 and id <> $3`, [l.head.jobId, s.tenantId, id]);
     return pageFrom(l, { otherDocuments: Number(others.rows[0]?.n ?? 0) });
   });
@@ -466,8 +506,8 @@ export function pdfFilename(number: string, version: number | null): string {
 export async function prepareVersion(tenantId: string, versionId: string): Promise<{ ok: true; mapped: Mapped; tenant: BusinessFacts['tenant']; brand: NonNullable<Loaded['brand']> } | { ok: false; missing: string[] }> {
   const secret = proofSecret(isDemo());
   if (isDemo()) {
-    const ref = demoRefs().find((r) => demoLoad(r.id)?.head.versions.some((v) => v.id === versionId));
-    const l = ref ? demoLoad(ref.id) : null;
+    const ref = [...demoRefs().map((r) => r.id), ...demoGuaranteeRows().map((r) => r.id)].find((id) => demoLoad(id)?.head.versions.some((v) => v.id === versionId));
+    const l = ref ? demoLoad(ref) : null;
     if (!l) return { ok: false, missing: ['That document could not be found.'] };
     const p = prepareLoaded(l, secret);
     return p.ok ? { ok: true, mapped: p.mapped, tenant: p.tenant, brand: p.brand } : p;
@@ -585,7 +625,13 @@ function demoRefs(): DemoDocRef[] {
 
 function demoLibrary(): LibraryItem[] {
   const surveys: LibraryItem[] = demoSurveyRows().map((r) => ({ id: r.id, type: 'survey', number: r.number, status: r.status, date: r.values.surveyDate || r.createdAt.slice(0, 10), customerName: r.customerName, jobId: r.jobId, quoteNumber: demoSurveyJob(r.jobId)?.reference ?? '', totalPence: null, createdAt: r.createdAt }));
-  return [...surveys, ...demoQuoteLibrary()];
+  const guarantees: LibraryItem[] = demoGuaranteeRows().map((r) => ({ id: r.id, type: 'guarantee', number: r.number, status: r.status, date: r.docDate, customerName: demoCustomerFacts(r.customerId).name, jobId: r.jobId, quoteNumber: demoGuaranteeJobRef(r.jobId), totalPence: null, createdAt: r.createdAt }));
+  return [...guarantees, ...surveys, ...demoQuoteLibrary()];
+}
+
+/** The job number of a demo certificate's job: a demo job's own number, or the one made for the certificate. */
+function demoGuaranteeJobRef(jobId: string): string {
+  return demoBusinessFactsAll().jobs.find((j) => j.jobId === jobId)?.quoteNumber ?? demoGuaranteeRows().find((r) => r.jobId === jobId)?.number.replace(/^GC-/, '').replace(/-G\d+$/, '') ?? '';
 }
 
 function demoQuoteOfJob(jobId: string): { id: string; status: 'draft' | 'final' } | null {
@@ -638,8 +684,36 @@ function demoOtherDocs(h: DocumentHead): number {
   return (demoBillingState().documents.get(h.jobId) ?? []).filter((d) => d.id !== h.id).length;
 }
 
+function demoGuaranteeLoad(id: string): Loaded | null {
+  const r = demoGuaranteeRows().find((x) => x.id === id);
+  if (!r) return null;
+  const st = docState(id);
+  const versions = [
+    ...(r.status === 'draft' ? [{ id: `demo-ver-${id}-v1`, version: 1, finalisedAt: null, pdfPath: null, input: { schema: 1, guarantee: r.values }, finalContent: null, money: null, bankAccountId: null }] : []),
+    ...[...st.finals].reverse().map((f) => ({ id: f.versionId, version: f.version, finalisedAt: f.finalisedAt, pdfPath: f.pdfPath, input: { schema: 1, guarantee: r.values }, finalContent: f.finalContent ?? { pages: f.pages }, money: f.money ?? null, bankAccountId: null })),
+  ];
+  const last = st.finals[st.finals.length - 1];
+  const jobRef = demoGuaranteeJobRef(r.jobId);
+  const head: DocumentHead = {
+    id,
+    type: 'guarantee',
+    number: r.number,
+    status: r.status,
+    docDate: r.docDate,
+    jobId: r.jobId,
+    customerId: r.customerId,
+    quoteNumber: jobRef,
+    currentVersionId: r.status === 'draft' ? (versions[0]?.id ?? null) : (last?.versionId ?? null),
+    pdfPath: r.status === 'draft' ? null : (last?.pdfPath ?? null),
+    finalisedAt: r.status === 'draft' ? null : (last?.finalisedAt ?? null),
+    versions,
+  };
+  return { head, facts: null, problems: [], business: demoBusinessFacts(), brand: demoRenderBrand(undefined, demoSignatureForDocuments()), bankLabel: null, bankAccountId: null, guarantee: { number: r.number, jobReference: jobRef, customerName: demoCustomerFacts(r.customerId).name, values: structuredClone(r.values) } };
+}
+
 function demoLoad(id: string): Loaded | null {
   if (id.startsWith('demo-survey-')) return demoSurveyLoad(id);
+  if (id.startsWith('demo-guarantee-')) return demoGuaranteeLoad(id);
   const r = demoRefs().find((x) => x.id === id);
   if (!r) return null;
   const st = docState(id);
@@ -774,6 +848,7 @@ async function demoFinalise(s: Session, a: FinaliseArgs, secret: string): Promis
     demoIssueQuote({ jobId: l.head.jobId, form: l.facts!.quoteForm, documentId: a.documentId });
     demoRemoveDraft(l.head.jobId);
   } else if (l.head.type === 'survey') demoSurveyMarkFinal(a.documentId);
+  else if (l.head.type === 'guarantee') demoGuaranteeMarkFinal(a.documentId, todayLondon());
   else demoMarkFinal(l.head.jobId, a.documentId);
   return { documentId: a.documentId, versionId: newest.id, pdfPath, pages: out.pngPages.length, already: false };
 }

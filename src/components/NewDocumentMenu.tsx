@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { newDocumentHref, type DocType } from '../lib/job-stage';
 
-type Item = { type: DocType; name: string; soon?: true };
+type Item = { type: DocType; name: string };
 const GROUPS: { label: string; items: Item[] }[] = [
   { label: 'Start a job', items: [{ type: 'quotation', name: 'Quotation' }, { type: 'survey', name: 'Survey report' }] },
   {
@@ -17,7 +17,7 @@ const GROUPS: { label: string; items: Item[] }[] = [
       { type: 'receipt', name: 'Receipt' },
     ],
   },
-  { label: 'Finish up', items: [{ type: 'guarantee', name: 'Guarantee certificate', soon: true }] },
+  { label: 'Finish up', items: [{ type: 'guarantee', name: 'Guarantee certificate' }] },
 ];
 
 /**
@@ -98,7 +98,6 @@ export function NewDocumentMenu({ label = 'New document' }: { label?: string }) 
             {g.items.map((i) => (
               <Link key={i.type} href={newDocumentHref(i.type)} role="menuitem" tabIndex={-1} className="newdoc-item" onClick={() => setOpen(false)}>
                 <span>{i.name}</span>
-                {i.soon ? <span className="newdoc-soon">Coming soon</span> : null}
               </Link>
             ))}
           </div>

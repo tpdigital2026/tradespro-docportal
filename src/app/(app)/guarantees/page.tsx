@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ButtonLink } from '../../../components/Button';
 import { EmptyState } from '../../../components/EmptyState';
 import { PageHeader } from '../../../components/PageHeader';
 import { filterGuarantees, guaranteeRows, isGuaranteeFilter, type GuaranteeFilter, type GuaranteeRow } from '../../../lib/business/guarantees';
@@ -71,13 +72,13 @@ export default async function GuaranteesPage({ searchParams }: { searchParams: P
 
   return (
     <div className="page page-mid">
-      <PageHeader muted="Your" title="guarantees" lede="Every guarantee certificate you have issued, newest first, with the year each one runs out." />
+      <PageHeader muted="Your" title="guarantees" lede="Every guarantee certificate you have issued, newest first, with the year each one runs out." action={<ButtonLink href="/documents/new?type=guarantee">Issue a guarantee</ButtonLink>} />
       {isDemo() ? <p className="demo-chip">Demo mode. Everything here is dummy data.</p> : null}
 
       {!facts ? (
         <p className="form-error" role="alert">We could not load your guarantees just now. Please try again.</p>
       ) : all.length === 0 ? (
-        <EmptyState icon="docs" title="No guarantees issued yet">
+        <EmptyState icon="docs" title="No guarantees issued yet" action={<ButtonLink href="/documents/new?type=guarantee">Issue a guarantee</ButtonLink>}>
           When you issue a guarantee certificate for a finished job, it is listed here with its customer, how long it lasts and the year it runs out.
         </EmptyState>
       ) : (

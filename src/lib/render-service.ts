@@ -21,6 +21,7 @@ import { inStage, logRenderOk } from '../pdf/diagnostics';
 import { renderRuntime } from '../pdf/engine';
 import { renderPdf, screenshotEachPage } from '../pdf/render';
 import { buildBalanceInvoice, buildDepositInvoice, buildFullInvoice, buildStageInvoice } from '../templates/invoice';
+import { buildGuarantee } from '../templates/guarantee';
 import { buildQuotation } from '../templates/quotation';
 import { buildReceipt } from '../templates/receipt';
 import { buildSurvey } from '../templates/survey';
@@ -121,6 +122,9 @@ export function renderMapped(mapped: Mapped, tenant: Tenant, brand: Brand, open:
             break;
           case 'receipt':
             docHtml = buildReceipt(mapped.input, tenant, brand);
+            break;
+          case 'guarantee':
+            docHtml = buildGuarantee(mapped.input, tenant, brand);
             break;
           case 'survey': {
             const { resolveSurveyPhotos } = await import('./survey/render');

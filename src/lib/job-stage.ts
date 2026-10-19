@@ -239,6 +239,8 @@ export function nextStepHref(step: NextStep, job: string): string {
 }
 
 export const MAX_RECEIPTS_PER_INSTALMENT = 99;
+/** One certificate per roof type, so a job never needs more than this many. */
+export const MAX_GUARANTEES_PER_JOB = 20;
 
 /**
  * Numbers follow the job's quote number: INV-{q}-D, INV-{q}-B, INV-{q}, INV-{q}-S{n}, and for receipts
@@ -255,6 +257,8 @@ export function documentNumberFor(type: DocType, quote: string, kind: PlanKind, 
     else base = index >= 1 && index <= 10 ? `RCP-${quote}-S${index}` : null;
     return base === null ? null : seq === 1 ? base : `${base}-P${seq}`;
   }
+  // A guarantee certificate: the first on a job is GC-{q}, later ones GC-{q}-G2 to GC-{q}-G20 (seq is its 1-based position).
+  if (type === 'guarantee') return Number.isInteger(seq) && seq >= 1 && seq <= MAX_GUARANTEES_PER_JOB ? (seq === 1 ? `GC-${quote}` : `GC-${quote}-G${seq}`) : null;
   if (type === 'deposit-invoice') return kind === 'deposit' && index === 1 ? `INV-${quote}-D` : null;
   if (type === 'balance-invoice') return kind === 'deposit' && index === 2 ? `INV-${quote}-B` : null;
   if (type === 'invoice-full') return kind === 'full' && index === 1 ? `INV-${quote}` : null;

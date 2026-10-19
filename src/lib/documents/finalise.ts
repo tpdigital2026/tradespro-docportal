@@ -21,6 +21,8 @@ import { loadHeadWith, loadWith, type DocumentHead, type Loaded } from './facts-
 import { allPagesRead, contentKey } from './read-proof';
 import { confirmationFor } from './confirmation';
 import { mapSurvey } from '../survey/map';
+import { mapGuarantee } from '../guarantee/map';
+import { todayLondon } from '../london';
 import { surveyApprovalProblemsWith } from '../survey/approval-sql';
 import { parseSurveyInput } from '../survey/facts-sql';
 import { withoutApprovals } from '../survey/model';
@@ -70,6 +72,16 @@ export function prepareLoaded(l: Loaded, secret: string): Prepared {
     const mapped: Mapped = { kind: 'survey', input: s.input };
     const json = JSON.stringify(mapped);
     return { ok: true, mapped, money: { netPence: 0, vatPence: 0, grossPence: 0 }, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, json, TEMPLATE_VERSION), mappedJson: json };
+  }
+  if (l.head.type === 'guarantee') {
+    if (!l.guarantee || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };
+    const g = mapGuarantee(l.guarantee, l.business, todayLondon());
+    if (!g.ok || missing.length > 0) return { ok: false, missing: [...new Set([...missing, ...(g.ok ? [] : g.missing)])] };
+    const mapped: Mapped = { kind: 'guarantee', input: g.input };
+    // The content key covers the business details and the brand kit too (the website, email, company number and signature are printed).
+    const brandPrint = createHash('sha256').update(JSON.stringify(l.brand)).digest('hex');
+    const json = JSON.stringify(mapped);
+    return { ok: true, mapped, money: { netPence: 0, vatPence: 0, grossPence: 0 }, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, JSON.stringify({ mapped, tenant: l.business.tenant, brand: brandPrint }), TEMPLATE_VERSION), mappedJson: json };
   }
   if (!l.facts || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };
   const r = mapDocument(l.facts, l.business);
@@ -304,8 +316,10 @@ export async function finaliseWith(
     );
     await db.query(
       `update public.documents set status = 'final', current_version_id = $1, total_pence = $2, pdf_path = $3, finalised_at = now() where id = $4 and tenant_id = $5`,
-      [newest.id, p.mapped.kind === 'survey' ? null : p.money.grossPence, pdfPath, head.id, actor.tenantId],
+      [newest.id, p.mapped.kind === 'survey' || p.mapped.kind === 'guarantee' ? null : p.money.grossPence, pdfPath, head.id, actor.tenantId],
     );
+    // A certificate is issued today (London): the date it is finalised, whatever day the draft was started, never backdated.
+    if (head.type === 'guarantee') await db.query(`update public.documents set doc_date = $1 where id = $2 and tenant_id = $3`, [todayLondon(), head.id, actor.tenantId]);
     if (head.type === 'quotation') await db.query(`update public.jobs set status = 'quoted' where id = $1 and tenant_id = $2 and status = 'open'`, [head.jobId, actor.tenantId]);
 
     const ids = { document: compactId(head.id), version: compactId(newest.id) };

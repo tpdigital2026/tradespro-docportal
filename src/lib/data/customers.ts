@@ -1,3 +1,4 @@
+import { demoGuaranteeRows } from '../demo-guarantees';
 import { cookies } from 'next/headers';
 import { accessCookieName } from '../auth-cookies';
 import { demoCustomers, demoQuotes } from '../demo-data';
@@ -230,9 +231,10 @@ export async function getRetentionDays(): Promise<number> {
 export async function listCustomerDocuments(customerId: string): Promise<CustomerDocument[]> {
   await requireSession();
   if (isDemo()) {
-    return demoQuotes
-      .filter((q) => q.customerId === customerId)
-      .map((q) => ({ id: q.id, type: 'quotation', number: q.quoteNumber, status: q.status === 'final' ? 'final' : 'draft', date: q.date }));
+    return [
+      ...demoQuotes.filter((q) => q.customerId === customerId).map((q) => ({ id: q.id, type: 'quotation', number: q.quoteNumber, status: q.status === 'final' ? 'final' : 'draft', date: q.date })),
+      ...demoGuaranteeRows().filter((g) => g.customerId === customerId).map((g) => ({ id: g.id, type: 'guarantee', number: g.number, status: g.status, date: g.docDate })),
+    ].sort((a, b) => b.date.localeCompare(a.date));
   }
   return listCustomerDocumentsWith(await ownerClient(), customerId);
 }

@@ -125,12 +125,12 @@ export const MAX_EXTRAS = 10;
 export const NUMBER_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{1,39}$/;
 /**
  * Document numbers are built from the quote number: INV-{q}-D, INV-{q}-B, INV-{q}, INV-{q}-S{n}, RCP-{q}..., with -P{k} on later
- * receipts, and guarantees and survey reports use GC-, SR-, GUA- and SUR-. A quote number that ends like one of those endings, or starts like one
+ * receipts, guarantees use GC-{q} and GC-{q}-G{k}, and survey reports use SR-. A quote number that ends like one of those endings, or starts like one
  * of those prefixes, could make two jobs produce the same document number, so it is refused here and by the database.
  */
-export const NUMBER_SUFFIX_RE = /-(?:D|B|S\d+|P\d+)$/;
+export const NUMBER_SUFFIX_RE = /-(?:D|B|S\d+|P\d+|G\d+)$/;
 export const NUMBER_PREFIX_RE = /^(?:INV|RCP|GC|SR|GUA|SUR)-/;
-export const NUMBER_SUFFIX_MESSAGE = 'A quote number cannot start with INV-, RCP-, GC-, SR-, GUA- or SUR-, or end in -D, -B, -S or -P and a number, because document numbers use those';
+export const NUMBER_SUFFIX_MESSAGE = 'A quote number cannot start with INV-, RCP-, GC-, SR-, GUA- or SUR-, or end in -D, -B, -S, -P or -G and a number, because document numbers use those';
 /** The reason a well-formed quote number cannot be used, or null. */
 export function quoteNumberReserved(n: string): string | null {
   return NUMBER_SUFFIX_RE.test(n) || NUMBER_PREFIX_RE.test(n) ? NUMBER_SUFFIX_MESSAGE : null;

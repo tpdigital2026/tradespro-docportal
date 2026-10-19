@@ -12,6 +12,7 @@ import { DOC_TYPE_NAMES, isInvoiceType, isDocType } from '../../../../lib/job-st
 import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
 import { SurveyNewView } from './SurveyNewView';
+import { GuaranteeNewView } from './GuaranteeNewView';
 import { jobIdForReference, surveyedJob, surveyQuoteNote } from '../../../../lib/data/survey-links';
 import { redirect } from 'next/navigation';
 import { StepperBoundary } from './StepperBoundary';
@@ -32,6 +33,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     }
     return { title: 'New quotation', description: 'Price a job step by step. The draft saves as you go.' };
   }
+  if (type === 'guarantee') return { title: first(sp.draft) ? 'Guarantee certificate' : 'New guarantee certificate', description: 'The roof, the years and the date the work was completed. The draft saves as you go.' };
   if (type === 'survey') return { title: first(sp.draft) ? 'Survey report' : 'New survey report', description: 'Photos and one line for each finding, then your professional opinion. The draft saves as you go.' };
   if (isDocType(type)) return { title: `New ${DOC_TYPE_NAMES[type].toLowerCase()}`, description: 'Start a document from a saved job.' };
   return { title: 'New document', description: 'Choose the document you need: a quotation, an invoice, a receipt or a guarantee.' };
@@ -50,6 +52,8 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
       </div>
     );
   }
+
+  if (type === 'guarantee') return <GuaranteeNewView draft={first(sp.draft)} job={first(sp.job)} />;
 
   if (type === 'survey') return <SurveyNewView draft={first(sp.draft)} step={first(sp.step)} job={first(sp.job)} revised={first(sp.revised) === '1'} />;
 

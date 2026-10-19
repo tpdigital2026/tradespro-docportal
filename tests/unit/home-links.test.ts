@@ -141,8 +141,9 @@ describe('Home in demo mode: every link and button lands on a working page', () 
     expect(html.match(/btn btn-primary jt-go/g)?.length).toBe(1);
     const waiting = await renderHome({ view: 'waiting' });
     expect(waiting.html).toMatch(/Mark [^<]* as paid|Record the rest/);
-    // The one document not built yet says so in the menu, so it never looks like a broken link.
-    expect(html).toMatch(/Guarantee certificate<\/span><span class="newdoc-soon">Coming soon<\/span>/);
+    // Every document in the menu is live: the guarantee certificate has no "Coming soon" marker.
+    expect(html).toMatch(/Guarantee certificate<\/span><\/a>/);
+    expect(html).not.toContain('Coming soon');
     // No document tiles or banner on Home any more.
     expect(html).not.toMatch(/class="tiles"|class="hero/);
   });

@@ -49,7 +49,9 @@ describe.skipIf(!dbAvailable)('invoice and receipt numbers', () => {
         ['receipt', `RCP-${q}-D-P3`],
         ['receipt', `RCP-${q}-P99`],
         ['receipt', `RCP-${q}-S10-P99`],
-        ['guarantee', 'GUA-anything-1'],
+        ['guarantee', `GC-${q}`],
+        ['guarantee', `GC-${q}-G2`],
+        ['guarantee', `GC-${q}-G20`],
         ['survey_report', `SR-${q}`], // migration 020: a survey report is numbered after its job
       ];
       for (const [type, number] of good) {
@@ -470,7 +472,7 @@ describe.skipIf(!dbAvailable)('job references cannot look like document numbers 
   it('refuses endings -D, -B, -S{n}, -P{n} and prefixes INV-, RCP-, GC-, SR-, for the server and the app role', async () => {
     await withRollback(async (c) => {
       const a = await seedTenant(c, 'Alpha');
-      const bad = ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-S10', 'Q1-P2', 'Q-5-P99', 'INV-100', 'RCP-100', 'GC-100', 'SR-100', 'GUA-100', 'SUR-100', 'A/B-D'];
+      const bad = ['Q1-D', 'Q1-B', 'Q1-S2', 'Q1-S10', 'Q1-P2', 'Q-5-P99', 'INV-100', 'RCP-100', 'GC-100', 'Q-5-G2', 'Q-5-G20', 'SR-100', 'GUA-100', 'SUR-100', 'A/B-D'];
       const ins = `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, $3)`;
       for (const ref of bad) await expectFail(c, ins, [a.tenantId, a.customerId, ref], /jobs_reference_not_document_like/);
       await actAs(c, a.userId);

@@ -44,7 +44,6 @@
 }
 .newdoc-item:hover, .newdoc-item:focus-visible { background: var(--paper-alt); }
 .newdoc-item:focus-visible { outline-offset: calc(var(--stroke) * -1); box-shadow: none; }
-.newdoc-soon { white-space: nowrap; font-size: var(--fs-12); font-weight: 500; color: var(--ink-muted); }
 @media (max-width: 759px) {
   /* Phones: a bottom sheet above the tab bar, with a dimmed page behind it. */
   .newdoc-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: var(--backdrop); }

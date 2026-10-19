@@ -131,7 +131,7 @@ async function waitUntilBlocked(setup: Client, pid: number) {
 const WRITES: Record<string, (fx: Fx) => { sql: string; params: unknown[] }> = {
   'photo insert': (fx) => ({ sql: `insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, params: [fx.tenantId, fx.jobId, fx.customerId] }),
   'photo path update': (fx) => ({ sql: `update public.job_photos set storage_path = tenant_id::text || '/' || $2::uuid::text || '/' || job_id::text || '/' || id::text || '.jpg' where tenant_id = $1`, params: [fx.tenantId, fx.customerId] }),
-  'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'guarantee', 'IN-LOCK-002', $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
+  'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) select $1, $2, 'guarantee', 'GC-' || j.reference, $3 from public.jobs j where j.id = $2 and j.tenant_id = $1`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
   'job insert': (fx) => ({ sql: `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-003')`, params: [fx.tenantId, fx.customerId] }),
   'draft version update': (fx) => ({ sql: `update public.document_versions set input = '{"x":1}' where id = $1`, params: [fx.versionId] }),
   'appointment insert': (fx) => ({ sql: `insert into public.appointments (tenant_id, kind, title, starts_at, customer_id) values ($1, 'survey', 'Late', now() + interval '1 day', $2)`, params: [fx.tenantId, fx.customerId] }),
