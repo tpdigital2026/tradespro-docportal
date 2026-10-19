@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { brandImagesFrom, imageFromRow, shareCardFromRow } from '../../src/lib/brand';
-import { homeBannerFor } from '../../src/components/HomeHero';
 import { DEMO_BRAND, TRADESPRO_BRAND } from '../../src/lib/brand-core';
 
 const T = '11111111-1111-4111-8111-111111111111';
@@ -29,10 +28,9 @@ describe('brand images from the brand kit', () => {
     expect(brandImagesFrom(null, T, [{ kind: 'hero_image', storage_path: `${T}/hero-1400.jpg`, width: 1400, height: 864, alt: '' }], list)).toEqual({ heroImage: null, signInPhoto: null, shareCard: null });
   });
 
-  it('the Home banner follows the brand data, not the slug', () => {
-    expect(homeBannerFor(DEMO_BRAND)?.src).toBe('/brands/fjc/hero-1400.jpg');
-    expect(homeBannerFor({ ...DEMO_BRAND, heroImage: null })).toBeNull();
-    expect(homeBannerFor(TRADESPRO_BRAND)).toBeNull();
+  it('the banner image follows the brand data, not the slug', () => {
+    expect(DEMO_BRAND.heroImage?.src).toBe('/brands/fjc/hero-1400.jpg');
+    expect(TRADESPRO_BRAND.heroImage ?? null).toBeNull();
   });
 });
 
