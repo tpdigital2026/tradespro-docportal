@@ -2,6 +2,7 @@ import type { Db } from '../security/login-guard';
 import { scopeExamplesSchema } from '../lib/scope/examples';
 import { FJC_SCOPE_EXAMPLES } from '../lib/scope/fjc-examples';
 import { FJC_WORDING, tenantWordingSchema } from './wording';
+import { seedSurveyWording } from './seed-survey';
 
 // Taken from tests/fixtures/fjc.ts (the approved FJC brand).
 export const FJC_COLOURS: Record<string, string> = {
@@ -28,6 +29,7 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
     // Wording added after the first seed: fill it in where it is still empty, never overwrite the business's own edits.
     await seedScopeExamples(db, existing.rows[0].id);
     await seedBrandImages(db, existing.rows[0].id);
+    await seedSurveyWording(db, existing.rows[0].id);
     return { tenantId: existing.rows[0].id, created: false };
   }
 

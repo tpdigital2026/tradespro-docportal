@@ -11,7 +11,7 @@ async function customerWithJob(c: import('pg').Client, tenantId: string, ref: st
   const doc = await c.query(`insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'quotation', $3, $4) returning id`, [tenantId, job.rows[0].id, ref, `${tenantId}/pdfs/${ref}.pdf`]);
   await c.query(`update public.customers set purge_at = ${purgeAtSql} where id = $1`, [cust.rows[0].id]);
   const v = await c.query(`insert into public.document_versions (tenant_id, document_id, version, pdf_path, finalised_at) values ($1, $2, 1, $3, now()) returning id`, [tenantId, doc.rows[0].id, `${tenantId}/pdfs/${ref}-v1.pdf`]);
-  await c.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [tenantId, job.rows[0].id, `${tenantId}/photos/${ref}.jpg`]);
+  await c.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [tenantId, job.rows[0].id, cust.rows[0].id]);
   await c.query(`update public.customers set purge_at = ${purgeAtSql} where id = $1`, [cust.rows[0].id]);
   return { customerId: cust.rows[0].id as string, jobId: job.rows[0].id as string, documentId: doc.rows[0].id as string, versionId: v.rows[0].id as string };
 }
@@ -70,7 +70,7 @@ async function committedFixture() {
     const documentId = doc.rows[0].id as string;
     const ver = await setup.query(`insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 1) returning id`, [tenantId, documentId]);
     const versionId = ver.rows[0].id as string;
-    await setup.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [tenantId, jobId, `${tenantId}/photos/fixture.jpg`]);
+    await setup.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [tenantId, jobId, customerId]);
     await setup.query(`insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'lock-hash', now() + interval '1 day')`, [tenantId, documentId]);
     await setup.query(`insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [tenantId, documentId]);
     await setup.query(`insert into public.ai_runs (tenant_id, document_id, model) values ($1, $2, 'm')`, [tenantId, documentId]);
@@ -128,8 +128,8 @@ async function waitUntilBlocked(setup: Client, pid: number) {
 }
 
 const WRITES: Record<string, (fx: Fx) => { sql: string; params: unknown[] }> = {
-  'photo insert': (fx) => ({ sql: `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/photos/late.jpg`] }),
-  'photo path update': (fx) => ({ sql: `update public.job_photos set storage_path = $2 where tenant_id = $1`, params: [fx.tenantId, `${fx.tenantId}/photos/moved.jpg`] }),
+  'photo insert': (fx) => ({ sql: `insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, params: [fx.tenantId, fx.jobId, fx.customerId] }),
+  'photo path update': (fx) => ({ sql: `update public.job_photos set storage_path = tenant_id::text || '/' || $2::uuid::text || '/' || job_id::text || '/' || id::text || '.jpg' where tenant_id = $1`, params: [fx.tenantId, fx.customerId] }),
   'document insert': (fx) => ({ sql: `insert into public.documents (tenant_id, job_id, type, number, pdf_path) values ($1, $2, 'guarantee', 'IN-LOCK-002', $3)`, params: [fx.tenantId, fx.jobId, `${fx.tenantId}/pdfs/IN-LOCK-002.pdf`] }),
   'job insert': (fx) => ({ sql: `insert into public.jobs (tenant_id, customer_id, reference) values ($1, $2, 'QT-LOCK-003')`, params: [fx.tenantId, fx.customerId] }),
   'draft version update': (fx) => ({ sql: `update public.document_versions set input = '{"x":1}' where id = $1`, params: [fx.versionId] }),
@@ -200,7 +200,7 @@ describe.skipIf(!dbAvailable)('purge claim locks (two connections)', () => {
         const claimed = await claimer.query(`select id from private.claim_expired_customers(now())`);
         expect(claimed.rows.map((r) => r.id)).toContain(fx.customerId);
         const listed = await claimer.query(`select private.expired_storage_paths($1::uuid[]) as p`, [[fx.customerId]]);
-        expect(listed.rows.map((r) => r.p).sort()).toEqual([`${fx.tenantId}/pdfs/QT-LOCK-001.pdf`, `${fx.tenantId}/photos/fixture.jpg`]);
+        expect(listed.rows.map((r) => r.p).sort()).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.jpg$/), `${fx.tenantId}/pdfs/QT-LOCK-001.pdf`]);
         const w = write(fx);
         const pending = rival.query(w.sql, w.params).then((r) => ({ rowCount: r.rowCount, code: undefined as string | undefined }), (e) => ({ rowCount: -1, code: (e as { code?: string }).code }));
         await waitUntilBlocked(fx.setup, pid);
@@ -275,7 +275,7 @@ describe.skipIf(!dbAvailable)('purge protocol and erase', () => {
       const old = await customerWithJob(c, t.tenantId, 'QT-OLD-001', `now() - interval '1 day'`);
       const live = await customerWithJob(c, t.tenantId, 'QT-NEW-001', `now() + interval '10 days'`);
       const paths = await c.query(`select private.expired_storage_paths($1::uuid[]) as p`, [[old.customerId, live.customerId]]);
-      expect(paths.rows.map((r) => r.p).sort()).toEqual([`${t.tenantId}/pdfs/QT-OLD-001-v1.pdf`, `${t.tenantId}/pdfs/QT-OLD-001.pdf`, `${t.tenantId}/photos/QT-OLD-001.jpg`]);
+      expect(paths.rows.map((r) => r.p).sort()).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.jpg$/), `${t.tenantId}/pdfs/QT-OLD-001-v1.pdf`, `${t.tenantId}/pdfs/QT-OLD-001.pdf`]);
       const none = await c.query(`select private.expired_storage_paths($1::uuid[]) as p`, [[live.customerId]]);
       expect(none.rows).toHaveLength(0);
     });
@@ -337,7 +337,7 @@ describe.skipIf(!dbAvailable)('purge protocol and erase', () => {
       const wrong = await c.query(`select private.customer_storage_paths($1, $2) as p`, [b.tenantId, ca.customerId]);
       expect(wrong.rows).toHaveLength(0);
       const right = await c.query(`select private.customer_storage_paths($1, $2) as p`, [a.tenantId, ca.customerId]);
-      expect(right.rows.map((r) => r.p).sort()).toEqual([`${a.tenantId}/pdfs/QT-A-001-v1.pdf`, `${a.tenantId}/pdfs/QT-A-001.pdf`, `${a.tenantId}/photos/QT-A-001.jpg`]);
+      expect(right.rows.map((r) => r.p).sort()).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.jpg$/), `${a.tenantId}/pdfs/QT-A-001-v1.pdf`, `${a.tenantId}/pdfs/QT-A-001.pdf`]);
     });
   });
 
@@ -456,6 +456,9 @@ describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
       const claimer = await fx.client();
       const rival = await fx.client();
       const pid = (await rival.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+      const before = (await fx.setup.query(`select storage_path from public.job_photos where tenant_id = $1`, [fx.tenantId])).rows.map((r) => String(r.storage_path));
+      expect(before).toHaveLength(1);
+      expect(before[0]).toBe(`${fx.tenantId}/${fx.customerId}/${fx.jobId}/${before[0].split('/')[3]}`);
       await claimer.query('begin');
       const wrong = await claimer.query(`select private.claim_customer($1, $2) as ok`, [fx.tenantId, '00000000-0000-0000-0000-000000000000']);
       expect(wrong.rows[0].ok).toBe(false);
@@ -468,11 +471,12 @@ describe.skipIf(!dbAvailable)('owner erase locks (two connections)', () => {
         await other.query('rollback');
       }
       const pending = rival
-        .query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $3)`, [fx.tenantId, fx.jobId, `${fx.tenantId}/photos/late.jpg`])
+        .query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [fx.tenantId, fx.jobId, fx.customerId])
         .then(() => null, (e) => e as { code?: string });
       await waitUntilBlocked(fx.setup, pid);
       const paths = await claimer.query(`select private.customer_storage_paths($1, $2) as p`, [fx.tenantId, fx.customerId]);
-      expect(paths.rows.map((r) => r.p)).not.toContain(`${fx.tenantId}/photos/late.jpg`);
+      // The waiting insert added no photo: the only photo listed is the fixture's own, in the real path scheme.
+      expect(paths.rows.map((r) => String(r.p)).filter((p) => p.endsWith('.jpg'))).toEqual(before);
       const erased = await claimer.query(`select private.erase_customer($1, $2) as n`, [fx.tenantId, fx.customerId]);
       expect(erased.rows[0].n).toBe(1);
       await claimer.query('commit');

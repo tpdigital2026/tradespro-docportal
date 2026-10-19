@@ -23,6 +23,7 @@ import { renderPdf, screenshotEachPage } from '../pdf/render';
 import { buildBalanceInvoice, buildDepositInvoice, buildFullInvoice, buildStageInvoice } from '../templates/invoice';
 import { buildQuotation } from '../templates/quotation';
 import { buildReceipt } from '../templates/receipt';
+import { buildSurvey } from '../templates/survey';
 import type { Brand, Tenant } from '../themes/types';
 import type { Mapped } from './documents/map';
 import { SIGNATURE_OUT_H, SIGNATURE_OUT_W, stripPng, type Reencoded, type Sniffed } from './signature-image';
@@ -121,6 +122,12 @@ export function renderMapped(mapped: Mapped, tenant: Tenant, brand: Brand, open:
           case 'receipt':
             docHtml = buildReceipt(mapped.input, tenant, brand);
             break;
+          case 'survey': {
+            const { resolveSurveyPhotos } = await import('./survey/render');
+            const { getStorage } = await import('./storage');
+            docHtml = await buildSurvey(page, await resolveSurveyPhotos(mapped.input, getStorage()), tenant, brand);
+            break;
+          }
         }
         ms.build = Date.now() - t;
         t = Date.now();

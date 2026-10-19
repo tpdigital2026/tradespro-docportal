@@ -157,7 +157,8 @@ describe.skipIf(!dbAvailable)('tenant isolation', () => {
       await expectFail(c, `update public.documents set current_version_id = $1 where id = $2`, [b.versionId, a.docId], fk);
       // The same composite keys hold for the server, which bypasses row level security.
       await actAsServer(c);
-      await expectFail(c, `insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $1::uuid::text || '/x.jpg')`, [a.tenantId, b.jobId], fk);
+      // A path of the right shape, so the foreign key (not the path check) is what refuses it.
+      await expectFail(c, `insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [a.tenantId, b.jobId, a.customerId], fk);
       await expectFail(c, `update public.jobs set customer_id = $1 where id = $2`, [b.customerId, a.jobId], fk);
     });
   });

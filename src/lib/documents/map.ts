@@ -11,6 +11,7 @@ import type { BankDetails, Customer as PartyCustomer } from '../../templates/fin
 import type { BalanceInvoiceInput, DepositInvoiceInput, FullInvoiceInput, StageInvoiceInput } from '../../templates/invoice';
 import type { QuotationInput } from '../../templates/quotation';
 import type { ReceiptInput } from '../../templates/receipt';
+import type { SurveyMappedInput } from '../survey/map';
 import type { Tenant } from '../../themes/types';
 import { buildJobBilling, followOnFor, type RawDocument, type RawPayment } from '../job-billing';
 import { DOC_TYPE_NAMES, type DocType } from '../job-stage';
@@ -71,7 +72,8 @@ export type Mapped =
   | { kind: 'balance-invoice'; input: BalanceInvoiceInput }
   | { kind: 'invoice-full'; input: FullInvoiceInput }
   | { kind: 'invoice-stage'; input: StageInvoiceInput }
-  | { kind: 'receipt'; input: ReceiptInput };
+  | { kind: 'receipt'; input: ReceiptInput }
+  | { kind: 'survey'; input: SurveyMappedInput };
 
 /** The figures that are written to the version and the document row when it is finalised. */
 export interface DocumentMoney {

@@ -285,6 +285,12 @@ select.input { appearance: auto; }
 .tile.is-paid:hover { background: var(--blue-200); }
 .tile.is-finish:hover { background: var(--steel-200); }
 .tile.is-start:hover { background: var(--accent-hover); box-shadow: var(--shadow-lg); }
+/* The survey report also starts a job, but it is not the primary action: outlined in the brand colour. */
+.tile.is-start.is-start-alt { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
+.tile.is-start.is-start-alt:hover { background: var(--blue-100); box-shadow: inset 0 0 0 var(--stroke) var(--accent), var(--shadow-md); }
+.tile.is-start.is-start-alt .tile-icon { background: var(--blue-100); color: var(--accent-ink); }
+.tile.is-start.is-start-alt .tile-blurb { color: var(--ink-muted); }
+.tile.is-start.is-start-alt .tile-go { color: var(--accent-ink); }
 .tile-icon { display: grid; place-items: center; width: var(--icon-chip); height: var(--icon-chip); border-radius: var(--radius); background: var(--paper); color: var(--accent-ink); box-shadow: var(--shadow-sm); }
 .tile.is-finish .tile-icon { color: var(--ink); }
 .tile.is-start .tile-icon { background: color-mix(in srgb, var(--w) 18%, transparent); color: var(--on-accent); box-shadow: none; }

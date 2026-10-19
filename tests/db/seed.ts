@@ -41,7 +41,7 @@ export async function seedTenant(c: Client, name: string): Promise<SeededTenant>
   );
   await c.query(`insert into public.job_types (tenant_id, key, label) values ($1, 'flat_roof', 'Flat roof')`, [t.tenantId]);
   await c.query(`insert into public.tenant_defaults (tenant_id) values ($1)`, [t.tenantId]);
-  await c.query(`insert into public.job_photos (tenant_id, job_id, storage_path) values ($1, $2, $1::uuid::text || '/photo.jpg')`, [t.tenantId, job.rows[0].id]);
+  await c.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [t.tenantId, job.rows[0].id, cust.rows[0].id]);
   await c.query(
     `insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, $3, now() + interval '7 days')`,
     [t.tenantId, doc.rows[0].id, `hash-${t.tenantId}`],

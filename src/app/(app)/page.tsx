@@ -13,6 +13,7 @@ import { listJobSummaries } from '../../lib/data/billing';
 import { listDraftQuotes, type DraftListItem } from '../../lib/data/quotes';
 import { listLibrary, quoteDocumentIdFor, type LibraryItem } from '../../lib/data/documents';
 import { requireSession } from '../../lib/session';
+import { listSurveyedJobs } from '../../lib/data/survey-links';
 
 export const metadata: Metadata = { title: 'Home', description: 'Start a document, pick up a draft and see what is next for each job.' };
 
@@ -41,6 +42,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   } catch {
     jobs = [];
   }
+  // Surveyed jobs waiting for their quote come first: the quote is the next thing to write.
+  jobs = [...(await listSurveyedJobs().catch(() => [])), ...jobs];
   let recent: LibraryItem[] = [];
   try {
     recent = (await listLibrary({ limit: 6 })).items;

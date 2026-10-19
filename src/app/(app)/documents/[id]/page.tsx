@@ -11,6 +11,8 @@ import { requireSession } from '../../../../lib/session';
 import { DownloadButton } from './DownloadButton';
 import { EmailPanel } from './EmailPanel';
 import { ReviseForm } from './ReviseForm';
+import { SurveyNext } from './SurveyNext';
+import { SurveyReviseForm } from './SurveyReviseForm';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -49,7 +51,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
       <PageHeader eyebrow={`Draft ${name.toLowerCase()}`} title={doc.type === 'quotation' ? `Quote ${doc.number}` : doc.number} lede={`For ${doc.customerName}. Check what was entered, then preview every page before it becomes final.`} />
       {saved ? <p className="flash" role="status">Saved. Preview it when you are ready.</p> : null}
       {doc.isRevision ? (
-        <p className="doc-note" role="note">This is version {doc.version}, a change to a quote you had already finalised. The earlier version stays exactly as it was.</p>
+        <p className="doc-note" role="note">This is version {doc.version}, a change to a {doc.type === 'survey' ? 'report' : 'quote'} you had already finalised. The earlier version stays exactly as it was.</p>
       ) : null}
       <div className="doc-layout">
         <div className="doc-main">
@@ -74,7 +76,7 @@ function Draft({ doc, saved }: { doc: DocumentPage; saved: boolean }) {
   );
 }
 
-function Final({ doc, justFinalised }: { doc: DocumentPage; justFinalised: boolean }) {
+function Final({ doc, justFinalised, quoteFailed }: { doc: DocumentPage; justFinalised: boolean; quoteFailed: boolean }) {
   const name = DOC_TYPE_NAMES[doc.type];
   const pdf = `/api/documents/${doc.id}/pdf`;
   const when = doc.finalisedAt ? new Date(doc.finalisedAt) : null;
@@ -118,6 +120,7 @@ function Final({ doc, justFinalised }: { doc: DocumentPage; justFinalised: boole
         </div>
 
         <aside className="doc-side" aria-label="Details">
+          {doc.survey ? <SurveyNext doc={doc} failed={quoteFailed} /> : null}
           <div className="doc-side-panel">
             <h2 className="section-title">What is on it</h2>
             <Summary sections={doc.summary} />
@@ -125,7 +128,7 @@ function Final({ doc, justFinalised }: { doc: DocumentPage; justFinalised: boole
           </div>
           {doc.revise ? (
             doc.revise.allowed ? (
-              <ReviseForm id={doc.id} />
+              doc.type === 'survey' ? <SurveyReviseForm id={doc.id} /> : <ReviseForm id={doc.id} />
             ) : (
               <p className="hint doc-revise-no">{doc.revise.reason}</p>
             )
@@ -157,5 +160,5 @@ export default async function DocumentPageRoute({ params, searchParams }: { para
   const sp = await searchParams;
   const doc = await getDocumentPage(id);
   if (!doc) notFound();
-  return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} />;
+  return doc.status === 'draft' ? <Draft doc={doc} saved={sp.saved === '1'} /> : <Final doc={doc} justFinalised={sp.finalised === '1'} quoteFailed={sp.quote === 'failed'} />;
 }
