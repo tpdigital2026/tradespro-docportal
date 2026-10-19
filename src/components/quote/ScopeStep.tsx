@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { approveScopeAction, generateScopeCopyAction } from '../../app/(app)/documents/new/scope-actions';
 import { applyJobTypeDefaults, isPristine } from '../../lib/scope/defaults';
-import { copyErrors, COPY_TOO_OLD, countSteps, isApproved, isStale, scopeErrors, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../../lib/scope/model';
+import { APPROVAL_OUT_OF_DATE, approvalState, copyErrors, COPY_TOO_OLD, countSteps, isApproved, isStale, scopeErrors, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../../lib/scope/model';
 import { tidyItems } from '../../lib/scope/tidy';
 import { Button } from '../Button';
 import { ScopeDetails } from '../scope/ScopeDetails';
@@ -18,15 +18,17 @@ interface Props extends StepProps {
   ensureSaved: () => Promise<string | null>;
   onBack: () => void;
   onContinue: () => void;
+  /** Open on the wording check (used when an approval needs making again). */
+  startView?: 'review';
 }
 
-export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, onContinue }: Props) {
+export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, onContinue, startView }: Props) {
   const scope = values.scope;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const valuesRef = useRef(values);
   valuesRef.current = values;
-  const [view, setView] = useState<'build' | 'review'>(() => (isApproved(scope) ? 'review' : 'build'));
+  const [view, setView] = useState<'build' | 'review'>(() => (isApproved(scope) || (startView === 'review' && scope.copy && !isStale(scope)) ? 'review' : 'build'));
   const [busy, setBusy] = useState<'generating' | 'approving' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -150,6 +152,9 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
         </p>
       </div>
 
+      {reviewing && !approved && (approvalState(scope) === 'legacy' || approvalState(scope) === 'out_of_date') ? (
+        <p className="sc-notice" role="status">{APPROVAL_OUT_OF_DATE.replace(' Open the Scope step and approve it.', '')} Read it through below, then press Approve this copy.</p>
+      ) : null}
       {reviewing ? (
         <ScopeReview items={scope.items} copy={scope.copy!} notice={notice} approved={approved} editCopy={editCopy} errors={copyErrs} />
       ) : (

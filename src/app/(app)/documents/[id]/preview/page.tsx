@@ -6,6 +6,7 @@ import { PageHeader } from '../../../../../components/PageHeader';
 import { getDocumentPage, getPreview } from '../../../../../lib/data/documents';
 import { logRenderFailure } from '../../../../../pdf/diagnostics';
 import { DOC_TYPE_NAMES } from '../../../../../lib/job-stage';
+import { upgradeLegacyApproval } from '../../../../../lib/data/scope';
 import { requireSession } from '../../../../../lib/session';
 import { Preview } from '../Preview';
 
@@ -14,11 +15,14 @@ export const metadata: Metadata = { title: 'Preview and finalise', description: 
 export const maxDuration = 60;
 
 export default async function PreviewPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireSession();
+  const session = await requireSession();
   const { id } = await params;
   const doc = await getDocumentPage(id);
   if (!doc) notFound();
   if (doc.status !== 'draft') redirect(`/documents/${id}`);
+  // A quote opened from Home (Quotes to finish) with an approval from before 15 October: checked and upgraded here
+  // too, so the pages and Finalise work without a trip back through the steps. Nothing happens for any other draft.
+  if (doc.type === 'quotation') await upgradeLegacyApproval({ userId: session.userId, tenantId: session.tenantId }, doc.jobId).catch(() => undefined);
   const name = DOC_TYPE_NAMES[doc.type];
   const title = doc.type === 'quotation' ? `Quote ${doc.number}` : doc.number;
 

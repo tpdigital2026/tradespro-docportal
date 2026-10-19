@@ -31,7 +31,7 @@ export function ReviewStep({
 
       {blockers.length > 0 ? (
         <div className="qt-blockers">
-          <p className="qt-blockers-h">A few things to fix before this quote can be saved as ready.</p>
+          <p className="qt-blockers-h">A few things to fix before you can preview the document.</p>
           <ul>
             {blockers.map((b) => (
               <li key={b.key}>

@@ -3,7 +3,8 @@ import type { DocType } from './job-stage';
 import type { RawDocument, RawPayment } from './job-billing';
 import { FJC_WORDING } from '../db/wording';
 import { FJC_SCOPE_EXAMPLES } from './scope/fjc-examples';
-import { approvalHash, emptyScope, scopeKey, type ScopeFormValues } from './scope/model';
+import { approvalHash, approvalHashV1, emptyScope, scopeKey, sectionsKey, type ScopeFormValues } from './scope/model';
+import { signGenerated } from './scope/proof';
 import type { QuoteFormValues } from './validation/quote';
 
 export const demoSession = {
@@ -127,7 +128,16 @@ function demoScope(title: string): ScopeFormValues {
       approvalHash: null,
     },
   };
-  return { ...scope, copy: { ...scope.copy!, approvedAt: '2026-10-12T09:05:00.000Z', approvalHash: approvalHash(scope) } };
+  // A real proof for the demo business, so an autosave keeps the wording (a made-up proof makes the server drop it).
+  const made = { ...scope.copy!, genKey: sectionsKey(scope.copy!.sections) };
+  let proof = 'demo';
+  try {
+    proof = signGenerated('demo-tenant', made);
+  } catch {
+    // No proof secret here (never the case in demo mode): the dummy wording simply is not kept on save.
+  }
+  const signed = { ...scope, copy: { ...made, proof } };
+  return { ...signed, copy: { ...signed.copy, approvedAt: '2026-10-12T09:05:00.000Z', approvalHash: approvalHash(signed) } };
 }
 
 // ------------------------------------------------------------------ quote form (dummy data only)
@@ -204,7 +214,18 @@ export const demoQuoteDrafts: { jobId: string; values: QuoteFormValues }[] = [
       },
     }),
   },
+  {
+    // Approved on the morning of 15 October under the first fingerprint (before the cover and introduction were
+    // covered too). Opening it shows the upgrade path: the approval is checked against the old fingerprint and kept.
+    jobId: 'demo-job-2004',
+    values: demoForm({ quoteNumber: 'DEMO-2004', customerId: 'demo-customer-1', price: '6200', date: '2026-10-15', propertyAddress: '123 Bromley Road, BR2 8BG', scope: legacyApproved(demoScope('Flat roof quotation')) }),
+  },
 ];
+
+/** The same scope as if it had been approved under the first fingerprint, at 09:49 on 15 October. */
+function legacyApproved(s: ScopeFormValues): ScopeFormValues {
+  return { ...s, copy: { ...s.copy!, approvedAt: '2026-10-15T08:49:00.000Z', approvalHash: approvalHashV1(s) } };
+}
 
 // ------------------------------------------------------------------ issued jobs (dummy data only)
 

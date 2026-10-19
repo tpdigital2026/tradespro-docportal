@@ -1,0 +1,34 @@
+/* The way off the quote review step: two buttons and, beside them, what happened. Tokens only. */
+
+.qt-sum-action:has(.qt-finish) { grid-column: 1 / -1; }
+.qt-finish { display: grid; gap: var(--space-3); min-width: 0; }
+.qt-finish-live:empty { display: none; }
+.qt-finish-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
+.qt-finish-actions .btn { white-space: normal; text-align: center; line-height: var(--lh-snug); padding: var(--space-2) var(--space-3); }
+
+.qt-finish-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); font-size: var(--fs-small); color: var(--ink-muted); font-weight: 600; }
+.qt-finish-note.is-saved { color: var(--success-ink); }
+.qt-finish-tick { flex: none; }
+
+.qt-finish-msg { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--danger-tint); color: var(--ink); font-size: var(--fs-small); max-height: 40vh; overflow-y: auto; }
+.qt-finish-h { font-weight: 700; color: var(--danger-ink); }
+.qt-finish-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.qt-finish-list .linklike { color: var(--danger-ink); font-size: var(--fs-small); }
+.qt-finish-fix { justify-self: start; }
+.qt-finish-ref { font-size: var(--fs-meta); color: var(--ink-muted); }
+
+.qt-spin { width: 1em; height: 1em; flex: none; border-radius: var(--radius-pill); border: var(--stroke) solid currentColor; border-right-color: transparent; animation: qt-spin 0.8s linear infinite; }
+@keyframes qt-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .qt-spin { animation: none; border-right-color: currentColor; opacity: 0.6; } }
+
+@media (min-width: 1200px) {
+  .qt-finish-actions { grid-template-columns: minmax(0, 1fr); }
+  .qt-finish-msg { max-height: none; }
+}
+
+/* the stepper's own error screen */
+.qt-crash { display: grid; gap: var(--space-3); max-width: var(--measure); padding: var(--space-5); border-radius: var(--radius-lg); background: var(--paper); box-shadow: var(--shadow-md); }
+.qt-crash-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.qt-finish-code { white-space: nowrap; }
+/* while saving, the primary button keeps its colour so the spinner reads as progress, not as switched off */
+.qt-finish-actions .btn-primary[aria-busy='true'] { background: var(--accent); color: var(--on-accent); border-color: transparent; cursor: progress; }

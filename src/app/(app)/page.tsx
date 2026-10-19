@@ -74,8 +74,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         {saved ? (
           <p className="flash" role="status">
             <span>
-              Quote {saved} is saved.{' '}
-              {savedDoc ? <Link href={`/documents/${savedDoc}`} className="flash-link">Open it to preview and finalise</Link> : 'You can carry on with it under Quotes to finish.'}
+              <strong>Saved.</strong> Quote {saved} is waiting under Quotes to finish.{' '}
+              {savedDoc ? <Link href={`/documents/${savedDoc}`} className="flash-link">Open quote {saved}</Link> : <a href="#drafts-h" className="flash-link">See Quotes to finish</a>}
             </span>
           </p>
         ) : null}
