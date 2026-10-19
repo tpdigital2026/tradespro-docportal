@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { seedFjc } from '../../src/db/seed-fjc';
-import { tenantWordingSchema } from '../../src/db/wording';
+import { FJC_OLD_DEPOSIT_TERMS, seedFjc, seedPaymentWording } from '../../src/db/seed-fjc';
+import { seedSignature } from '../../src/db/seed-signature';
+import { InMemoryStorage } from '../../src/lib/storage';
+import { FJC_WORDING, tenantWordingSchema } from '../../src/db/wording';
 import { dbAvailable, withRollback } from './helpers';
 
 describe.skipIf(!dbAvailable)('seedFjc', () => {
@@ -13,7 +15,7 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       const first = await seedFjc(c);
       expect(first.created).toBe(true);
       const second = await seedFjc(c);
-      expect(second).toEqual({ tenantId: first.tenantId, created: false });
+      expect(second).toEqual({ tenantId: first.tenantId, created: false, filled: [] });
       const t = await c.query(`select * from public.tenants where id = $1`, [first.tenantId]);
       expect(t.rows[0]).toMatchObject({ name: 'FJC Roofing Ltd', company_number: '13855379', vat_registered: true, owner_name: 'Ben Cunningham', owner_title: 'Director' });
       const d = await c.query(`select * from public.tenant_defaults where tenant_id = $1`, [first.tenantId]);
@@ -45,6 +47,54 @@ describe.skipIf(!dbAvailable)('seedFjc', () => {
       expect(users.rows[0].n).toBe(0);
       const customers = await c.query(`select count(*)::int n from public.customers where tenant_id = $1`, [first.tenantId]);
       expect(customers.rows[0].n).toBe(0);
+    });
+  });
+
+  it('fills the wording keys added later (Due line, payment reference, {balance}) only where missing, never over the owner\'s edits', async () => {
+    await withRollback(async (c) => {
+      await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
+      await c.query(`delete from public.tenants where name = 'FJC Roofing Ltd'`);
+      await c.query(`select set_config('app.allow_final_delete', '', true)`);
+      const { tenantId } = await seedFjc(c);
+      const old = structuredClone(FJC_WORDING) as Record<string, unknown> & typeof FJC_WORDING;
+      delete (old.balance_invoice as { dueLabel?: string }).dueLabel;
+      delete (old as { paymentReference?: string }).paymentReference;
+      old.deposit_invoice.terms = FJC_OLD_DEPOSIT_TERMS;
+      await c.query(`update public.tenant_defaults set terms = $2 where tenant_id = $1`, [tenantId, JSON.stringify(old)]);
+      expect((await seedFjc(c)).filled).toEqual(['balance_invoice.dueLabel', 'paymentReference', 'deposit_invoice.terms']);
+      const after = (await c.query(`select terms from public.tenant_defaults where tenant_id = $1`, [tenantId])).rows[0].terms;
+      expect(after).toEqual(FJC_WORDING);
+      expect(await seedPaymentWording(c, tenantId)).toEqual([]);
+      // The owner's own deposit terms and Due line stay as they are.
+      const mine = { ...structuredClone(FJC_WORDING), deposit_invoice: { ...FJC_WORDING.deposit_invoice, terms: 'My own deposit terms.' }, balance_invoice: { ...FJC_WORDING.balance_invoice, dueLabel: 'Within 7 days' } };
+      await c.query(`update public.tenant_defaults set terms = $2 where tenant_id = $1`, [tenantId, JSON.stringify(mine)]);
+      expect(await seedPaymentWording(c, tenantId)).toEqual([]);
+      expect((await c.query(`select terms from public.tenant_defaults where tenant_id = $1`, [tenantId])).rows[0].terms).toEqual(mine);
+    });
+  });
+
+  it('stores the signature as an upload in Settings would, switches printing on, and never replaces one already there', async () => {
+    await withRollback(async (c) => {
+      await c.query(`select set_config('app.allow_final_delete', 'on', true)`);
+      await c.query(`delete from public.tenants where name = 'FJC Roofing Ltd'`);
+      await c.query(`select set_config('app.allow_final_delete', '', true)`);
+      const { tenantId } = await seedFjc(c);
+      const storage = new InMemoryStorage();
+      const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000064000000320806000000', 'hex');
+      const reencoded = { png: Buffer.from('re-encoded'), width: 1200, height: 400 };
+      const calls: number[] = [];
+      const reencode = async () => (calls.push(1), reencoded);
+      expect(await seedSignature(c, storage, tenantId, png, reencode)).toBe('stored');
+      const rows = await c.query(`select storage_path, width, height from public.brand_assets where tenant_id = $1 and kind = 'signature'`, [tenantId]);
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0].storage_path).toMatch(new RegExp(`^${tenantId}/brand/signature-[0-9a-f-]{36}\\.png$`));
+      expect(storage.blobs.get(rows.rows[0].storage_path)?.bytes.toString()).toBe('re-encoded');
+      expect((await c.query(`select signature_consent from public.tenant_defaults where tenant_id = $1`, [tenantId])).rows[0].signature_consent).toBe(true);
+      // Run again: kept, nothing re-encoded, nothing replaced. The owner switching printing off is respected too.
+      await c.query(`update public.tenant_defaults set signature_consent = false where tenant_id = $1`, [tenantId]);
+      expect(await seedSignature(c, storage, tenantId, png, reencode)).toBe('kept');
+      expect(calls).toHaveLength(1);
+      expect((await c.query(`select signature_consent from public.tenant_defaults where tenant_id = $1`, [tenantId])).rows[0].signature_consent).toBe(false);
     });
   });
 });

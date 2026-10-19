@@ -24,10 +24,10 @@ describe('previewDraftPageAction', () => {
     expect(h.preview).toHaveBeenCalledWith(DOC);
   });
 
-  it('turns what the document is missing into a checklist with a place to fix each', async () => {
+  it('turns what the document is missing into a checklist with a place to fix each (never Settings for what TradesPro sets up)', async () => {
     h.preview.mockResolvedValue({ state: 'missing', missing: ['The scope wording has not been approved. Open the quote, check the wording and approve it.', 'Your quotation terms are not set up yet. Contact TradesPro Digital.'] });
     const r = await previewDraftPageAction(DOC);
-    expect(r).toMatchObject({ state: 'missing', missing: [{ fix: { kind: 'step', step: 'scope' } }, { fix: { kind: 'link', href: '/settings' } }] });
+    expect(r).toMatchObject({ state: 'missing', missing: [{ fix: { kind: 'step', step: 'scope' } }, { fix: null }] });
   });
 
   it('another business\'s document, or a junk id, is simply not there', async () => {

@@ -25,7 +25,9 @@ export function missingFacts(lines: readonly string[]): MissingFact[] {
   return lines.map((text) => {
     const t = text.toLowerCase();
     let fix: MissingFact['fix'] = null;
-    if (/wording is not set up|terms are not set up|bank account|settings/.test(t)) fix = { kind: 'link', href: '/settings', label: 'Open Settings' };
+    // Wording, terms, colours and logo are set up by TradesPro Digital, never asked of the owner: no link, the line says who.
+    if (/not set up|contact tradespro/.test(t)) fix = null;
+    else if (/bank account|settings/.test(t)) fix = { kind: 'link', href: '/settings', label: 'Open Settings' };
     else if (/scope wording|approve/.test(t)) fix = step('scope');
     else if (/payment plan|plan step|deposit/.test(t)) fix = step('plan');
     else if (/no price|amounts are too large/.test(t)) fix = step('price');

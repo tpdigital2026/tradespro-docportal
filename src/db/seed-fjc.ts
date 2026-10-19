@@ -23,7 +23,7 @@ const JOB_TYPES: [string, string, number | null][] = [
  * Idempotent. Seeds business facts and wording only: no bank details, no users, no customers.
  * Not seeded (no confirmed source yet): disclaimer_text and number_formats on tenant_defaults.
  */
-export async function seedFjc(db: Db): Promise<{ tenantId: string; created: boolean }> {
+export async function seedFjc(db: Db): Promise<{ tenantId: string; created: boolean; filled?: string[] }> {
   const wording = tenantWordingSchema.parse(FJC_WORDING);
   const existing = await db.query(`select id from public.tenants where name = 'FJC Roofing Ltd'`);
   if (existing.rows.length > 0) {
@@ -31,7 +31,8 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
     await seedScopeExamples(db, existing.rows[0].id);
     await seedBrandImages(db, existing.rows[0].id);
     await seedSurveyWording(db, existing.rows[0].id);
-    return { tenantId: existing.rows[0].id, created: false };
+    const filled = await seedPaymentWording(db, existing.rows[0].id);
+    return { tenantId: existing.rows[0].id, created: false, filled };
   }
 
   const t = await db.query(
@@ -99,4 +100,39 @@ async function seedScopeExamples(db: Db, tenantId: string): Promise<void> {
     const valid = scopeExamplesSchema.parse(examples);
     await db.query(`update public.job_types set scope_examples = $3 where tenant_id = $1 and key = $2 and scope_examples is null`, [tenantId, key, JSON.stringify(valid)]);
   }
+}
+
+/** The deposit terms FJC was first seeded with, before the remaining balance was printed in them. */
+export const FJC_OLD_DEPOSIT_TERMS = 'The 30% deposit is payable before works start. The remaining balance is due on completion of works.';
+
+/**
+ * Wording keys added after FJC was first seeded (the balance invoice's Due line, the payment reference, the deposit
+ * terms naming the remaining balance). Fills only what is missing, and replaces the deposit terms only while they are
+ * still exactly the old seeded text: anything the owner has edited is left as it is. The result must still pass the
+ * strict wording schema, or nothing is written. Returns the keys it filled.
+ */
+export async function seedPaymentWording(db: Db, tenantId: string): Promise<string[]> {
+  const r = await db.query(`select terms from public.tenant_defaults where tenant_id = $1 for update`, [tenantId]);
+  const terms = r.rows[0]?.terms as Record<string, unknown> | null | undefined;
+  if (!terms || typeof terms !== 'object' || Array.isArray(terms)) return [];
+  const next = structuredClone(terms) as Record<string, Record<string, unknown> | unknown>;
+  const filled: string[] = [];
+  const bal = next.balance_invoice as Record<string, unknown> | undefined;
+  if (bal && typeof bal === 'object' && !('dueLabel' in bal)) {
+    bal.dueLabel = FJC_WORDING.balance_invoice.dueLabel;
+    filled.push('balance_invoice.dueLabel');
+  }
+  if (!('paymentReference' in next)) {
+    next.paymentReference = FJC_WORDING.paymentReference;
+    filled.push('paymentReference');
+  }
+  const dep = next.deposit_invoice as Record<string, unknown> | undefined;
+  if (dep && typeof dep === 'object' && dep.terms === FJC_OLD_DEPOSIT_TERMS) {
+    dep.terms = FJC_WORDING.deposit_invoice.terms;
+    filled.push('deposit_invoice.terms');
+  }
+  if (!filled.length) return [];
+  if (!tenantWordingSchema.safeParse(next).success) return [];
+  await db.query(`update public.tenant_defaults set terms = $2 where tenant_id = $1`, [tenantId, JSON.stringify(next)]);
+  return filled;
 }

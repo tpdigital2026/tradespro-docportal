@@ -59,7 +59,7 @@ describe('orphan sweep covers every stored file shape', () => {
     'src/lib/documents/finalise.ts': 'previews and finalised request folders',
     'src/lib/data/documents.ts': 'demo previews and demo finals (demo-tenant, in memory)',
     'src/lib/data/surveys.ts': 'survey photos via photoPath (demo: demo-tenant)',
-    'src/lib/data/settings.ts': 'signature via signaturePath',
+    'src/lib/data/signature-store.ts': 'signature via signaturePath (Settings upload and the FJC seed)',
   };
   it('no unreviewed code writes to storage', () => {
     const root = path.join(__dirname, '../..');

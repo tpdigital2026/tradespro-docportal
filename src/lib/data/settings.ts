@@ -58,15 +58,9 @@ export interface SettingsView {
   paymentWording: PaymentWording;
 }
 
-export class SettingsError extends Error {
-  constructor(
-    readonly code: 'not_found' | 'invalid' | 'limit' | 'not_configured' | 'failed',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'SettingsError';
-  }
-}
+export { SettingsError } from './settings-error';
+export { saveSignatureWith, signaturePath } from './signature-store';
+import { SettingsError } from './settings-error';
 
 /** How an account reads everywhere: name, bank (when given), last four digits. Never more. */
 export function bankLabel(a: { accountName: string; bankName: string; last4: string }): string {
@@ -284,49 +278,6 @@ export async function setSignatureConsentWith(db: Db, actor: Actor, on: boolean,
     await upsertDefaults(db, actor.tenantId, on ? { signature_consent: true, signature_consent_at: new Date(), signature_consent_by: actor.userId } : { signature_consent: false, signature_consent_at: null, signature_consent_by: null });
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'signature.consent', entity: 'tenant', entityId: compactId(actor.tenantId), meta: { on } });
   }, o);
-}
-
-export const signaturePath = (tenantId: string, id: string) => `${tenantId}/brand/signature-${id}.png`;
-
-/**
- * Stores a re-encoded signature. The file goes up first, under a new name that nothing else uses (never overwriting),
- * then one short transaction records it and drops the older signature rows. If that transaction is refused, the new
- * file is deleted again; if the commit's outcome is unknown nothing is deleted (the orphan sweep removes it later if it
- * turns out to be unreferenced). Older files go after the commit, best effort, for the same reason. A new picture never
- * switches printing on by itself.
- */
-export async function saveSignatureWith(db: Db, storage: DocumentStorage, actor: Actor, image: Reencoded, o: TxOptions = {}): Promise<{ id: string }> {
-  const nested = o.nested === true;
-  const kit = await db.query(`select id from public.brand_kits where tenant_id = $1`, [actor.tenantId]);
-  if (!kit.rows[0]) throw new SettingsError('not_configured', 'Your brand kit is not set up yet, so a signature cannot be stored. Contact TradesPro Digital.');
-  const id = randomUUID();
-  const path = signaturePath(actor.tenantId, id);
-  await storage.put(path, image.png, 'image/png', { overwrite: false });
-  let committing = false;
-  let old: string[] = [];
-  try {
-    await db.query(nested ? 'savepoint signature_tx' : 'begin');
-    await db.query('reset role');
-    await db.query(`select set_config('request.jwt.claims', '', true)`);
-    await db.query(`set local statement_timeout = '15s'`);
-    await db.query(`set local lock_timeout = '5s'`);
-    const prev = await db.query(`select id, storage_path from public.brand_assets where tenant_id = $1 and kind = 'signature' order by id for update`, [actor.tenantId]);
-    old = prev.rows.map((r) => String(r.storage_path));
-    await db.query(
-      `insert into public.brand_assets (id, tenant_id, brand_kit_id, kind, storage_path, width, height, alt) values ($1, $2, $3, 'signature', $4, $5, $6, '')`,
-      [id, actor.tenantId, kit.rows[0].id, path, image.width, image.height],
-    );
-    if (old.length) await db.query(`delete from public.brand_assets where tenant_id = $1 and kind = 'signature' and id <> $2`, [actor.tenantId, id]);
-    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'signature.upload', entity: 'brand_asset', entityId: compactId(id), meta: { w: image.width, h: image.height } });
-    committing = true;
-    await db.query(nested ? 'release savepoint signature_tx' : 'commit');
-  } catch (e) {
-    await db.query(nested ? 'rollback to savepoint signature_tx' : 'rollback').catch(() => undefined);
-    if (!committing) await storage.deleteStorageObjects([path]).catch(() => undefined);
-    throw e;
-  }
-  await storage.deleteStorageObjects(old.filter((p) => p !== path)).catch(() => undefined);
-  return { id };
 }
 
 /** Removes the stored signature and switches printing off, together. */

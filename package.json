@@ -15,12 +15,13 @@
     "spike": "tsx scripts/render-spike.ts",
     "test:db": "vitest run -c vitest.db.config.mts",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed-fjc.ts",
+    "db:seed": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/seed-fjc.ts",
     "test:db:ci": "REQUIRE_DB=1 vitest run -c vitest.db.config.mts",
     "invite": "tsx --env-file-if-exists=.env.local scripts/invite-user.ts",
     "dev:demo": "DEMO_MODE=1 next dev",
     "ci": "npm run typecheck && npm test && npm run test:render && npm run check:render-bundle && npm audit",
-    "check:home-fold": "tsx scripts/check-home-fold.ts"
+    "check:home-fold": "tsx scripts/check-home-fold.ts",
+    "check:fjc-readiness": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/check-fjc-readiness.ts"
   },
   "keywords": [],
   "author": "",
