@@ -1015,7 +1015,8 @@ a.mini-row:hover { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
   background: var(--paper); font-weight: 600; font-size: var(--fs-small); font-variant-numeric: tabular-nums;
 }
 .pv-progress-bar { flex: 1; height: var(--bar-h); border-radius: var(--radius-pill); background: var(--steel-100); overflow: hidden; }
-.pv-progress-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--dur) var(--ease); }
+/* Full width, scaled from the left by --pv-read (0 to 1, set by Preview.tsx): a transform, so no layout work per page read. */
+.pv-progress-bar span { display: block; width: 100%; height: 100%; background: var(--accent); transform: scaleX(var(--pv-read, 0)); transform-origin: left center; transition: transform var(--dur) var(--ease); }
 .pv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-6); }
 .pv-page { margin: 0; display: grid; gap: var(--space-2); scroll-margin-top: var(--space-8); }
 .pv-page:focus-visible { outline: var(--ring) solid var(--focus); outline-offset: var(--space-1); }

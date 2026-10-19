@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { Confirmation } from '../../../../lib/documents/confirmation';
 
 interface PageState {
@@ -159,7 +159,8 @@ export function Preview({
       <div className="pv-pages">
         <p className="pv-progress" id={ids.progress} role="status" aria-live="polite">
           <span className="pv-progress-bar" aria-hidden="true">
-            <span style={{ width: `${(read / pageCount) * 100}%` }} />
+            {/* The bar is scaled, not resized: only a transform animates (app.css .pv-progress-bar span). */}
+            <span style={{ '--pv-read': String(pageCount > 0 ? Math.min(1, Math.max(0, read / pageCount)) : 0) } as CSSProperties} />
           </span>
           <span>{allRead ? `All ${pageCount} ${pageCount === 1 ? 'page' : 'pages'} read` : `${read} of ${pageCount} ${pageCount === 1 ? 'page' : 'pages'} read`}</span>
         </p>
