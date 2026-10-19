@@ -77,7 +77,7 @@ export function buildScopeCopySystem(voice: ScopeVoice): string {
   return [
     RULES,
     `THE BUSINESS'S OWN SECTION HEADINGS (use only as described above)\n${headings}`,
-    `THE BUSINESS'S OWN BULLETS (style only: never copy their content into an answer)\n\n${bullets}`,
+    `THE BUSINESS'S OWN BULLETS (style only: never copy their content, sizes or products into an answer; text in square brackets only marks where the tradesperson names the product and must never appear in an answer)\n\n${bullets}`,
     `WORKED EXAMPLES IN THIS BUSINESS'S VOICE (the jobs are made up: copy the style, never the content)\n\n${shots}`,
   ].join('\n\n');
 }

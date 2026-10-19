@@ -29,7 +29,21 @@ function allStrings(): { where: string; text: string }[] {
 // Generic material abbreviations are trade words, not brands.
 const GENERIC = new Set(['osb', 'pvc', 'upvc', 'grp', 'epdm']);
 // Capitalised words allowed mid-sentence: material abbreviations, and "Harris" (the made-up mishearing of "arris" in a rough step).
-const CAPS_OK = new Set(['OSB', 'PVC', 'GRP', 'Harris']);
+const CAPS_OK = new Set(['OSB', 'PVC', 'GRP', 'Harris', 'Code']);
+
+/**
+ * The only figures allowed, and only in the business's reference bullets: product specification tokens. Each is a
+ * whole token with its unit attached: millimetres (18mm), inches (6-inch), lead codes (Code 4), skip sizes (8-yard)
+ * and guarantee years (20-year guarantee). Everything else with a digit in it is refused.
+ */
+const SPEC_TOKENS: readonly RegExp[] = [
+  /\b\d{1,3}mm\b/g,
+  /\b\d{1,2}-inch\b/g,
+  /\bCode \d\b/g,
+  /\b\d{1,2}-yard\b/g,
+  /\b\d{1,2}-years? guarantee\b/gi,
+];
+const withoutSpecs = (t: string) => SPEC_TOKENS.reduce((acc, re) => acc.replace(re, ' '), t);
 
 describe('the scope voice (tenant data)', () => {
   it('is versioned and is what every business gets for now', () => {
@@ -38,9 +52,19 @@ describe('the scope voice (tenant data)', () => {
     expect(SCOPE_COPY_PROMPT_VERSION).toBe('scope-copy.v2');
   });
 
-  it('holds no digits, prices, contact details, postcodes or customer details', () => {
+  it('holds no digits other than specification tokens in the reference bullets', () => {
+    for (const { where, text } of allStrings()) expect(where === 'reference' ? withoutSpecs(text) : text, `${where}: ${text}`).not.toMatch(/\p{Nd}/u);
+  });
+
+  it('the specification allow-list is narrow: prices, phone numbers, house numbers, postcodes and bare figures stay refused', () => {
+    for (const ok of ['Install 18mm OSB', 'Code 4, 12-inch lead', 'five 8-yard skips', 'a 20-year guarantee']) expect(withoutSpecs(ok)).not.toMatch(/\p{Nd}/u);
+    for (const bad of ['£7,355.00', '7355', '07712 703554', '+44 7967 314196', '33 Example Way', 'ME3 9UD', '20 years', 'Code 44', '345m²', '2.4m x 600mm', 'phone 0800 123']) {
+      expect(withoutSpecs(bad), bad).toMatch(/\p{Nd}/u);
+    }
+  });
+
+  it('holds no prices, contact details, postcodes or customer details', () => {
     for (const { where, text } of allStrings()) {
-      expect(text, where).not.toMatch(/\p{Nd}/u);
       expect(text, where).not.toMatch(/[£$€]|\bpounds?\b|\bpence\b/i);
       expect(text, where).not.toMatch(/@|www\.|https?:/i);
       expect(text, where).not.toMatch(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/);

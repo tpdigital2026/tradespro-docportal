@@ -90,6 +90,15 @@ describe('prompt v2 answers (stubbed client)', () => {
       expect(r.engine).toBe('fallback');
       expect(reasons).toEqual(['figure-form', 'figure-form']);
     });
+    it('refuses a placeholder from the reference bullets showing up in the wording', async () => {
+      const reasons: string[] = [];
+      const r = await generateScopeCopy(
+        { steps: items('breathable membrane'), jobType: '' },
+        { client: stub([reply([{ group: 0, heading: 'The works', steps: ['Install breathable membrane [product named by the owner]'] }])]), onReject: (w) => reasons.push(w) },
+      );
+      expect(r.engine).toBe('fallback');
+      expect(reasons).toEqual(['placeholder', 'placeholder']);
+    });
     it('refuses a bullet that is new work (nothing in common with what the owner wrote)', async () => {
       const r = await run(items('strip off the old felt'), reply([{ group: 0, heading: 'The works', steps: ['Strip off the old felt', 'Lay protection to floors and walls'] }]));
       expect(r.engine).toBe('fallback');

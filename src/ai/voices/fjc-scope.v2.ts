@@ -2,21 +2,93 @@ import { FJC_SCOPE_EXAMPLES } from '../../lib/scope/fjc-examples';
 import type { ReferenceBullets, ScopeVoice } from './types';
 
 /**
- * FJC Roofing's scope voice, version 2 (tenant data).
+ * FJC Roofing's scope voice, version 3 (tenant data).
  *
  * Imperative bullets ("Install ...", "Remove ..."), one action per bullet, the owner's own explanations in brackets
- * kept, never a benefit clause added. The reference bullets are FJC's existing one-tap starters (generic phrasing from
- * FJC's quotations, already vetted: no customers, sizes, brands or guarantees). The headings are the ones FJC groups
- * its scopes under. The worked examples' rough steps are made up.
+ * kept, never a benefit clause added. The headings are the ones FJC groups its scopes under. The worked examples'
+ * rough steps are made up.
+ *
+ * Reference bullets: the generic example bullets per job type from the FJC process handover (section 3, generic
+ * patterns from FJC's own scopes with every customer detail removed; added with the owner's agreement), followed by
+ * FJC's existing one-tap starters. They show style only and are not a standard specification: product sizes in them
+ * (18mm, Code 4, 6-inch) are never copied into a quote, and the live checks refuse any figure the owner did not write.
+ * Square-bracket placeholders mark where the owner names the product; they are never wording. Short lists are short
+ * on purpose (no more real wording to draw on) and are never padded.
  */
-const LABELS: Record<string, string> = { flat_roof: 'Flat roof', tiled_roof: 'Tiled roof' };
-const referenceBullets: ReferenceBullets[] = Object.entries(LABELS).map(([key, jobType]) => ({
-  jobType,
-  bullets: (FJC_SCOPE_EXAMPLES[key]?.starters ?? []).flatMap((s) => s.steps),
-}));
+const HANDOVER: ReferenceBullets[] = [
+  {
+    jobType: 'Tiled roof (re-roof)',
+    bullets: [
+      'Install scaffolding to the front and side of the property to allow for safe working access.',
+      'Delivery of skip and materials on start date.',
+      'Remove all hip and ridge tiles.',
+      'Removal of all tiles, remaining underfelt and battens, exposing the rafters.',
+      'Install over-fascia vent to the entire perimeter (to allow for air flow).',
+      'Install eaves support trays to the entire perimeter.',
+      'Install breathable membrane [product named by the owner].',
+      'Install pressure-treated battens to the correct gauge for the tiles.',
+      'Install [tile named by the owner] in a colour of your choice.',
+      'Install dry ridge and hip system to all areas of the roof.',
+    ],
+  },
+  {
+    jobType: 'Flat roof (felt)',
+    bullets: [
+      'All waste will be removed via our flatbed truck (or a skip, as the owner states).',
+      'Remove all original felt to expose the ply deck.',
+      'Carry out a full inspection of the deck; replace any rotten boards.',
+      'Install a batten to the front drip edge.',
+      'Cut a new chase line above roof level for the new flashing.',
+      'Install 18mm OSB ply boards to the deck.',
+      'Install a 2mm perforated tack-down layer (allows for movement in the building).',
+      'Install a 3mm fully bonded underlay with all edging flashings.',
+      'Install a 5mm mineral cap sheet with all edging flashings and drip edges.',
+      'Install Code 4 lead flashing to the perimeter, encapsulating all felt flashings.',
+    ],
+  },
+  {
+    jobType: 'Fascias and soffits',
+    shortOnPurpose: true,
+    bullets: [
+      'Remove all guttering and fittings to allow access to the fascias.',
+      'Remove the current fascia boards to the entire property.',
+      'Remove the original timber fascia that has rotted.',
+      'Install full-replacement 18mm white PVC fascias to the entire property, including the apex.',
+      'Re-install guttering, changing any damaged or broken fittings.',
+    ],
+  },
+  {
+    jobType: 'Guttering',
+    shortOnPurpose: true,
+    bullets: [
+      'Remove the original guttering, back to the rafters.',
+      'Install new white square guttering with all fittings and downpipe connectors.',
+      'Repair any broken joints on the guttering and re-level if needed.',
+      "Install bonding gutter where the roof joins next door's (stops leaks tracking across).",
+      'Install high-profile GRP valley trays to valley gutters (a dry system, as cement fails over time).',
+    ],
+  },
+  {
+    jobType: 'Chimney and lead work',
+    shortOnPurpose: true,
+    bullets: [
+      'Removal of all lead flashing to the chimney.',
+      'Install lead step flashing to the chimney with Code 4, 12-inch lead.',
+      'Install Code 4, 6-inch lead flashing to the perimeter, sealed with lead mastic.',
+      'Install Code 4 lead flashing to all interior walls to encapsulate all felt flashings and tile edgings.',
+      'Lead flashing to the perimeter changed from 6-inch to 9-inch, to get the correct overhang.',
+    ],
+  },
+];
+
+const LABELS: Record<string, string> = { flat_roof: 'Flat roof (one-tap starters)', tiled_roof: 'Tiled roof (one-tap starters)' };
+const referenceBullets: ReferenceBullets[] = [
+  ...HANDOVER,
+  ...Object.entries(LABELS).map(([key, jobType]) => ({ jobType, bullets: (FJC_SCOPE_EXAMPLES[key]?.starters ?? []).flatMap((s) => s.steps) })),
+];
 
 export const FJC_SCOPE_VOICE_V2: ScopeVoice = {
-  version: 'fjc-scope-voice.v2',
+  version: 'fjc-scope-voice.v3',
   headings: [
     'Site set-up', 'Protection', 'Strip-out and removal', 'Deck preparation', 'New roof structure', 'Ventilation and eaves', 'Membrane and battens',
     'Felt roofing system', 'Gutters and valleys', 'Tiling, hips and ridges', 'Fascias', 'Guttering', 'Lead flashing', 'Finishing',

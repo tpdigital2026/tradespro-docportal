@@ -211,6 +211,8 @@ export function rejection(
   const lost = missingFacts(groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps]), wording, parsed.corrections);
   if (lost.length > 0) return `lost-fact:${lost.map((x) => x.kind).join(',')}`;
   if (newDigits(inputTexts, wording).length > 0) return 'figure-form';
+  // Square brackets only ever come from a placeholder in the business's reference bullets, never from the owner.
+  if (/[[\]]/.test(wording.join(' ')) && !/[[\]]/.test(inputTexts.join(' '))) return 'placeholder';
   if (addedWork(inputTexts, sections.flatMap((s) => s.steps)).length > 0) return 'added-work';
   return null;
 }
