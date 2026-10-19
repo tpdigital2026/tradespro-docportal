@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aiConfig, anthropicClient, DEFAULT_MODEL, ModelError, type ModelClient, type ModelRequest } from '../../src/ai/client';
 import { findInventions } from '../../src/ai/invention';
-import { SCOPE_COPY_PROMPT_VERSION, SCOPE_COPY_SYSTEM } from '../../src/ai/prompts/scope-copy.v1';
+import { buildScopeCopySystem, SCOPE_COPY_PROMPT_VERSION } from '../../src/ai/prompts/scope-copy.v2';
+import { FJC_SCOPE_VOICE_V2 } from '../../src/ai/voices';
 import { createRateLimiter } from '../../src/ai/rate-limit';
 import { generateScopeCopy, NothingToTidyError } from '../../src/ai/scope-copy';
 import { extractJsonObject } from '../../src/ai/schemas';
@@ -101,11 +102,14 @@ describe('the AI engine (stubbed client)', () => {
     expect(r.notice).toBeNull();
     expect(r.usage).toEqual({ model: 'm-1', inputTokens: 10, outputTokens: 20, valid: true });
     expect(seen).toHaveLength(1);
-    expect(seen[0]!.system).toBe(SCOPE_COPY_SYSTEM);
-    expect(SCOPE_COPY_PROMPT_VERSION).toBe('scope-copy.v1');
+    expect(seen[0]!.system).toBe(buildScopeCopySystem(FJC_SCOPE_VOICE_V2));
+    expect(SCOPE_COPY_PROMPT_VERSION).toBe('scope-copy.v2');
     expect(JSON.parse(seen[0]!.user)).toEqual({
       jobType: 'Flat roof',
-      groups: [{ heading: 'strip out', steps: ['take off the old felt', 'clear the decking'] }, { heading: 'fit', steps: ['lay new felt'] }],
+      groups: [
+        { group: 0, heading: 'strip out', steps: ['take off the old felt', 'clear the decking'] },
+        { group: 1, heading: 'fit', steps: ['lay new felt'] },
+      ],
     });
     expect(seen[0]!.signal).toBeInstanceOf(AbortSignal);
   });
@@ -132,7 +136,7 @@ describe('the AI engine (stubbed client)', () => {
     ['a guarantee', reply([{ heading: 'Strip out', steps: ['Take off the old felt.'] }, { heading: 'Fit', steps: ['Lay the new felt with a guarantee.'] }])],
     ['an invented correction', reply([{ heading: 'Strip out', steps: ['Take off the old felt.'] }, { heading: 'Fit', steps: ['Lay the new felt.'] }], ['Added 20 year cover.'])],
     ['different groups', reply([{ heading: 'Everything', steps: ['Take off the old felt.', 'Lay the new felt.'] }])],
-    ['more steps than were given', reply([{ heading: 'Strip out', steps: ['Take off the old felt.', 'Clear the decking.', 'Clear the site.'] }, { heading: 'Fit', steps: ['Lay the new felt.'] }])],
+    ['more than two bullets for each step given', reply([{ heading: 'Strip out', steps: ['Take off the old felt.', 'Clear the decking.', 'Clear the felt.', 'Take off the decking.', 'Clear the old felt.'] }, { heading: 'Fit', steps: ['Lay the new felt.'] }])],
     ['not JSON', 'Sure! I tidied it.'],
     ['the wrong shape', '{"sections":"no"}'],
     ['a blank step', reply([{ heading: 'Strip out', steps: ['  '] }, { heading: 'Fit', steps: ['Lay the new felt.'] }])],

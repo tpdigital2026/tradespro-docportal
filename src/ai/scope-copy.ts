@@ -1,17 +1,25 @@
 import { aiConfig, anthropicClient, type ModelClient } from './client';
 import { stripInvisible } from '../lib/scope/invisible';
+import { addedWork, missingFacts } from './facts';
 import { findInventions } from './invention';
-import { buildScopeCopyUser, SCOPE_COPY_PROMPT_VERSION, SCOPE_COPY_RETRY_NOTE, SCOPE_COPY_SYSTEM } from './prompts/scope-copy.v1';
-import { extractJsonObject, scopeCopyResponseSchema } from './schemas';
-import { DEFAULT_SECTION_HEADING, groupItems, type CopySection, type ScopeEngine, type ScopeItem } from '../lib/scope/model';
+import { buildScopeCopySystem, buildScopeCopyUser, SCOPE_COPY_PROMPT_VERSION, SCOPE_COPY_RETRY_NOTE } from './prompts/scope-copy.v2';
+import { extractJsonObject, scopeCopyResponseSchemaV2, type ScopeCopyResponseV2 } from './schemas';
+import { suggestionsFor, type ScopeSuggestion } from './suggestions';
+import { scopeVoiceFor, type ScopeVoice } from './voices';
+import { DEFAULT_SECTION_HEADING, groupItems, SCOPE_LIMITS, type CopySection, type ScopeEngine, type ScopeItem } from '../lib/scope/model';
 import { tidyHeading, tidyItems, tidyStep } from '../lib/scope/tidy';
 
 export { SCOPE_COPY_PROMPT_VERSION };
+export type { ScopeSuggestion };
 
 export interface GenerateInput {
   steps: readonly ScopeItem[];
   /** The label of the job type the owner chose, e.g. "Flat roof". Context only. */
   jobType: string;
+  /** The business's usual steps for this job type (tenant data). Only used for "Things you could add" questions. */
+  typicalSteps?: readonly string[];
+  /** The business's voice (worked examples). Left out: the default voice. */
+  voice?: ScopeVoice;
 }
 export interface AiUsage {
   model: string;
@@ -24,6 +32,8 @@ export interface GenerateResult {
   sections: CopySection[];
   corrections: string[];
   uncertain: string[];
+  /** Questions about the business's usual steps that the owner did not mention. Never part of the wording. */
+  suggestions: ScopeSuggestion[];
   /** Said to the owner when the AI was expected but the basic tidy was used instead. */
   notice: string | null;
   /** Present when a model was called; ids and counts only, never text. */
@@ -75,7 +85,11 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
   const groups = groupItems(input.steps).filter((g) => g.steps.length > 0);
   if (groups.length === 0) throw new NothingToTidyError();
   const basic = tidyItems(input.steps);
-  const basicResult: GenerateResult = { engine: 'fallback', ...basic, notice: null, usage: null };
+  const typicalSteps = (input.typicalSteps ?? []).map((t) => stripInvisible(t)).filter((t) => t.trim() !== '');
+  const ownerTexts = [stripInvisible(input.jobType), ...groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps])];
+  const voice = input.voice ?? scopeVoiceFor();
+  const suggestions = suggestionsFor({ ownerTexts, jobType: stripInvisible(input.jobType), checklist: voice.checklist, typicalSteps });
+  const basicResult: GenerateResult = { engine: 'fallback', ...basic, suggestions, notice: null, usage: null };
 
   const ai = resolveClient(deps);
   if (!ai) return basicResult;
@@ -83,6 +97,8 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
   if (deps.permit && !deps.permit()) return { ...basicResult, limited: true };
 
   const sent = { jobType: stripInvisible(input.jobType), groups: groups.map((g) => ({ heading: g.heading, steps: g.steps })) };
+  const system = buildScopeCopySystem(voice);
+  const stepCount = groups.reduce((n, g) => n + g.steps.length, 0);
   const inputTexts = [stripInvisible(input.jobType), DEFAULT_SECTION_HEADING, ...groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps])];
   let tokensIn = 0;
   let tokensOut = 0;
@@ -97,9 +113,10 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
     let text: string;
     try {
       const reply = await ai.client.complete({
-        system: SCOPE_COPY_SYSTEM,
+        system,
         user: attempt === 0 ? buildScopeCopyUser(sent) : `${buildScopeCopyUser(sent)}\n\n${SCOPE_COPY_RETRY_NOTE}`,
-        maxTokens: 4096,
+        // Enough for every step said twice over plus the lists; a cap, not a cost.
+        maxTokens: Math.min(4096, 700 + stepCount * 90),
         signal: AbortSignal.timeout(Math.max(1, left)),
       });
       text = reply.text;
@@ -110,11 +127,7 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
       break;
     }
     const parsed = parseReply(text);
-    if (!parsed) continue;
-    if (parsed.sections.length !== groups.length) continue;
-    if (parsed.sections.some((s, i) => s.steps.length > groups[i]!.steps.length)) continue;
-    const outputs = [...parsed.sections.flatMap((s) => [s.heading, ...s.steps]), ...parsed.corrections, ...parsed.uncertain];
-    if (findInventions(inputTexts, outputs).length > 0) continue;
+    if (!parsed || !acceptable(parsed, groups, inputTexts, voice.headings)) continue;
     const sections = parsed.sections.map((s) => ({ heading: tidyHeading(s.heading), steps: s.steps.map(tidyStep).filter(Boolean) }));
     if (sections.some((s) => s.heading === '' || s.steps.length === 0)) continue;
     return {
@@ -122,6 +135,7 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
       sections,
       corrections: parsed.corrections,
       uncertain: parsed.uncertain,
+      suggestions,
       notice: null,
       usage: { model: ai.model, inputTokens: tokensIn || null, outputTokens: tokensOut || null, valid: true },
     };
@@ -133,9 +147,58 @@ export async function generateScopeCopy(input: GenerateInput, deps: GenerateDeps
   };
 }
 
-function parseReply(text: string) {
+/** Most bullets a step may become: one action per bullet lets a step with two pieces of work become two. */
+export const MAX_BULLETS_PER_STEP = 2;
+
+/**
+ * Every check the model's answer must pass, or it is thrown away. The invention check runs unchanged on the wording
+ * (headings included) and the corrections. The "please check" questions are shown only to the owner, never to the
+ * customer, so a question may name a material or part ("Did you mean scaffold?"); every other kind of invention
+ * (figures, units, claims, standards, brands and names, other scripts, hidden characters) is refused there too.
+ *
+ * Groups: sections come in input order and cover every group. A group with a heading is exactly one section. A group
+ * with no heading is one section headed "The works", or several, each with one of the business's own headings.
+ * Each group's bullets may number at most twice its steps (one action per bullet).
+ */
+export function acceptable(
+  parsed: ScopeCopyResponseV2,
+  groups: readonly { heading: string | null; steps: string[] }[],
+  inputTexts: readonly string[],
+  ownHeadings: readonly string[] = [],
+): boolean {
+  const sections = parsed.sections;
+  const hasGroups = sections.every((s) => s.group !== undefined);
+  if (!hasGroups && sections.some((s) => s.group !== undefined)) return false;
+  const groupOf = (i: number) => (hasGroups ? sections[i]!.group! : i);
+  if (!hasGroups && sections.length !== groups.length) return false;
+  const own = new Set(ownHeadings.map(headingKey));
+  let next = 0;
+  for (let gi = 0; gi < groups.length; gi++) {
+    const mine: typeof sections = [];
+    while (next < sections.length && groupOf(next) === gi) mine.push(sections[next++]!);
+    if (mine.length === 0) return false;
+    const g = groups[gi]!;
+    if (g.heading !== null && mine.length !== 1) return false;
+    if (g.heading === null && mine.length > 1 && mine.some((s) => !own.has(headingKey(s.heading)))) return false;
+    if (g.heading === null && mine.length === 1 && headingKey(mine[0]!.heading) !== headingKey(DEFAULT_SECTION_HEADING) && !own.has(headingKey(mine[0]!.heading))) return false;
+    const bullets = mine.reduce((n, s) => n + s.steps.length, 0);
+    if (bullets > Math.min(SCOPE_LIMITS.stepsPerSection, g.steps.length * MAX_BULLETS_PER_STEP)) return false;
+  }
+  if (next !== sections.length) return false;
+
+  const wording = sections.flatMap((s) => [s.heading, ...s.steps]);
+  if (findInventions(inputTexts, [...wording, ...parsed.corrections]).length > 0) return false;
+  if (findInventions(inputTexts, parsed.uncertain).some((i) => i.kind !== 'product')) return false;
+  if (missingFacts(groups.flatMap((g) => [...(g.heading ? [g.heading] : []), ...g.steps]), wording, parsed.corrections).length > 0) return false;
+  if (addedWork(inputTexts, sections.flatMap((s) => s.steps)).length > 0) return false;
+  return true;
+}
+
+const headingKey = (h: string) => h.toLocaleLowerCase('en-GB').replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+function parseReply(text: string): ScopeCopyResponseV2 | null {
   try {
-    const r = scopeCopyResponseSchema.safeParse(extractJsonObject(text));
+    const r = scopeCopyResponseSchemaV2.safeParse(extractJsonObject(text));
     return r.success ? r.data : null;
   } catch {
     return null;

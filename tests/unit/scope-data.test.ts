@@ -26,7 +26,7 @@ describe('generateForOwner', () => {
     expect(r.copy.approvedAt).toBeNull();
     expect(r.copy.sourceKey).toBe(scopeKey(STEPS));
     expect(r.copy.generatedAt).toBe('2026-10-15T09:00:00.000Z');
-    expect(r.promptVersion).toBe('scope-copy.v1');
+    expect(r.promptVersion).toBe('scope-copy.v2');
   });
   it('says so when there are no steps', async () => {
     const r = await generateForOwner({ userId: 'gen-2', tenantId: 't1' }, [{ id: 'a', kind: 'heading', text: 'Only a heading' }], '', { client: null, recordRun: noRun });

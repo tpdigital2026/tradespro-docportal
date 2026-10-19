@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { approveScopeAction, generateScopeCopyAction } from '../../app/(app)/documents/new/scope-actions';
 import { applyJobTypeDefaults, isPristine } from '../../lib/scope/defaults';
 import { copyErrors, COPY_TOO_OLD, countSteps, isApproved, isStale, scopeErrors, scopeKey, type ScopeCopy, type ScopeFormValues, type ScopeItem } from '../../lib/scope/model';
+import { makeItem } from '../../lib/scope/items';
 import { tidyItems } from '../../lib/scope/tidy';
 import { Button } from '../Button';
 import { ScopeDetails } from '../scope/ScopeDetails';
@@ -94,6 +95,12 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
     patchScope({ copy: fn(c) });
   };
 
+  // "Add a step" from Things you could add: the step goes to the end of the owner's steps, to edit, and the wording must be made again.
+  const addSuggestedStep = (text: string) => {
+    updateItems((cur) => [...cur, makeItem('step', text)]);
+    setView('build');
+  };
+
   const approve = async () => {
     const c = scopeRef.current.copy;
     if (!c) return;
@@ -151,7 +158,7 @@ export function ScopeStep({ values, set, err, touch, ctx, ensureSaved, onBack, o
       </div>
 
       {reviewing ? (
-        <ScopeReview items={scope.items} copy={scope.copy!} notice={notice} approved={approved} editCopy={editCopy} errors={copyErrs} />
+        <ScopeReview items={scope.items} copy={scope.copy!} notice={notice} approved={approved} editCopy={editCopy} errors={copyErrs} onAddStep={addSuggestedStep} />
       ) : (
         <div className="sc-build">
           <div className="sc-build-main">
