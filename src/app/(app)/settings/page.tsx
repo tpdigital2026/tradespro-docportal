@@ -1,42 +1,16 @@
 import type { Metadata } from 'next';
 import { PageHeader } from '../../../components/PageHeader';
 import { BankAccounts } from '../../../components/settings/BankAccounts';
+import { BusinessDetailsSettings } from '../../../components/settings/BusinessDetailsSettings';
 import { PaymentWordingSettings } from '../../../components/settings/PaymentWordingSettings';
 import { RetentionSettings, SessionSettings } from '../../../components/settings/PolicySettings';
 import { SignatureSettings } from '../../../components/settings/SignatureSettings';
-import { getSettings, type BusinessDetails } from '../../../lib/data/settings';
+import { getSettings } from '../../../lib/data/settings';
 import { isDemo } from '../../../lib/demo';
 import { requireSession } from '../../../lib/session';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Settings', description: 'Bank accounts, the payment wording on invoices, your signature, how long customer data is kept and when people are signed out.' };
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd className={value ? undefined : 'is-missing'}>{value || 'Not on record'}</dd>
-    </div>
-  );
-}
-
-function Business({ b }: { b: BusinessDetails }) {
-  const address = [...b.addressLines, b.postcode].filter(Boolean).join(', ');
-  return (
-    <>
-      <dl className="set-dl">
-        <Detail label="Business name" value={b.name} />
-        <Detail label="Address" value={address} />
-        <Detail label="Phone" value={b.phone} />
-        <Detail label="Email" value={b.email} />
-        <Detail label="Website" value={b.website} />
-        <Detail label="Company number" value={b.companyNumber} />
-        <Detail label="VAT number" value={b.vatNumber} />
-      </dl>
-      <p className="set-note">These print on every document. To change these, contact TradesPro Digital.</p>
-    </>
-  );
-}
+export const metadata: Metadata = { title: 'Settings', description: 'Business details, bank accounts, the payment wording on invoices, your signature, how long customer data is kept and when people are signed out.' };
 
 export default async function SettingsPage() {
   const session = await requireSession();
@@ -50,7 +24,7 @@ export default async function SettingsPage() {
         title="Settings"
         lede={
           isOwner
-            ? 'Where customers pay you, your signature, how long customer data is kept and when people are signed out. Most changes ask for a fresh code from your email first.'
+            ? 'Your business details, where customers pay you, your signature, how long customer data is kept and when people are signed out. Most changes ask for a fresh code from your email first.'
             : 'How your business is set up. Only the owner can change these settings.'
         }
       />
@@ -97,9 +71,9 @@ export default async function SettingsPage() {
           </section>
         </div>
 
-        <aside className="set-side" aria-labelledby="biz-h">
+        <aside className="set-side" id="business" aria-labelledby="biz-h">
           <h2 id="biz-h" className="section-title">Business details</h2>
-          <Business b={settings.business} />
+          <BusinessDetailsSettings business={settings.business} {...common} />
         </aside>
       </div>
     </div>

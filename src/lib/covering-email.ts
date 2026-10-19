@@ -17,6 +17,9 @@ export interface CoveringEmailFacts {
   customerName: string;
   businessName: string;
   ownerName: string;
+  /** The business's phone and website from its own stored details (Settings > Business details), for the sign-off. */
+  phone?: string;
+  website?: string;
   /** The property, when the document names one. */
   property?: string;
   /** Total of a quotation, amount due on an invoice, amount received on a receipt. */
@@ -99,7 +102,7 @@ export interface CoveringEmail {
 export function draftCoveringEmailParts(args: { facts: CoveringEmailFacts; ownerNotes?: string }): CoveringEmail {
   const f = args.facts;
   const notes = tidyNotes(args.ownerNotes ?? '');
-  const sign = [f.ownerName.trim(), f.businessName.trim()].filter(Boolean);
+  const sign = [f.ownerName.trim(), f.businessName.trim(), (f.phone ?? '').trim(), (f.website ?? '').trim()].filter(Boolean);
   const parts = [greeting(f.customerName), '', ...bodyLines(f)];
   if (notes) parts.push('', notes);
   parts.push('', 'Kind regards,', ...sign);

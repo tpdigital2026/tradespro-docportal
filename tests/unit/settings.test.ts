@@ -255,7 +255,8 @@ describe('getSettingsWith (the signed-in session, safe columns only)', () => {
     };
     const v = await getSettingsWith({ from: chain });
     expect(asked.bank_accounts).not.toMatch(/_enc/);
-    expect(v.business).toMatchObject({ name: 'FJC', vatNumber: '', addressLines: ['1 Road'], postcode: 'ME3 9UD' });
+    // The stored VAT number is read for editing; it is shown and printed only for a VAT-registered business.
+    expect(v.business).toMatchObject({ name: 'FJC', vatNumber: 'GB 1', vatRegistered: false, addressLines: ['1 Road'], postcode: 'ME3 9UD' });
     expect(v.bankAccounts.map((a) => [a.id, a.isDefault, a.archived])).toEqual([['b1', true, false], ['b2', false, true]]);
     expect(v).toMatchObject({ retentionDays: 120, session: { idleMinutes: 15, maxDays: 3 }, signature: { consent: true, hasImage: true } });
     // The stored payment wording is read too; with none stored the agreed wording is shown.
@@ -282,7 +283,7 @@ describe('the Settings page', () => {
     expect(out).toContain('Change how long customer data is kept');
     expect(out).toContain('Change the payment wording');
     expect(out).toContain('Before works start');
-    expect(out).toContain('To change these, contact TradesPro Digital.');
+    expect(out).toContain('Change the business details');
     expect(out).toContain('ending </span>0000');
   });
   it('staff see read-only summaries: no controls, never more than the last four digits', async () => {

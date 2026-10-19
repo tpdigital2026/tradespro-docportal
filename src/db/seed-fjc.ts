@@ -12,6 +12,26 @@ export const FJC_COLOURS: Record<string, string> = {
   rule: '#dde3eb', paper: '#f4f6fa',
 };
 
+/**
+ * The owner-confirmed contact details. Website: the owner gave https://fjcroofing.co.uk/ (printed without the scheme).
+ * Email: as printed on every FJC document (the owner wrote .co.uk once, but his earlier statement and all his documents
+ * say .com; editable in Settings > Business details).
+ */
+export const FJC_CONTACT = { email: 'Ben@fjcroofingltd.com', website: 'fjcroofing.co.uk' } as const;
+/** What the first seed stored, so a re-seed only moves a value the owner has not changed himself. */
+export const FJC_PREVIOUS_CONTACT = { email: 'Ben@fjcroofingltd.com', website: 'www.fjcroofingltd.co.uk' } as const;
+
+/** Brings website and email to the confirmed values, only while each still equals the previously seeded default. */
+export async function seedContact(db: Db, tenantId: string): Promise<string[]> {
+  const filled: string[] = [];
+  for (const k of ['website', 'email'] as const) {
+    if (FJC_CONTACT[k] === FJC_PREVIOUS_CONTACT[k]) continue;
+    const r = await db.query(`update public.tenants set ${k} = $2 where id = $1 and ${k} = $3 returning 1`, [tenantId, FJC_CONTACT[k], FJC_PREVIOUS_CONTACT[k]]);
+    if (r.rows.length) filled.push(k);
+  }
+  return filled;
+}
+
 const JOB_TYPES: [string, string, number | null][] = [
   ['flat_roof', 'Flat roof', 20],
   ['tiled_roof', 'Tiled roof', 25],
@@ -31,16 +51,16 @@ export async function seedFjc(db: Db): Promise<{ tenantId: string; created: bool
     await seedScopeExamples(db, existing.rows[0].id);
     await seedBrandImages(db, existing.rows[0].id);
     await seedSurveyWording(db, existing.rows[0].id);
-    const filled = await seedPaymentWording(db, existing.rows[0].id);
+    const filled = [...(await seedContact(db, existing.rows[0].id)), ...(await seedPaymentWording(db, existing.rows[0].id))];
     return { tenantId: existing.rows[0].id, created: false, filled };
   }
 
   const t = await db.query(
     `insert into public.tenants (slug, name, trade_type, company_number, vat_registered, vat_number, address_lines, phone, email, website, tagline, owner_name, owner_title)
-     values ('fjc', 'FJC Roofing Ltd', 'roofing', '13855379', true, 'GB 408094403', $1, '07596115834', 'Ben@fjcroofingltd.com', 'www.fjcroofingltd.co.uk',
+     values ('fjc', 'FJC Roofing Ltd', 'roofing', '13855379', true, 'GB 408094403', $1, '07596115834', $2, $3,
              'Covering Your Home, Protecting Your Family', 'Ben Cunningham', 'Director')
      returning id`,
-    [['Rochester', 'United Kingdom', 'ME3 9UD']],
+    [['Rochester', 'United Kingdom', 'ME3 9UD'], FJC_CONTACT.email, FJC_CONTACT.website],
   );
   const tenantId = t.rows[0].id as string;
   await db.query(

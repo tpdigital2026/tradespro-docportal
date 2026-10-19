@@ -22,6 +22,7 @@ import { DEFAULT_LIMITS, limitsFrom, type SessionLimits } from '../session-polic
 import { signatureDataUri, type Reencoded } from '../signature-image';
 import type { DocumentStorage, StorageDeleter } from '../storage';
 import { MAX_ACTIVE_ACCOUNTS, type BankInput } from '../validation/settings';
+import { BUSINESS_FIELDS, type BusinessField, type BusinessInput } from '../validation/business';
 import { compactId, type Actor } from './customer-admin';
 import { ownerClient, type DataClient } from './customers';
 import { requireSession } from '../session';
@@ -37,6 +38,9 @@ export interface BusinessDetails {
   postcode: string;
   ownerName: string;
   ownerTitle: string;
+  tagline: string;
+  /** VAT numbers print only for a VAT-registered business. */
+  vatRegistered: boolean;
 }
 
 export interface BankAccountView {
@@ -73,7 +77,7 @@ const str = (x: unknown) => (typeof x === 'string' ? x.trim() : '');
 
 export async function getSettingsWith(client: DataClient): Promise<SettingsView> {
   const [t, banks, defaults, sig] = await Promise.all([
-    client.from('tenants').select('name, company_number, vat_registered, vat_number, phone, email, website, address_lines, postcode, owner_name, owner_title').maybeSingle(),
+    client.from('tenants').select('name, company_number, vat_registered, vat_number, phone, email, website, address_lines, postcode, owner_name, owner_title, tagline').maybeSingle(),
     client.from('bank_accounts').select('id, account_name, bank_name, last4, is_default, archived_at, created_at').order('created_at', { ascending: true }).limit(50),
     client.from('tenant_defaults').select('retention_days, idle_logout_minutes, max_session_days, signature_consent, terms').maybeSingle(),
     client.from('brand_assets').select('id').eq('kind', 'signature').limit(1),
@@ -85,7 +89,9 @@ export async function getSettingsWith(client: DataClient): Promise<SettingsView>
     business: {
       name: str(r.name),
       companyNumber: str(r.company_number),
-      vatNumber: r.vat_registered ? str(r.vat_number) : '',
+      vatNumber: str(r.vat_number),
+      vatRegistered: r.vat_registered === true,
+      tagline: str(r.tagline),
       phone: str(r.phone),
       email: str(r.email),
       website: str(r.website),
@@ -184,6 +190,46 @@ export async function setPaymentWordingWith(db: Db, actor: Actor, input: Payment
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'settings.payment_wording', entity: 'tenant_defaults', entityId: compactId(actor.tenantId), meta: { fields: changed } });
     return { changed };
   }, o);
+}
+
+const BUSINESS_COLUMNS: Record<BusinessField, string> = {
+  email: 'email', phone: 'phone', website: 'website', tagline: 'tagline', addressLines: 'address_lines', postcode: 'postcode',
+  companyNumber: 'company_number', vatNumber: 'vat_number', ownerName: 'owner_name', ownerTitle: 'owner_title',
+};
+
+/**
+ * Settings > Business details. One transaction: the business row locked, the fields that differ written, an audit row
+ * with the field names only (never the values). Blank optional fields are stored empty (null), so they are left off
+ * documents; the owner's name and title stay as text (they may be blank).
+ */
+export async function setBusinessDetailsWith(db: Db, actor: Actor, input: BusinessInput, o: TxOptions = {}): Promise<{ changed: BusinessField[] }> {
+  return inTx(db, async () => {
+    const r = await db.query(`select email, phone, website, tagline, address_lines, postcode, company_number, vat_number, owner_name, owner_title from public.tenants where id = $1 for update`, [actor.tenantId]);
+    const cur = r.rows[0];
+    if (!cur) throw new SettingsError('not_found', 'Your business could not be found.');
+    const now = (k: BusinessField) => (k === 'addressLines' ? JSON.stringify(((cur.address_lines as string[] | null) ?? []).map(str).filter(Boolean)) : str(cur[BUSINESS_COLUMNS[k]]));
+    const next = (k: BusinessField) => (k === 'addressLines' ? JSON.stringify(input.addressLines) : input[k]);
+    const changed = BUSINESS_FIELDS.filter((k) => now(k) !== next(k));
+    if (!changed.length) return { changed };
+    const sets = changed.map((k, i) => `${BUSINESS_COLUMNS[k]} = $${i + 2}`);
+    const vals = changed.map((k) => (k === 'addressLines' ? input.addressLines : k === 'ownerName' || k === 'ownerTitle' ? input[k] : input[k] || null));
+    await db.query(`update public.tenants set ${sets.join(', ')} where id = $1`, [actor.tenantId, ...vals]);
+    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'settings.business', entity: 'tenant', entityId: compactId(actor.tenantId), meta: { fields: changed } });
+    return { changed };
+  }, o);
+}
+
+/** Demo mode: the demo business's details change in memory, so demo documents and Settings show them at once. */
+export function demoSetBusinessDetails(input: BusinessInput): { changed: BusinessField[] } {
+  const t = demoBusiness.tenant as { -readonly [K in keyof typeof demoBusiness.tenant]: (typeof demoBusiness.tenant)[K] };
+  const before = demoSettingsView().business;
+  Object.assign(t, {
+    email: input.email, phone: input.phone, web: input.website, tagline: input.tagline, companyNo: input.companyNumber,
+    vatNo: input.vatNumber || null, ownerName: input.ownerName, ownerTitle: input.ownerTitle,
+    addressLine: [...input.addressLines, input.postcode].filter(Boolean).join(' · '),
+  });
+  const after = demoSettingsView().business;
+  return { changed: BUSINESS_FIELDS.filter((k) => JSON.stringify((before as unknown as Record<string, unknown>)[k === 'website' ? 'website' : k]) !== JSON.stringify((after as unknown as Record<string, unknown>)[k])) };
 }
 
 export async function renameBankAccountWith(db: Db, actor: Actor, id: string, names: { accountName: string; bankName: string }, o: TxOptions = {}): Promise<void> {
@@ -341,6 +387,8 @@ export function demoSettingsView(): SettingsView {
       postcode: parts[parts.length - 1] ?? '',
       ownerName: t.ownerName,
       ownerTitle: t.ownerTitle,
+      tagline: t.tagline,
+      vatRegistered: t.vatNo !== null,
     },
     bankAccounts: st.accounts.map((a) => ({ ...a })),
     retentionDays: st.retentionDays,

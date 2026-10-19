@@ -310,7 +310,9 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
   const pages = shown?.finalisedAt ? Number((shown.finalContent as { pages?: unknown } | null)?.pages) || 0 : 0;
   // A final document is described from what was stored when it was finalised, never recomputed from today's data.
   const issued = status === 'final' && shown?.finalisedAt ? readIssued(shown.finalContent, shown.money, h.number) : null;
-  let email: CoveringEmailFacts | null = issued?.email ?? null;
+  // The sign-off's phone and website are the business's own details as stored now (Settings > Business details).
+  const contact = b ? { phone: b.tenant.phone || undefined, website: b.tenant.web || undefined } : {};
+  let email: CoveringEmailFacts | null = issued?.email ? { ...issued.email, ...contact } : null;
   const kind = emailKind(h.type);
   if (!issued && status === 'final' && kind && f && b) {
     const mapped = mapDocument(f, b);
@@ -332,6 +334,7 @@ function pageFrom(l: Loaded, opts: { otherDocuments: number }): DocumentPage {
       customerName: f.customer.name,
       businessName: b.tenant.name,
       ownerName: b.tenant.ownerName,
+      ...contact,
       property: h.type === 'quotation' ? (f.propertyAddress || undefined) : undefined,
       amountPence: amount,
       validityDays: h.type === 'quotation' ? b.validityDays : null,

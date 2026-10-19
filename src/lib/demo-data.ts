@@ -76,7 +76,7 @@ export const demoBusiness = {
     addressLine: 'Rochester · United Kingdom · ME3 9UD',
     phone: '07596115834',
     email: 'Ben@fjcroofingltd.com',
-    web: 'www.fjcroofingltd.co.uk',
+    web: 'fjcroofing.co.uk',
     companyNo: '13855379',
     vatNo: 'GB 408094403',
     tagline: 'Covering Your Home, Protecting Your Family',

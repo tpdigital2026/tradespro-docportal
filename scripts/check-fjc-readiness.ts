@@ -2,12 +2,14 @@
  * Read-only check that FJC Roofing Ltd, as stored, can create, preview and finalise every document type without being
  * asked for set-up. Prints pass or fail per document type and nothing else (no wording, names or figures).
  *
- *   npx tsx --env-file=.env.local scripts/check-fjc-readiness.ts
+ *   npm run check:fjc-readiness
+ *   npm run check:fjc-readiness -- --show-contact   (also prints the stored website and email: business details, not customer data)
  */
 import { connect } from '../src/db/connect';
 import { redactSecrets } from '../src/db/env';
 import { brandWith, businessWith } from '../src/lib/documents/facts-sql';
 import { readinessChecks } from '../src/lib/readiness/check';
+import { FJC_CONTACT } from '../src/db/seed-fjc';
 import { todayLondon } from '../src/lib/london';
 
 async function main() {
@@ -26,6 +28,10 @@ async function main() {
     console.log(`${biz.business && !biz.problems.length ? 'PASS' : 'FAIL'} business facts`);
     console.log(`${biz.business?.wording ? 'PASS' : 'FAIL'} stored wording passes the schema`);
     if (!biz.business) return;
+    const contact = await c.query(`select website, email from public.tenants where id = $1`, [tenantId]);
+    console.log(`${contact.rows[0].website === FJC_CONTACT.website ? 'PASS' : 'FAIL'} website is the confirmed one`);
+    console.log(`${contact.rows[0].email === FJC_CONTACT.email ? 'PASS' : 'FAIL'} email is the one on FJC's documents`);
+    if (process.argv.includes('--show-contact')) console.log(`stored website: ${contact.rows[0].website ?? '(none)'}\nstored email: ${contact.rows[0].email ?? '(none)'}`);
     const brand = await brandWith(c, tenantId, biz.slug);
     console.log(`${brand.problems.length ? 'FAIL' : 'PASS'} document colours and logo`);
     const w = biz.business.wording;

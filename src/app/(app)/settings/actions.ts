@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { cookieOptions, readSessionStart, sessionSecret, SESSION_MAX_AGE_SECONDS, startCookieName } from '../../../lib/auth-cookies';
 import { withServiceConnection } from '../../../lib/data/customer-admin';
@@ -12,7 +13,9 @@ import {
   demoArchiveBankAccount,
   demoRenameBankAccount,
   demoSetDefaultBankAccount,
+  demoSetBusinessDetails,
   demoSetPaymentWording,
+  setBusinessDetailsWith,
   demoSettings,
   removeSignatureWith,
   renameBankAccountWith,
@@ -25,6 +28,7 @@ import {
 } from '../../../lib/data/settings';
 import { isDemo } from '../../../lib/demo';
 import { parsePaymentWording, type PaymentWordingField } from '../../../lib/payment-wording';
+import { parseBusinessDetails, type BusinessField } from '../../../lib/validation/business';
 import { requireSession, type Session } from '../../../lib/session';
 import { activityCookieName, readActivity, signActivity, type SessionLimits } from '../../../lib/session-policy';
 import { requireFreshStepUpForRequest, StepUpRequiredError } from '../../../lib/step-up-check';
@@ -208,5 +212,18 @@ export async function setPaymentWordingAction(raw: Partial<Record<PaymentWording
   return guarded({ stepUp: true }, async (s) => {
     const r = isDemo() ? demoSetPaymentWording(parsed.value) : await withServiceConnection((db) => setPaymentWordingWith(db, actor(s), parsed.value));
     return r.changed.length === 0 ? 'Nothing was different, so nothing changed.' : 'Saved. Invoices you finalise from now on use this wording. Invoices already finalised keep the wording they were made with.';
+  });
+}
+
+/** Settings > Business details (contact details, address, numbers, the owner's name and title). Owner only, fresh code, audited with field names only. */
+export async function setBusinessDetailsAction(raw: Partial<Record<BusinessField, unknown>>): Promise<SettingsResult> {
+  const s0 = await requireSession();
+  if (s0.role !== 'owner') return { status: 'error', message: OWNER_ONLY };
+  const parsed = parseBusinessDetails(raw ?? {});
+  if (!parsed.ok) return { status: 'invalid', errors: parsed.errors };
+  return guarded({ stepUp: true }, async (s) => {
+    const r = isDemo() ? demoSetBusinessDetails(parsed.value) : await withServiceConnection((db) => setBusinessDetailsWith(db, actor(s), parsed.value));
+    if (r.changed.length) revalidatePath('/', 'layout');
+    return r.changed.length === 0 ? 'Nothing was different, so nothing changed.' : 'Saved. Documents you finalise from now on show these details. Documents already finalised stay as they were.';
   });
 }
