@@ -1,0 +1,230 @@
+/* =====================================================================================================
+   Workspace pages: Home, Customers, Documents, Settings. A pale grey ground, white surfaces with one hairline and one
+   radius, no shadows except menus. Navy stays in the rail; one blue for the primary action. Type 12/14/16/20/28.
+   ===================================================================================================== */
+
+.shell > div:has(.ws) { background: var(--ground); min-height: 100dvh; }
+.jt-open { display: inline-flex; align-items: center; min-height: var(--tap); }
+.ws { display: grid; gap: var(--space-5); min-width: 0; max-width: var(--ws-max); }
+.ws > .pagehead { margin-bottom: 0; }
+.ws-notes { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.ws-notes > * { margin: 0; }
+.ws-h2 { font-size: var(--fs-20); font-weight: 600; }
+.ws-h3 { font-size: var(--fs-16); font-weight: 600; }
+.ws-link { display: inline-flex; align-items: center; min-height: var(--tap); color: var(--accent-ink); font-size: var(--fs-14); font-weight: 600; text-decoration: none; }
+.ws-link:hover { text-decoration: underline; text-underline-offset: var(--underline-offset); }
+.ws-surface { background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); min-width: 0; }
+
+/* status pills: always words, colour only adds to them */
+.pill {
+  display: inline-flex; align-items: center; min-height: var(--pill-h); padding: 0 var(--space-2); border-radius: var(--radius-sm);
+  font-size: var(--fs-12); font-weight: 600; line-height: var(--lh-snug); white-space: nowrap;
+  background: var(--steel-100); color: var(--ink-muted);
+}
+.pill.is-amber { background: var(--warn-tint); color: var(--warn-ink); }
+.pill.is-green { background: var(--success-tint); color: var(--success-ink); }
+.pill.is-red { background: var(--danger-tint); color: var(--danger-ink); }
+.pill.is-blue { background: var(--blue-100); color: var(--accent-ink); }
+
+/* ------------------------------------------------------------------------------------ New document menu */
+.newdoc { position: relative; }
+.newdoc-btn svg { width: var(--rail-icon); height: var(--rail-icon); }
+.newdoc-backdrop { display: none; }
+.newdoc-menu {
+  position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 30; width: var(--menu-w);
+  padding: var(--space-2) 0; background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius);
+  box-shadow: var(--shadow-menu);
+}
+.newdoc-menu[hidden], .newdoc-backdrop[hidden] { display: none; }
+.newdoc-group + .newdoc-group { margin-top: var(--space-1); padding-top: var(--space-1); border-top: var(--hairline) solid var(--border); }
+.newdoc-label { padding: var(--space-2) var(--space-4) var(--space-1); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); color: var(--ink-muted); }
+.newdoc-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--tap); padding: 0 var(--space-4);
+  color: var(--ink); font-size: var(--fs-14); font-weight: 500; text-decoration: none;
+}
+.newdoc-item:hover, .newdoc-item:focus-visible { background: var(--paper-alt); }
+.newdoc-item:focus-visible { outline-offset: calc(var(--stroke) * -1); box-shadow: none; }
+.newdoc-soon { white-space: nowrap; font-size: var(--fs-12); font-weight: 500; color: var(--ink-muted); }
+@media (max-width: 759px) {
+  /* Phones: a bottom sheet above the tab bar, with a dimmed page behind it. */
+  .newdoc-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: var(--backdrop); }
+  .newdoc-menu {
+    position: fixed; inset: auto 0 0 0; top: auto; z-index: 41; width: auto; max-height: var(--sheet-max-h); overflow-y: auto;
+    padding: var(--space-3) 0 calc(var(--space-4) + env(safe-area-inset-bottom, 0)); border: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation: sheet-up var(--dur) var(--ease);
+  }
+  .newdoc-item { min-height: var(--row-min); font-size: var(--fs-16); }
+}
+@keyframes sheet-up { from { transform: translateY(var(--space-6)); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ------------------------------------------------------------------------------------ Home: four figures */
+.figs ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.figs li { min-width: 0; border-top: var(--hairline) solid var(--border); }
+.figs li:nth-child(-n + 2) { border-top: 0; }
+.figs li:nth-child(even) { border-left: var(--hairline) solid var(--border); }
+.fig { display: grid; gap: var(--space-1); align-content: start; min-height: var(--tap); padding: var(--space-3) var(--space-4); color: var(--ink); text-decoration: none; border-radius: var(--radius-sm); }
+.figs li:nth-child(odd) .fig { padding-left: 0; }
+.fig-n { font-family: var(--font-head); font-size: var(--fs-28); font-weight: 600; line-height: var(--lh-tight); font-variant-numeric: tabular-nums; }
+.fig-label { font-size: var(--fs-14); color: var(--ink-muted); font-weight: 500; }
+.fig-note { font-size: var(--fs-12); font-weight: 600; color: var(--danger-ink); }
+.fig:hover .fig-label, .fig[aria-current='true'] .fig-label { color: var(--accent-ink); text-decoration: underline; text-underline-offset: var(--underline-offset); }
+@media (min-width: 760px) {
+  .figs ul { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .figs li, .figs li:nth-child(-n + 2) { border-top: 0; }
+  .figs li + li { border-left: var(--hairline) solid var(--border); }
+  .figs li:nth-child(odd) .fig { padding-left: var(--space-4); }
+  .figs li:first-child .fig { padding-left: 0; }
+}
+
+/* ------------------------------------------------------------------------------------ Home: layout */
+.home-grid { display: grid; gap: var(--space-6); min-width: 0; align-items: start; }
+.home-aside { display: grid; gap: var(--space-6); min-width: 0; align-content: start; }
+@media (min-width: 760px) and (max-width: 1439px) { .home-aside { grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--aside-w)), 1fr)); column-gap: var(--space-7); } }
+@media (min-width: 1440px) { .home-grid { grid-template-columns: minmax(0, 1fr) var(--aside-w); } }
+/* Workspace pages sit a little closer to the edges on desktop: more room for the table. */
+@media (min-width: 900px) { .main:has(> .ws) { padding: var(--space-6) var(--space-6) var(--space-8); } }
+
+/* ------------------------------------------------------------------------------------ Jobs table */
+.jobs-head { display: grid; gap: var(--space-2); padding: var(--space-4) var(--cell-x) 0; border-bottom: var(--hairline) solid var(--border); }
+.ws-tabs { margin: 0 calc(var(--cell-x) * -1); overflow-x: auto; scrollbar-width: none; }
+.ws-tabs ul { list-style: none; margin: 0; padding: 0 var(--cell-x); display: flex; gap: var(--space-5); width: max-content; }
+.ws-tab {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--tap); margin-bottom: calc(var(--hairline) * -1);
+  border-bottom: var(--stroke) solid transparent; color: var(--ink-muted); font-size: var(--fs-14); font-weight: 500; text-decoration: none; white-space: nowrap;
+}
+.ws-tab:hover { color: var(--ink); }
+.ws-tab[aria-current='page'] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.ws-tab-n { min-width: var(--space-5); padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--steel-100); color: var(--ink-muted); font-size: var(--fs-12); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.ws-tab[aria-current='page'] .ws-tab-n { background: var(--blue-100); color: var(--accent-ink); }
+.jobs-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); padding: var(--space-2) var(--cell-x); border-bottom: var(--hairline) solid var(--border); background: var(--paper-alt); font-size: var(--fs-14); color: var(--ink); }
+.jobs-empty { padding: var(--space-5) var(--cell-x); color: var(--ink-muted); font-size: var(--fs-14); }
+
+.jobs-table { width: 100%; border-collapse: collapse; font-size: var(--fs-14); }
+.jobs-table th { padding: var(--space-2) var(--cell-x); text-align: left; font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); color: var(--ink-muted); border-bottom: var(--hairline) solid var(--border); white-space: nowrap; }
+.jobs-table td { padding: var(--space-1) var(--cell-x); height: var(--row-min); vertical-align: middle; border-bottom: var(--hairline) solid var(--border); }
+.jobs-table tbody tr:last-child td { border-bottom: 0; }
+.jobs-table tbody tr { position: relative; }
+.jobs-table tbody tr:hover { background: var(--paper-alt); }
+.jobs-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.jt-open { font-weight: 600; color: var(--ink); text-decoration: none; }
+/* The customer link covers the whole row, so a tap anywhere opens the job. The next step sits above it. */
+.jt-open::after { content: ''; position: absolute; inset: 0; }
+.jt-open:focus-visible { outline: none; box-shadow: none; }
+.jt-open:focus-visible::after { outline: var(--stroke) solid var(--focus); outline-offset: calc(var(--stroke) * -1); }
+.jobs-table tbody tr:hover .jt-open { color: var(--accent-ink); }
+.jt-job { min-width: 0; }
+.jt-ref { display: block; font-variant-numeric: tabular-nums; }
+.jt-addr { display: block; font-size: var(--fs-12); color: var(--ink-muted); }
+.jt-customer { white-space: nowrap; }
+.jt-ref { white-space: nowrap; }
+.jt-addr { max-width: var(--addr-w); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jt-next { white-space: nowrap; }
+.jt-next > * { position: relative; z-index: 1; }
+.jt-go { padding: 0 var(--space-4); font-size: var(--fs-14); }
+.jt-text { display: inline-flex; align-items: center; min-height: var(--tap); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+.jt-text:hover { text-decoration: underline; text-underline-offset: var(--underline-offset); }
+/* A receipt still to send: a quieter second line under the next step (24px target with a mouse, 44px on touch). */
+.jt-extra { display: flex; min-height: var(--target-min); font-size: var(--fs-12); font-weight: 500; }
+.jt-next:has(.jt-extra) { padding-block: var(--space-1); }
+.jt-go + .jt-extra { margin-top: var(--space-1); }
+.jt-none { color: var(--ink-muted); }
+.jt-date { color: var(--ink-muted); white-space: nowrap; }
+
+/* Narrow screens: each row stacks into a block, still inside the one surface; no sideways scrolling. */
+@media (max-width: 1099px) {
+  .jobs-table thead { position: absolute; width: var(--hairline); height: var(--hairline); overflow: hidden; clip-path: inset(50%); }
+  .jobs-table, .jobs-table tbody { display: block; }
+  .jobs-table tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'cust date' 'job stage' 'next next';
+    gap: var(--space-1) var(--space-3); padding: var(--space-3) var(--cell-x); border-bottom: var(--hairline) solid var(--border);
+  }
+  .jobs-table tbody tr:last-child { border-bottom: 0; }
+  .jobs-table td { display: block; height: auto; padding: 0; border: 0; }
+  .jobs-table td.jt-customer { grid-area: cust; font-size: var(--fs-16); align-self: center; white-space: normal; }
+  .jobs-table td.jt-date { grid-area: date; align-self: center; font-size: var(--fs-12); }
+  .jobs-table td.jt-job { grid-area: job; }
+  .jobs-table td.jt-stage { grid-area: stage; justify-self: end; align-self: start; }
+  .jobs-table td.jt-next { grid-area: next; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-5); padding: 0; white-space: normal; }
+  .jt-addr { max-width: none; white-space: normal; }
+  .jt-extra, .jt-go + .jt-extra { min-height: var(--tap); margin-top: 0; font-size: var(--fs-14); font-weight: 600; }
+}
+/* Tablets: two lines per row, who and what on the left, stage, next step and date beside them. */
+@media (min-width: 760px) and (max-width: 1099px) {
+  .jobs-table tbody tr { grid-template-columns: minmax(0, 1fr) auto minmax(0, var(--next-w)) auto; grid-template-areas: 'cust stage next date' 'job stage next date'; column-gap: var(--space-4); row-gap: 0; align-items: center; }
+  .jobs-table td.jt-stage { justify-self: start; align-self: center; }
+  .jobs-table td.jt-next { flex-direction: column; align-items: flex-start; gap: 0; }
+  .jobs-table td.jt-next .jt-extra { min-height: var(--target-min); font-size: var(--fs-12); font-weight: 500; }
+  .jobs-table td.jt-date { min-width: var(--date-w); text-align: right; }
+}
+@media (max-width: 759px) {
+  .ws-tabs { overflow: visible; }
+  .ws-tabs ul { flex-wrap: wrap; width: auto; column-gap: var(--space-4); }
+  .jobs-table td.jt-next .jt-go { flex: 1 1 100%; margin-top: var(--space-1); }
+  .jobs-table td.jt-next .jt-go + .jt-extra { flex: 1 1 100%; justify-content: center; }
+}
+
+/* ------------------------------------------------------------------------------------ Home: side column */
+.aside-sec { display: grid; gap: var(--space-1); min-width: 0; align-content: start; }
+.aside-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: var(--hairline) solid var(--border); }
+.aside-empty { padding: var(--space-3) 0; font-size: var(--fs-14); color: var(--ink-muted); }
+.plain-list { list-style: none; margin: 0; padding: 0; }
+.plain-list li + li { border-top: var(--hairline) solid var(--border); }
+.plain-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); min-height: var(--row-min); padding: var(--space-2) 0; color: var(--ink); text-decoration: none; }
+.plain-row.is-time { grid-template-columns: auto minmax(0, 1fr); }
+.plain-row:hover .plain-title { color: var(--accent-ink); text-decoration: underline; text-underline-offset: var(--underline-offset); }
+.plain-main { display: grid; min-width: 0; }
+.plain-title { font-size: var(--fs-14); font-weight: 600; overflow-wrap: anywhere; }
+.plain-meta { font-size: var(--fs-12); color: var(--ink-muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.plain-end { display: grid; justify-items: end; gap: var(--space-1); }
+.plain-date { font-size: var(--fs-12); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.plain-time { font-family: var(--font-head); font-size: var(--fs-20); font-weight: 600; font-variant-numeric: tabular-nums; min-width: var(--time-w); }
+
+/* ------------------------------------------------------------------------------------ Customers, Documents, Settings on the ground */
+.ws .search-input { border-radius: var(--ws-radius); font-size: var(--fs-16); }
+.ws .cust-list { gap: 0; background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); overflow: hidden; }
+.ws .cust-list li + li { border-top: var(--hairline) solid var(--border); }
+.ws .cust-row { border-radius: 0; background: none; min-height: var(--row-min); padding: var(--space-2) var(--cell-x); }
+.ws .cust-row:hover { background: var(--paper-alt); }
+.ws .cust-row .avatar { width: var(--space-6); height: var(--space-6); font-size: var(--fs-12); background: var(--steel-100); }
+.ws .cust-name { font-family: var(--font-body); font-size: var(--fs-14); font-weight: 600; }
+.ws .cust-addr { font-size: var(--fs-12); }
+.ws .cust-row .chip, .ws .cust-row .chip.is-warn { min-height: var(--pill-h); border-radius: var(--radius-sm); font-size: var(--fs-12); background: var(--steel-100); padding: 0 var(--space-2); }
+.ws .cust-row .chip.is-warn { background: var(--danger-tint); color: var(--danger-ink); }
+.ws .empty-state { background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); }
+.ws .empty-icon { box-shadow: none; background: var(--blue-100); border-radius: var(--ws-radius); }
+
+.ws .lib-tools { margin-bottom: 0; }
+.ws .filter-chip { background: var(--surface); box-shadow: inset 0 0 0 var(--hairline) var(--border); font-size: var(--fs-14); border-radius: var(--radius-pill); }
+.ws .filter-chip[aria-current='true'] { background: var(--blue-100); color: var(--accent-ink); box-shadow: inset 0 0 0 var(--hairline) var(--accent-ink); }
+.ws .lib-group { gap: var(--space-2); }
+.ws .lib-group-title { font-size: var(--fs-16); }
+.ws .lib-group-c { font-size: var(--fs-14); }
+.ws .lib-list { gap: 0; background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); overflow: hidden; }
+.ws .lib-list > li + li { border-top: var(--hairline) solid var(--border); }
+.ws .lib-row, .ws .lib-row.is-draft { border-radius: 0; background: none; box-shadow: none; }
+.ws .lib-link { min-height: var(--row-min); padding: var(--space-2) var(--cell-x); border-radius: 0; }
+.ws .lib-link:hover { background: var(--paper-alt); }
+.ws .lib-title { font-family: var(--font-body); font-size: var(--fs-14); }
+.ws .lib-download { border-radius: 0; }
+.ws .lib-download:hover { background: var(--paper-alt); }
+.ws .doc-chip { width: var(--space-6); height: var(--space-6); background: var(--steel-100); color: var(--ink-muted); }
+.ws .doc-chip svg { width: var(--rail-icon); height: var(--rail-icon); }
+.ws .status-chip { min-height: var(--pill-h); border-radius: var(--radius-sm); font-size: var(--fs-12); padding: 0 var(--space-2); }
+.ws .lib-side, .ws .set-side { background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); }
+.ws .lib-side .mini-list { gap: 0; }
+.ws .lib-side .mini-list li + li { border-top: var(--hairline) solid var(--border); }
+.ws .lib-side .mini-row { padding: var(--space-2) 0; border-radius: 0; background: none; }
+.ws .lib-side .mini-row:hover { box-shadow: none; }
+.ws .lib-side .mini-row:hover .mini-title { color: var(--accent-ink); }
+.ws .section-title { font-size: var(--fs-16); }
+
+.ws .set-main { background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius); padding: 0 var(--space-4); }
+@media (min-width: 520px) { .ws .set-main { padding: 0 var(--space-6); } }
+.ws .set-sec, .ws .set-sec:first-child { padding: var(--space-6) 0; }
+.ws .set-sec + .set-sec { border-top: var(--hairline) solid var(--border); }
+.ws .set-sig-preview { box-shadow: none; border: var(--hairline) solid var(--border); }
+
+/* Touch screens of any width: every target at least 44px. */
+@media (pointer: coarse) {
+  .jt-extra, .jobs-table td.jt-next .jt-extra { min-height: var(--tap); }
+}

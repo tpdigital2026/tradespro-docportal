@@ -71,7 +71,7 @@
   /* layout */
   --tap: 44px;
   --nav-h: 64px;
-  --rail-w: 256px;
+  --rail-w: 240px;
   --measure: 40rem;
   --radius: 8px;
   --radius-sm: 6px;
@@ -149,6 +149,35 @@
   --sig-h: 100px; /* the signature preview, about the height it prints at */
   --set-side-w: 22rem;
   --num-w: 8rem; /* short number fields (days, minutes) */
+
+  /* workspace pages (Home, Customers, Documents, Settings): pale ground, white surfaces, one hairline, one radius */
+  --ground: #f3f6f9; /* the app ground behind list pages; ink-muted is 7.6:1 on it */
+  --surface: var(--paper);
+  --border: var(--line);
+  --ws-radius: var(--radius);
+  --fs-12: 0.75rem;
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-20: 1.25rem;
+  --fs-28: 1.75rem;
+  --row-min: 48px; /* table rows */
+  --cell-x: var(--space-3);
+  --aside-w: 18rem; /* Home's narrow side column */
+  --menu-w: 18rem;
+  --sheet-max-h: 80dvh;
+  --pill-h: 24px;
+  --rail-icon: 18px;
+  --rail-logo-w: 9rem;
+  --addr-w: 14rem;
+  --target-min: 24px; /* WCAG 2.2 minimum for a secondary target beside a 44px one, mouse only */
+  --date-w: 3.5rem;
+  --next-w: 13rem;
+  --ws-max: 90rem;
+  --time-w: 3.2em; /* Today list: room for 00:00 */
+  --shadow-menu: 0 4px 12px rgb(7 22 38 / 0.10), 0 1px 3px rgb(7 22 38 / 0.08);
+  --on-dark-hover: rgb(255 255 255 / 0.06);
+  --on-dark-active: rgb(255 255 255 / 0.10);
+  --rail-rule: rgb(157 184 204 / 0.18);
 }
 
 /* Derived from --accent and --accent-ink, so they are declared on every element that may override those

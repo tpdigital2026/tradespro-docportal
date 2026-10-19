@@ -82,9 +82,18 @@ const hrefsOf = (html: string) => [...new Set([...html.matchAll(/href="([^"]+)"/
 const idsOf = (html: string) => new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
 const digest = (e: unknown) => String((e as { digest?: unknown } | null)?.digest ?? '');
 
-async function renderHome() {
+async function renderHome(sp: Record<string, string> = {}) {
   const { default: Home } = await import('../../src/app/(app)/page');
-  return render(createElement(Home as never, { searchParams: Promise.resolve({}) }), new URL('http://x/'));
+  const url = new URL('http://x/');
+  for (const [k, v] of Object.entries(sp)) url.searchParams.set(k, v);
+  return render(createElement(Home as never, { searchParams: Promise.resolve(sp) }), url);
+}
+
+/** Home in every table view (the default, each tab and the Ready to invoice filter), joined: every row is reached. */
+async function renderAllViews() {
+  const views: Record<string, string>[] = [{}, { view: 'quotes' }, { view: 'waiting' }, { view: 'invoice' }, { view: 'all' }];
+  const out = await Promise.all(views.map((v) => renderHome(v)));
+  return { html: out.map((o) => o.html).join('\n'), error: out.find((o) => o.error)?.error ?? null };
 }
 
 async function renderTarget(href: string): Promise<{ ok: boolean; why: string; html: string }> {
@@ -115,17 +124,44 @@ describe('Home in demo mode: every link and button lands on a working page', () 
     vi.unstubAllEnvs();
   });
 
-  it('renders, with the document tiles, Start a quote, job next steps, Create receipt and Mark as paid', async () => {
+  it('renders the New document menu, the four figures, the Jobs table with next steps, Create receipt and Mark as paid', async () => {
     const { html, error } = await renderHome();
     expect(error).toBeNull();
-    expect(html).toContain('Start a quote');
+    expect(html).toMatch(/<h1>Home<\/h1>/);
+    expect(html).toMatch(/aria-haspopup="menu"/);
+    expect(html).toMatch(/role="menu"/);
     const hrefs = hrefsOf(html);
     for (const t of ['quotation', 'survey', 'deposit-invoice', 'balance-invoice', 'invoice-full', 'invoice-stage', 'receipt', 'guarantee']) expect(hrefs).toContain(`/documents/new?type=${t}`);
-    expect(html).toMatch(/Mark [^<]* as paid|Record the rest/);
+    for (const label of ['Quotes to finish', 'Jobs in progress', 'Ready to invoice', 'Waiting for payment']) expect(html).toContain(label);
+    for (const v of ['/?view=quotes#jobs', '/?view=all#jobs', '/?view=invoice#jobs', '/?view=waiting#jobs', '/#jobs']) expect(hrefs).toContain(v);
+    expect(html).toMatch(/<table[^>]*class="jobs-table"/);
     expect(html).toMatch(/Create (<!-- -->)?receipt/);
     expect(hrefs.some((h) => h.startsWith('/documents/jobs/'))).toBe(true);
-    // The one document not built yet says so on its tile, so it never looks like a broken button.
-    expect(html).toMatch(/Guarantee certificate<\/span><span class="tile-soon">Coming soon<\/span>/);
+    // Only the first row's next step is a filled button.
+    expect(html.match(/btn btn-primary jt-go/g)?.length).toBe(1);
+    const waiting = await renderHome({ view: 'waiting' });
+    expect(waiting.html).toMatch(/Mark [^<]* as paid|Record the rest/);
+    // The one document not built yet says so in the menu, so it never looks like a broken link.
+    expect(html).toMatch(/Guarantee certificate<\/span><span class="newdoc-soon">Coming soon<\/span>/);
+    // No document tiles or banner on Home any more.
+    expect(html).not.toMatch(/class="tiles"|class="hero/);
+  });
+
+  it('an empty view says so in one quiet line', async () => {
+    const g = globalThis as Record<string, unknown>;
+    g.__realJobs = [];
+    g.__realDrafts = [];
+    g.__realSurveyed = [];
+    try {
+      const { html, error } = await renderHome();
+      expect(error).toBeNull();
+      expect(html).toContain('<p class="jobs-empty">Nothing needs you right now.</p>');
+      expect(html).not.toContain('jobs-table');
+      const all = await renderHome({ view: 'all' });
+      expect(all.html).toMatch(/<p class="jobs-empty">No jobs yet\./);
+    } finally {
+      for (const k of ['__realJobs', '__realDrafts', '__realSurveyed']) delete g[k];
+    }
   });
 
   it('guards the checker itself: a missing job, a missing document and a missing route are all reported', async () => {
@@ -135,7 +171,7 @@ describe('Home in demo mode: every link and button lands on a working page', () 
   });
 
   it('every target renders without a 404, a crash or a redirect to nowhere, and every #anchor exists', async () => {
-    const { html } = await renderHome();
+    const { html } = await renderAllViews();
     const homeIds = idsOf(html);
     const hrefs = hrefsOf(html).filter((h) => !/^https?:/.test(h) && !h.startsWith('/_next/') && !/\.(png|jpe?g|webp|svg|ico|webmanifest)$/.test(h));
     expect(hrefs.length).toBeGreaterThan(20);
@@ -201,7 +237,7 @@ describe('Home with real-mode data (fake): every target is a real, reachable rou
   });
 
   it('every href matches an app route, is guarded (never public, never read as a sign-in address), and job numbers round trip', async () => {
-    const { html, error } = await renderHome();
+    const { html, error } = await renderAllViews();
     expect(error).toBeNull();
     const { isValidSlug } = await import('../../src/lib/slug');
     const hrefs = hrefsOf(html).filter((h) => h.startsWith('/') && !h.startsWith('/_next/') && !/\.(png|jpe?g|webp|svg|ico)$/.test(h));
@@ -236,7 +272,7 @@ describe('Home with real-mode data (fake): every target is a real, reachable rou
 
 describe('Home components: server/client boundary', () => {
   const read = (rel: string) => readFileSync(path.join(__dirname, '../..', rel), 'utf8');
-  const SERVER = ['src/app/(app)/page.tsx', 'src/components/HomeHero.tsx', 'src/components/DocTypeList.tsx', 'src/components/JobRow.tsx', 'src/components/MoneyStrip.tsx', 'src/components/EmptyState.tsx', 'src/components/DocTypeIcon.tsx', 'src/components/StageChips.tsx', 'src/components/Button.tsx'];
+  const SERVER = ['src/app/(app)/page.tsx', 'src/components/JobsTable.tsx', 'src/components/PageHeader.tsx', 'src/components/Button.tsx'];
   it('no Home server component passes an event handler or uses client hooks (both fail only in the production RSC build)', () => {
     for (const f of SERVER) {
       const s = read(f);
@@ -245,9 +281,10 @@ describe('Home components: server/client boundary', () => {
       expect(s, f).not.toMatch(/\buse(State|Effect|Router|Pathname|SearchParams|Ref)\(/);
     }
   });
-  it('the shell around Home is a client component (it reads the path), and its only buttons are Log out and More', () => {
+  it('the shell around Home is a client component (it reads the path), and its only buttons are Log out and More; the New document menu is the one client component Home adds', () => {
     const shell = read('src/components/Shell.tsx');
     expect(shell).toMatch(/^'use client';/);
     expect(read('src/components/MoreMenu.tsx')).toMatch(/^'use client';/);
+    expect(read('src/components/NewDocumentMenu.tsx')).toMatch(/^'use client';/);
   });
 });

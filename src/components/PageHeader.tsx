@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
 /**
- * Page title block. Two-tone headline (muted first line, ink second line) when `muted` is given; one line otherwise.
- * Left aligned; the action sits beside the title on wider screens. `compact` is for working screens like the quote.
+ * Page title block: the title left (28px), one action right, an optional short line under it. `muted` puts a quieter
+ * first word before the title on the same line. The action sits beside the title at every width. `compact` is for working screens like the quote.
  * `lead` puts something (an avatar) before the title.
  */
 export function PageHeader({
@@ -28,7 +28,7 @@ export function PageHeader({
       <div className="pagehead-text">
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h1>
-          {muted ? <span className="muted">{muted}</span> : null}
+          {muted ? <><span className="muted">{muted}</span>{' '}</> : null}
           {title}
         </h1>
         {lede ? <p className="lede">{lede}</p> : null}

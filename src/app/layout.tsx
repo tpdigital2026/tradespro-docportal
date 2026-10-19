@@ -8,6 +8,7 @@ import '@fontsource/work-sans/latin-500.css';
 import '@fontsource/work-sans/latin-600.css';
 import '../styles/tokens.css';
 import '../styles/app.css';
+import '../styles/workspace.css';
 import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME, ROBOTS, SHARE_CARD, siteUrl, THEME_NAVY } from '../lib/site';
 
 export const metadata: Metadata = {

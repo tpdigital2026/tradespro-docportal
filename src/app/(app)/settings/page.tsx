@@ -44,13 +44,12 @@ export default async function SettingsPage() {
   const demo = isDemo();
   const common = { isOwner, email: session.email, demo };
   return (
-    <div className="page page-wide">
+    <div className="ws">
       <PageHeader
-        muted="Your"
-        title="settings"
+        title="Settings"
         lede={
           isOwner
-            ? 'Where customers pay you, your signature, how long customer data is kept and when people are signed out. Most changes ask for a fresh code from your email first, to keep them safe.'
+            ? 'Where customers pay you, your signature, how long customer data is kept and when people are signed out. Most changes ask for a fresh code from your email first.'
             : 'How your business is set up. Only the owner can change these settings.'
         }
       />

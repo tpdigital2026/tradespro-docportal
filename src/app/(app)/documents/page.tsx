@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ButtonLink } from '../../../components/Button';
 import { DocTypeIcon } from '../../../components/DocTypeIcon';
 import { EmptyState } from '../../../components/EmptyState';
+import { NewDocumentMenu } from '../../../components/NewDocumentMenu';
 import { PageHeader } from '../../../components/PageHeader';
 import { groupLibrary, LIBRARY_KINDS, LIBRARY_LIMIT, listLibrary, type LibraryItem, type LibraryKind } from '../../../lib/data/documents';
 import { DOC_TYPE_NAMES, jobHref } from '../../../lib/job-stage';
@@ -78,12 +79,11 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const shownCount = items.length;
 
   return (
-    <div className="page page-wide">
+    <div className="ws">
       <PageHeader
-        muted="Your"
-        title="documents"
+        title="Documents"
         lede="Every quote, invoice and receipt, grouped by job. Drafts open for editing. Final documents download as a PDF."
-        action={anyAtAll ? <ButtonLink href="/documents/new">New document</ButtonLink> : undefined}
+        action={<NewDocumentMenu />}
       />
 
       {failed ? (

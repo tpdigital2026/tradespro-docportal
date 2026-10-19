@@ -32,15 +32,13 @@ function Icon({ name }: { name: IconName }) {
   );
 }
 
-/** Rail: logo centred with clear space, then the DocPortal label and business name aligned with the nav. */
+/** Rail: the business logo, its name small underneath, aligned with the nav. */
 function RailBrand({ brand }: { brand: TenantBrand }) {
   const logo = brand.logoDark;
   return (
     <div className="rail-brand">
-      <div className="rail-logo">
-        <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
-      </div>
-      <p className="rail-org"><small>DocPortal</small>{brand.name}</p>
+      <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      <p className="rail-org">{brand.name}</p>
     </div>
   );
 }
@@ -79,19 +77,38 @@ export function isCurrent(path: string, href: string) {
   return path === href || path.startsWith(`${href}/`);
 }
 
+/** Rail groups: Home on its own, then the everyday work, then the business view. Settings sits in the rail foot. */
+const railGroups: { label: string | null; items: readonly { href: string; label: string; icon: IconName }[] }[] = [
+  { label: null, items: items.filter((i) => i.href === '/') },
+  { label: 'Work', items: [...items.filter((i) => i.href === '/customers' || i.href === '/documents' || i.href === '/documents/new'), ...businessItems.filter((i) => i.href === '/calendar')] },
+  { label: 'Business', items: businessItems.filter((i) => i.href !== '/calendar') },
+];
+
+function NavLink({ path, href, label, icon }: { path: string; href: string; label: string; icon: IconName }) {
+  return (
+    <Link href={href} className="navlink" aria-current={isCurrent(path, href) ? 'page' : undefined}>
+      <Icon name={icon} />
+      <span>{label}</span>
+    </Link>
+  );
+}
+
 function Nav({ path }: { path: string }) {
   return (
-    <ul className="navlist">
-      {/* Settings goes last in the rail, after the business tabs. */}
-      {[...items.filter((i) => i.href !== '/settings'), ...businessItems, ...items.filter((i) => i.href === '/settings')].map((i) => (
-        <li key={i.href}>
-          <Link href={i.href} className="navlink" aria-current={isCurrent(path, i.href) ? 'page' : undefined}>
-            <Icon name={i.icon} />
-            <span>{i.label}</span>
-          </Link>
-        </li>
+    <div className="rail-groups">
+      {railGroups.map((g, gi) => (
+        <div key={gi} className="rail-group">
+          {g.label ? <p className="rail-label" id={`rail-g${gi}`}>{g.label}</p> : null}
+          <ul className="navlist" aria-labelledby={g.label ? `rail-g${gi}` : undefined}>
+            {g.items.map((i) => (
+              <li key={i.href}>
+                <NavLink path={path} {...i} />
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -128,11 +145,14 @@ export function Shell({
           </nav>
         </div>
         <div className="rail-foot">
+          <ul className="navlist">
+            <li><NavLink path={path} href="/settings" label="Settings" icon="settings" /></li>
+            <li><LogOut /></li>
+          </ul>
           <div className="rail-user">
             <span className="rail-avatar" aria-hidden="true">{initials(userName)}</span>
             <span className="rail-user-name">{userName}</span>
           </div>
-          <LogOut />
           {brand.isOwnBrand ? null : <PoweredBy variant="rail" />}
         </div>
       </aside>
