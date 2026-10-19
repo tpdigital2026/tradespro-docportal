@@ -13,6 +13,9 @@ import { FollowOnView } from './FollowOnView';
 import { QuoteForm } from './QuoteForm';
 import { StepperBoundary } from './StepperBoundary';
 
+// The Review step draws page 1 of the real document, which takes a few seconds the first time.
+export const maxDuration = 60;
+
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
@@ -118,7 +121,7 @@ export default async function NewDocumentPage({ searchParams }: { searchParams: 
         <p className="doc-note" role="note">This is a new version of a quote you had already finalised. Make your changes, save, then read and tick it again. The earlier version stays as it was.</p>
       ) : null}
       <StepperBoundary>
-        <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} initialStep={stepParam} />
+        <QuoteForm ctx={ctx} initial={initial} initialJobId={draft?.jobId ?? null} initialDocumentId={draft?.documentId ?? null} initialStep={stepParam} />
       </StepperBoundary>
     </div>
   );

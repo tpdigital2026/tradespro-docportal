@@ -8,7 +8,7 @@ import { normaliseQuote, quoteFormSchema, stepOfError, type QuoteErrors, type Qu
 import { logFinish } from './finish-log';
 
 export type SaveResult =
-  | { ok: true; jobId: string; savedAt: string; quoteNumber: string; customerId: string }
+  | { ok: true; jobId: string; documentId: string; savedAt: string; quoteNumber: string; customerId: string }
   | { ok: false; code: QuoteErrorCode; message: string; errors?: QuoteErrors };
 
 /** Where the owner is sent to put a refusal right. */
@@ -63,7 +63,7 @@ export async function saveDraftAction(raw: unknown, jobIdRaw: unknown): Promise<
   if (!form || jobId === undefined) return { ok: false, code: 'invalid', message: GENERIC };
   try {
     const saved = await saveQuoteDraft(form, jobId);
-    return { ok: true, jobId: saved.jobId, savedAt: saved.savedAt, quoteNumber: saved.quoteNumber, customerId: saved.customerId };
+    return { ok: true, jobId: saved.jobId, documentId: saved.documentId, savedAt: saved.savedAt, quoteNumber: saved.quoteNumber, customerId: saved.customerId };
   } catch (e) {
     return toResult(e);
   }

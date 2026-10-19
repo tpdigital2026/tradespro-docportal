@@ -7,6 +7,8 @@ import { CustomerStep } from '../../../../components/quote/CustomerStep';
 import { JobStep, type NumberStatus } from '../../../../components/quote/JobStep';
 import { PlanStep } from '../../../../components/quote/PlanStep';
 import { PriceStep } from '../../../../components/quote/PriceStep';
+import { ReviewPreview } from '../../../../components/quote/ReviewPreview';
+import type { DraftPreview } from '../../../../lib/documents/draft-preview';
 import { ReviewStep } from '../../../../components/quote/ReviewStep';
 import { ScopeStep } from '../../../../components/quote/ScopeStep';
 import { TotalsBar } from '../../../../components/quote/TotalsBar';
@@ -44,11 +46,14 @@ export function QuoteForm({
   ctx,
   initial,
   initialJobId,
+  initialDocumentId = null,
   initialStep,
 }: {
   ctx: QuoteContext;
   initial: QuoteFormValues;
   initialJobId: string | null;
+  /** The draft's quotation document, for the page 1 preview on the Review step. */
+  initialDocumentId?: string | null;
   /** Where Edit on the draft page lands: the first step with something missing, else the review. */
   initialStep?: QuoteStep;
 }) {
@@ -70,6 +75,8 @@ export function QuoteForm({
   const rev = useRef(0);
   const savedRev = useRef(0);
   const jobRef = useRef<string | null>(initialJobId);
+  const docRef = useRef<string | null>(initialDocumentId);
+  const lastPreview = useRef<Extract<DraftPreview, { state: 'ready' }> | null>(null);
   const claimed = useRef<{ quoteNumber: string; customerId: string } | null>(initialJobId ? { quoteNumber: initial.quoteNumber, customerId: initial.customerId } : null);
   const valuesRef = useRef(values);
   const inFlight = useRef<Promise<void> | null>(null);
@@ -161,6 +168,7 @@ export function QuoteForm({
           const cur = valuesRef.current;
           setReverted(cur.quoteNumber !== res.quoteNumber || cur.customerId !== res.customerId);
           jobRef.current = res.jobId;
+          docRef.current = res.documentId;
           claimed.current = { quoteNumber: res.quoteNumber, customerId: res.customerId };
           valuesRef.current = { ...valuesRef.current, ...claimed.current };
           // A correction from the stored job, not an edit: it must not start another save.
@@ -288,6 +296,7 @@ export function QuoteForm({
       setJobId(res.jobId);
     }
     if (res.ok) {
+      docRef.current = res.documentId;
       // What was just saved is the newest: nothing is waiting, so leaving the page does not warn.
       if (rev.current === sentRev) savedRev.current = sentRev;
       setSave({ kind: 'saved', at: clock.format(new Date(res.savedAt)) });
@@ -312,6 +321,12 @@ export function QuoteForm({
   const scopeIx = QUOTE_STEPS.indexOf('scope');
   const scopeOk = isApproved(values.scope);
   const reachable = scopeOk ? reached : Math.min(reached, scopeIx);
+
+  /** For the page 1 preview: saves anything waiting, then the document to draw. */
+  const previewDoc = async (): Promise<string | null> => {
+    if (canSave) await runSave();
+    return savedRev.current === rev.current ? docRef.current : null;
+  };
 
   const ensureSaved = async (): Promise<string | null> => {
     if (canSave) await runSave();
@@ -377,7 +392,7 @@ export function QuoteForm({
             {step === 'scope' ? <ScopeStep {...stepProps} startView={scopeView} ensureSaved={ensureSaved} onBack={() => goTo(stepIx - 1)} onContinue={() => goTo(stepIx + 1)} /> : null}
             {step === 'price' ? <PriceStep {...stepProps} vatRatePct={vatRatePct} /> : null}
             {step === 'plan' ? <PlanStep {...stepProps} /> : null}
-            {step === 'review' ? <ReviewStep {...stepProps} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s), s === 'scope' && approvalState(values.scope) !== 'none' ? 'review' : undefined)} vatRatePct={vatRatePct} /> : null}
+            {step === 'review' ? <ReviewStep {...stepProps} preview={<ReviewPreview watch={values} memory={lastPreview} getDocumentId={previewDoc} onFix={(s) => goTo(QUOTE_STEPS.indexOf(s), s === 'scope' && approvalState(values.scope) !== 'none' ? 'review' : undefined)} />} blockers={blockers} goTo={(s) => goTo(QUOTE_STEPS.indexOf(s), s === 'scope' && approvalState(values.scope) !== 'none' ? 'review' : undefined)} vatRatePct={vatRatePct} /> : null}
           </div>
 
           {step !== 'scope' && stepIx > 0 ? (
