@@ -16,14 +16,18 @@ import {
 import { isKnownId } from '../../../../lib/data/quotes';
 import { DocumentError, reviseDocument } from '../../../../lib/data/documents';
 import { PHOTO_ID, FINDING_ID, surveyFormSchema, type SurveyFormValues } from '../../../../lib/survey/model';
+import { logFailure } from '../../../../lib/log-failure';
 import { requireSession } from '../../../../lib/session';
 
 const GENERIC = 'We could not do that. Please try again.';
 
 export type SurveyOutcome<T> = { ok: true; value: T } | { ok: false; message: string; field?: string };
 
-const fail = (e: unknown): { ok: false; message: string; field?: string } =>
-  e instanceof SurveyError ? { ok: false, message: e.message, ...(e.field ? { field: e.field } : {}) } : { ok: false, message: GENERIC };
+const fail = (stage: string, e: unknown): { ok: false; message: string; field?: string } => {
+  if (e instanceof SurveyError) return { ok: false, message: e.message, ...(e.field ? { field: e.field } : {}) };
+  logFailure(stage, e);
+  return { ok: false, message: GENERIC };
+};
 
 const customerChoice = z.union([
   z.object({ kind: z.literal('existing'), id: z.string().max(80) }),
@@ -46,7 +50,7 @@ export async function saveSurveyAction(raw: unknown): Promise<SurveyOutcome<Save
   try {
     return { ok: true, value: await saveSurvey(p.data as Parameters<typeof saveSurvey>[0]) };
   } catch (e) {
-    return fail(e);
+    return fail('survey.save', e);
   }
 }
 
@@ -60,7 +64,7 @@ export async function approveSurveyAction(documentIdRaw: unknown, valuesRaw: unk
   try {
     return { ok: true, value: await approveSurveyPart(id, values.data as SurveyFormValues, part.data) };
   } catch (e) {
-    return fail(e);
+    return fail('survey.approve', e);
   }
 }
 
@@ -73,7 +77,8 @@ export async function draftFindingAction(documentIdRaw: unknown, ownerLineRaw: u
   if (line.data.trim() === '') return { ok: false, message: 'Say what you found in one line first.' };
   try {
     return { ok: true, value: await draftSurveyFinding(id, line.data, photos.data) };
-  } catch {
+  } catch (e) {
+    logFailure('survey.draftFinding', e);
     return { ok: false, message: GENERIC };
   }
 }
@@ -86,7 +91,8 @@ export async function draftOpinionAction(documentIdRaw: unknown, valuesRaw: unkn
   if (values.data.conclusionLine.trim() === '') return { ok: false, message: 'Say what you conclude in a line first.' };
   try {
     return { ok: true, value: await draftSurveyOpinion(id, values.data as SurveyFormValues) };
-  } catch {
+  } catch (e) {
+    logFailure('survey.draftOpinion', e);
     return { ok: false, message: GENERIC };
   }
 }
@@ -99,7 +105,7 @@ export async function deleteSurveyPhotoAction(documentIdRaw: unknown, photoIdRaw
     await deleteSurveyPhoto(id, photoIdRaw);
     return { ok: true, value: null };
   } catch (e) {
-    return fail(e);
+    return fail('survey.deletePhoto', e);
   }
 }
 
@@ -111,7 +117,8 @@ export async function startQuoteFromSurveyAction(formData: FormData): Promise<vo
   let href: string;
   try {
     href = (await startQuoteFromSurvey(id)).href;
-  } catch {
+  } catch (e) {
+    logFailure('survey.startQuote', e);
     redirect(`/documents/${id}?quote=failed`);
   }
   redirect(href);
@@ -127,6 +134,7 @@ export async function reviseSurveyAction(_prev: SurveyReviseState, form: FormDat
   try {
     await reviseDocument(id);
   } catch (e) {
+    if (!(e instanceof DocumentError)) logFailure('survey.revise', e);
     return { message: e instanceof DocumentError ? e.message : GENERIC };
   }
   redirect(`/documents/new?type=survey&draft=${encodeURIComponent(id)}&step=findings&revised=1`);

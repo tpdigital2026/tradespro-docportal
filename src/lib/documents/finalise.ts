@@ -70,8 +70,10 @@ export function prepareLoaded(l: Loaded, secret: string): Prepared {
     const s = mapSurvey(l.survey, l.business.tenant, l.business.wording?.survey);
     if (!s.ok || missing.length > 0) return { ok: false, missing: [...new Set([...missing, ...(s.ok ? [] : s.missing)])] };
     const mapped: Mapped = { kind: 'survey', input: s.input };
+    // The survey prints the business name, the logo and the theme colours, so the key covers them as it does for the guarantee.
+    const brandPrint = createHash('sha256').update(JSON.stringify(l.brand)).digest('hex');
     const json = JSON.stringify(mapped);
-    return { ok: true, mapped, money: { netPence: 0, vatPence: 0, grossPence: 0 }, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, json, TEMPLATE_VERSION), mappedJson: json };
+    return { ok: true, mapped, money: { netPence: 0, vatPence: 0, grossPence: 0 }, tenant: l.business.tenant, brand: l.brand, key: contentKey(secret, JSON.stringify({ mapped, tenant: l.business.tenant, brand: brandPrint }), TEMPLATE_VERSION), mappedJson: json };
   }
   if (l.head.type === 'guarantee') {
     if (!l.guarantee || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };

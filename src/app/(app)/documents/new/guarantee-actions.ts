@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createRateLimiter } from '../../../../ai/rate-limit';
 import { GuaranteeError, saveGuarantee, type SavedGuarantee } from '../../../../lib/data/guarantees';
 import { isKnownId } from '../../../../lib/data/quotes';
+import { logFailure } from '../../../../lib/log-failure';
 import { requireSession } from '../../../../lib/session';
 
 const GENERIC = 'We could not save that. Please try again.';
@@ -34,6 +35,7 @@ export async function saveGuaranteeAction(raw: unknown): Promise<GuaranteeOutcom
   try {
     return { ok: true, value: await saveGuarantee(p.data) };
   } catch (e) {
+    if (!(e instanceof GuaranteeError)) logFailure('guarantee.save', e);
     return e instanceof GuaranteeError ? { ok: false, message: e.message, ...(e.field ? { field: e.field } : {}), ...(e.existingId ? { existingId: e.existingId } : {}) } : { ok: false, message: GENERIC };
   }
 }

@@ -16,6 +16,8 @@ import { listLibrary, quoteDocumentIdFor, type LibraryItem } from '../../lib/dat
 import { addDays, londonToUtc, todayLondon } from '../../lib/london';
 import { requireSession } from '../../lib/session';
 import { listSurveyedJobs } from '../../lib/data/survey-links';
+import { HOME_LOAD_MESSAGES } from '../../lib/home-load-messages';
+import { attempt } from '../../lib/log-failure';
 
 export const metadata: Metadata = { title: 'Home', description: 'What needs doing next on each job, with every document a tap away.' };
 
@@ -26,15 +28,11 @@ async function todaysAppointments(): Promise<Appointment[]> {
   const from = londonToUtc(today, '00:00');
   const to = londonToUtc(addDays(today, 1), '00:00');
   if (!from.ok || !to.ok) return [];
-  return listAppointments(from.at, to.at).catch(() => []);
+  return listAppointments(from.at, to.at);
 }
 
 async function overdueInvoices(): Promise<number> {
-  try {
-    return summariseInvoices(await getInvoiceTotals(), todayLondon()).overdueInvoices;
-  } catch {
-    return 0;
-  }
+  return summariseInvoices(await getInvoiceTotals(), todayLondon()).overdueInvoices;
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -45,29 +43,29 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const view: HomeView = parseView(sp.view);
   const demo = isDemo();
 
-  let drafts: DraftListItem[] = [];
-  try {
-    drafts = await listDraftQuotes();
-  } catch {
-    drafts = [];
-  }
-  let jobs: JobIn[] = [];
-  try {
-    const all = await listJobSummaries();
-    jobs = byUrgency(all.flatMap((j) => (j.billing ? [{ quoteNumber: j.quoteNumber, customerName: j.customerName, addressLine: j.addressLine, progress: j.billing.progress }] : [])));
-  } catch {
-    jobs = [];
-  }
+  // Each load logs one safe line (stage and error class only) if it fails, and says so on the page, so a failed
+  // load never looks like lost data.
+  const draftsLoad = await attempt<DraftListItem[]>('home.drafts', listDraftQuotes, []);
+  const jobsLoad = await attempt<JobIn[]>(
+    'home.jobs',
+    async () => byUrgency((await listJobSummaries()).flatMap((j) => (j.billing ? [{ quoteNumber: j.quoteNumber, customerName: j.customerName, addressLine: j.addressLine, progress: j.billing.progress }] : []))),
+    [],
+  );
   // Surveyed jobs waiting for their quote come first: the quote is the next thing to write.
-  jobs = [...(await listSurveyedJobs().catch(() => [])), ...jobs];
-  let library: LibraryItem[] = [];
-  try {
-    library = (await listLibrary({ limit: 200 })).items;
-  } catch {
-    library = [];
-  }
+  const surveyedLoad = await attempt<JobIn[]>('home.surveyed', listSurveyedJobs, []);
+  const jobs: JobIn[] = [...surveyedLoad.value, ...jobsLoad.value];
+  const drafts = draftsLoad.value;
+  const libraryLoad = await attempt<LibraryItem[]>('home.library', async () => (await listLibrary({ limit: 200 })).items, []);
+  const library = libraryLoad.value;
   const recent = library.slice(0, 6);
-  const [savedDoc, today, overdue] = await Promise.all([saved ? quoteDocumentIdFor(saved).catch(() => null) : null, todaysAppointments(), overdueInvoices()]);
+  const jobsFailed = draftsLoad.failed || jobsLoad.failed || surveyedLoad.failed || libraryLoad.failed;
+  const [savedDoc, todayLoad, overdueLoad] = await Promise.all([
+    saved ? quoteDocumentIdFor(saved).catch(() => null) : null,
+    attempt<Appointment[]>('home.today', todaysAppointments, []),
+    attempt<number>('home.overdue', overdueInvoices, 0),
+  ]);
+  const today = todayLoad.value;
+  const overdue = overdueLoad.value;
 
   const rows = buildHomeRows(jobs, drafts, latestByQuote(library));
   const f = homeFigures(rows);
@@ -118,15 +116,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       </nav>
 
       <div className="home-grid">
-        <JobsTable rows={rowsFor(rows, view)} view={view} counts={counts} />
+        <JobsTable rows={rowsFor(rows, view)} view={view} counts={counts} loadFailed={jobsFailed} />
 
         <div className="home-aside">
-          {today.length ? (
+          {today.length || todayLoad.failed ? (
             <section aria-labelledby="today-h" className="aside-sec">
               <div className="aside-head">
                 <h2 id="today-h" className="ws-h3">Today</h2>
                 <Link href="/calendar" className="ws-link">Calendar</Link>
               </div>
+              {todayLoad.failed ? <p className="aside-empty" role="status">{HOME_LOAD_MESSAGES.today}</p> : null}
               <ul className="plain-list">
                 {today.map((a) => (
                   <li key={a.id}>
@@ -148,6 +147,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
               <h2 id="recent-h" className="ws-h3">Recent documents</h2>
               <Link href="/documents" className="ws-link">See all<span className="sr-only"> documents</span></Link>
             </div>
+            {libraryLoad.failed ? <p className="aside-empty" role="status">{HOME_LOAD_MESSAGES.documents}</p> : null}
             {recent.length ? (
               <ul className="plain-list">
                 {recent.map((d) => (
@@ -165,7 +165,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : libraryLoad.failed ? null : (
               <p className="aside-empty">Documents you make are listed here.</p>
             )}
           </section>

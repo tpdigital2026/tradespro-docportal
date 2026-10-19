@@ -122,7 +122,8 @@ async function cleanPhotoNow(input: Uint8Array): Promise<CleanPhoto> {
 export async function printCopy(bytes: Buffer, longEdge: number): Promise<{ src: string; width: number; height: number }> {
   const { data, info } = await sharp(bytes, { limitInputPixels: PHOTO_LIMITS.maxInputPixels, sequentialRead: true })
     .resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 78, mozjpeg: true })
+    // Plain libjpeg at 80: these copies are throwaway print copies, and mozjpeg costs several times as long for little gain.
+    .jpeg({ quality: 80 })
     .toBuffer({ resolveWithObject: true });
   return { src: `data:image/jpeg;base64,${data.toString('base64')}`, width: info.width, height: info.height };
 }

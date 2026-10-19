@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HOME_LOAD_MESSAGES } from '../lib/home-load-messages';
 import { HOME_VIEWS, viewHref, type HomeRow, type HomeView } from '../lib/home-rows';
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -17,7 +18,7 @@ const EMPTY: Record<HomeView, string> = {
  * link stretches over the row, so the whole row opens the job; the next step sits above it. Only the first row's
  * next step is a filled button; the rest are text buttons.
  */
-export function JobsTable({ rows, view, counts }: { rows: HomeRow[]; view: HomeView; counts: Record<HomeView, number> }) {
+export function JobsTable({ rows, view, counts, loadFailed = false }: { rows: HomeRow[]; view: HomeView; counts: Record<HomeView, number>; loadFailed?: boolean }) {
   return (
     <section className="ws-surface jobs" aria-labelledby="jobs-h" id="jobs">
       <div className="jobs-head">
@@ -40,7 +41,11 @@ export function JobsTable({ rows, view, counts }: { rows: HomeRow[]; view: HomeV
           Showing jobs ready to invoice. <Link href={viewHref('all')} className="ws-link">Show all jobs</Link>
         </p>
       ) : null}
+      {loadFailed ? (
+        <p className="jobs-empty" role="status">{HOME_LOAD_MESSAGES.jobs}</p>
+      ) : null}
       {rows.length === 0 ? (
+        loadFailed ? null :
         <p className="jobs-empty">{EMPTY[view]}</p>
       ) : (
         <table className="jobs-table" role="table">

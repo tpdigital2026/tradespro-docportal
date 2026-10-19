@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { checkAppointment, type AppointmentErrors, type AppointmentFormValues } from '../../../lib/calendar/model';
 import { AppointmentError, deleteAppointment, isAppointmentId, saveAppointment } from '../../../lib/data/appointments';
+import { logFailure } from '../../../lib/log-failure';
 import { londonParts } from '../../../lib/london';
 import { requireSession } from '../../../lib/session';
 
@@ -36,6 +37,7 @@ export async function saveAppointmentAction(id: string | null, _prev: Appointmen
     saved = await saveAppointment(id, checked.value);
   } catch (e) {
     if (e instanceof AppointmentError) return e.field ? { errors: { [e.field]: e.message }, values } : { message: e.message, values };
+    logFailure('calendar.save', e);
     return { message: GENERIC, values };
   }
   const day = londonParts(checked.value.startsAt).date;
@@ -52,6 +54,7 @@ export async function deleteAppointmentAction(id: string, _prev: DeleteState): P
   try {
     await deleteAppointment(id);
   } catch (e) {
+    if (!(e instanceof AppointmentError)) logFailure('calendar.delete', e);
     return { message: e instanceof AppointmentError ? e.message : 'The appointment could not be deleted. Please try again.' };
   }
   redirect('/calendar?deleted=1');
