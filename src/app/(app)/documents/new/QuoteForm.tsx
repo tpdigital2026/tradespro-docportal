@@ -136,7 +136,9 @@ export function QuoteForm({
 
   const runSave = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
-    const p = (async () => {
+    // Started on the next tick, so inFlight is set before the work runs. (Started at once, a call with nothing to save
+    // finished before inFlight was set, left a settled promise there for good, and no autosave ever ran again.)
+    const p: Promise<void> = Promise.resolve().then(async () => {
       try {
         // Keep going until nothing newer is waiting.
         while (savedRev.current !== rev.current) {
@@ -177,9 +179,9 @@ export function QuoteForm({
           }
         }
       } finally {
-        inFlight.current = null;
+        if (inFlight.current === p) inFlight.current = null;
       }
-    })();
+    });
     inFlight.current = p;
     return p;
   }, []);
