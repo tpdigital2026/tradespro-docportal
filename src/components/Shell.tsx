@@ -37,7 +37,9 @@ function RailBrand({ brand }: { brand: TenantBrand }) {
   const logo = brand.logoDark;
   return (
     <div className="rail-brand">
-      <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      <Link href="/" className="brand-home" aria-label="Home">
+        <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      </Link>
       <p className="rail-org">{brand.name}</p>
     </div>
   );
@@ -48,7 +50,9 @@ function TopBrand({ brand }: { brand: TenantBrand }) {
   const logo = brand.logoDark;
   return (
     <div className="brand">
-      <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      <Link href="/" className="brand-home" aria-label="Home">
+        <Image src={logo.url} width={logo.width} height={logo.height} alt={`${brand.name} logo`} className="brand-logo" priority />
+      </Link>
       <p className="brand-name"><small>DocPortal</small>{brand.name}</p>
     </div>
   );

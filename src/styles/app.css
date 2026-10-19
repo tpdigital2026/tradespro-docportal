@@ -43,6 +43,9 @@ img { max-width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
 .brand-logo { height: var(--logo-h); width: auto; flex: none; display: block; }
 .topbar .brand-logo { height: var(--tap); }
+/* The business logo in the rail and the phone header is a link Home: at least 44px to tap, a visible focus ring, same layout. */
+.brand-home { display: inline-flex; align-items: center; flex: none; justify-self: start; min-height: var(--tap); min-width: var(--tap); border-radius: var(--radius-sm); }
+.brand-home:focus-visible { outline-offset: var(--space-1); }
 .topbar-settings { display: grid; place-items: center; flex: none; width: var(--tap); height: var(--tap); margin-left: auto; border-radius: var(--radius); color: var(--on-dark-muted); }
 .topbar-settings svg { width: var(--icon); height: var(--icon); }
 .topbar-settings:hover, .topbar-settings[aria-current='page'] { color: var(--on-dark); background: color-mix(in srgb, var(--blue-500) 20%, transparent); }
