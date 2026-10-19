@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 const MIME: Record<string, string> = {
@@ -13,6 +13,23 @@ export function dataUri(filePath: string): string {
   const mime = MIME[path.extname(filePath).toLowerCase()];
   if (!mime) throw new Error(`Unsupported asset type: ${filePath}`);
   return `data:${mime};base64,${readFileSync(filePath).toString('base64')}`;
+}
+
+const uriCache = new Map<string, { stamp: string; uri: string }>();
+
+/**
+ * dataUri, kept in memory per file (checked against its size and modification time), so brand pictures are read and
+ * encoded once per server process rather than on every preview.
+ */
+export function cachedDataUri(filePath: string): string {
+  const st = statSync(filePath);
+  const stamp = `${st.size}:${st.mtimeMs}`;
+  const hit = uriCache.get(filePath);
+  if (hit && hit.stamp === stamp) return hit.uri;
+  const uri = dataUri(filePath);
+  if (uriCache.size > 64) uriCache.clear();
+  uriCache.set(filePath, { stamp, uri });
+  return uri;
 }
 
 const FONTS = [

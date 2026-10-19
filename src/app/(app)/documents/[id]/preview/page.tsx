@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { ButtonLink } from '../../../../../components/Button';
 import { PageHeader } from '../../../../../components/PageHeader';
 import { getDocumentPage, getPreview } from '../../../../../lib/data/documents';
+import { OWNER_TEMPLATE_MESSAGE, TemplateLockError } from '../../../../../lib/documents/template-lock';
 import { logRenderFailure } from '../../../../../pdf/diagnostics';
 import { DOC_TYPE_NAMES } from '../../../../../lib/job-stage';
 import { upgradeLegacyApproval } from '../../../../../lib/data/scope';
@@ -34,7 +35,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
     logRenderFailure('preview', e);
     return (
       <div className="page">
-        <PageHeader eyebrow={`Draft ${name.toLowerCase()}`} title={title} lede="We could not draw the pages just now. Nothing has changed. Please try again in a moment." />
+        <PageHeader eyebrow={`Draft ${name.toLowerCase()}`} title={title} lede={e instanceof TemplateLockError ? OWNER_TEMPLATE_MESSAGE : 'We could not draw the pages just now. Nothing has changed. Please try again in a moment.'} />
         <ButtonLink href={`/documents/${id}/preview`}>Try again</ButtonLink>
         <p className="cust-back"><Link href={`/documents/${id}`}>Back to the draft</Link></p>
       </div>

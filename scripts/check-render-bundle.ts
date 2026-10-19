@@ -44,7 +44,8 @@ const FONT_FILES = [
   ...[400, 500, 600, 700].map((w) => `node_modules/@fontsource/inter/files/inter-latin-${w}-normal.woff2`),
   ...[400, 500].map((w) => `node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-${w}-normal.woff2`),
 ];
-const DOCUMENT_ASSETS = ['src/themes/fjc/base.css', ...FONT_FILES, 'public/brands/fjc/'];
+// The locked templates' images (src/templates/library, checked by hash at render time).
+const DOCUMENT_ASSETS = ['src/themes/fjc/base.css', ...FONT_FILES, 'public/brands/fjc/', 'src/templates/library/fjc/quotation-flat-roof/cover.jpg', 'src/templates/library/fjc/brand/logo.png'];
 
 export const RENDER_ROUTES: RouteExpectation[] = [
   { nft: 'app/(app)/documents/[id]/preview/page.js.nft.json', required: [...CHROMIUM, ...DOCUMENT_ASSETS] },

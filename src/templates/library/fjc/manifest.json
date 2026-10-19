@@ -1,0 +1,1067 @@
+{
+  "$comment": "FJC's locked document templates (src/templates/registry.ts). Images are fixed files stored beside this manifest and checked by sha256 before and after every render. Fascia and guttering templates are parked by the owner (2026-10-20): those job types keep the plain layout.",
+  "tenant": "fjc",
+  "version": 1,
+  "templates": [
+    {
+      "id": "fjc/quotation/flat-roof",
+      "documentType": "quotation",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_01, FJC_02, FJC_06 (flat roof quotations)",
+      "images": [
+        {
+          "slot": "cover",
+          "file": "quotation-flat-roof/cover.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/ph_flat.jpg",
+          "sha256": "e5550b3612c05d572164d4bc23842f55a3f0212d78c1679e231e896953a203a2"
+        },
+        {
+          "slot": "diagram-flat",
+          "file": "quotation-flat-roof/diagram-flat.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/diag_flat.jpg",
+          "sha256": "b9584c2a5452059a79dbe69deb3c04c1bab4199cb7be4c30189f0971622140fc"
+        },
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.email",
+        "customer.phone",
+        "property",
+        "quote.ref",
+        "quote.date",
+        "quote.validityDays",
+        "cover.title",
+        "cover.sub",
+        "intro",
+        "specCards",
+        "note",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "money.schedule",
+        "guarantee.years",
+        "signature"
+      ],
+      "wording": {
+        "sector": {
+          "residential": "Residential",
+          "commercial": "Commercial"
+        },
+        "specEyebrow": "Roof specification",
+        "specHeading": "The system we are installing",
+        "scopeHeading": "What we will do, step by step",
+        "diagram": {
+          "layout": "single",
+          "image": "diagram-flat",
+          "eyebrow": "Beneath the finish",
+          "heading": "Every layer has a job to do",
+          "body": [],
+          "caption": "Example flat roofing build-up. The exact system is as set out in the scope of works."
+        },
+        "guaranteeBand": "The roofing system specified above has been selected specifically for this project, and allows {business} to provide a {years}-year guarantee on completion of the works."
+      }
+    },
+    {
+      "id": "fjc/quotation/tiled-roof",
+      "documentType": "quotation",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_03 (tiled re-roof quotation)",
+      "images": [
+        {
+          "slot": "cover",
+          "file": "quotation-tiled-roof/cover.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/ph_tiled.jpg",
+          "sha256": "873a9617207daccc57a28b486cbaac92ec552c584299456570bda6e52ac58709"
+        },
+        {
+          "slot": "diagram-pitched",
+          "file": "quotation-tiled-roof/diagram-pitched.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/diag_pitched.jpg",
+          "sha256": "2367c77a0909874ab0680659ca6a63f2c1c82eeef9f65bdf0709c3b7b4e3c2ba"
+        },
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.email",
+        "customer.phone",
+        "property",
+        "quote.ref",
+        "quote.date",
+        "quote.validityDays",
+        "cover.title",
+        "cover.sub",
+        "intro",
+        "specCards",
+        "note",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "money.schedule",
+        "guarantee.years",
+        "signature"
+      ],
+      "wording": {
+        "sector": {
+          "residential": "Residential",
+          "commercial": "Commercial"
+        },
+        "specEyebrow": "Project summary",
+        "specHeading": "The project at a glance",
+        "scopeHeading": "What we will do, step by step",
+        "diagram": {
+          "layout": "single",
+          "image": "diagram-pitched",
+          "eyebrow": "Beneath the tiles",
+          "heading": "Every part has a job to do",
+          "body": [
+            "A pitched roof is made up of several parts working together to protect the property, manage moisture and support the roof covering.",
+            "When we inspect or replace a roof, we look at the whole system, not just the tiles you can see from the ground."
+          ],
+          "caption": ""
+        },
+        "guaranteeBand": "The roofing system specified above has been selected specifically for this project, and allows {business} to provide a {years}-year guarantee on completion of the works."
+      }
+    },
+    {
+      "id": "fjc/quotation/tiled-and-flat-roof",
+      "documentType": "quotation",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_04 (tiled and flat roof quotation)",
+      "images": [
+        {
+          "slot": "cover",
+          "file": "quotation-tiled-and-flat-roof/cover.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/ph_tiled.jpg",
+          "sha256": "873a9617207daccc57a28b486cbaac92ec552c584299456570bda6e52ac58709"
+        },
+        {
+          "slot": "diagram-pitched",
+          "file": "quotation-tiled-and-flat-roof/diagram-pitched.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/diag_pitched.jpg",
+          "sha256": "2367c77a0909874ab0680659ca6a63f2c1c82eeef9f65bdf0709c3b7b4e3c2ba"
+        },
+        {
+          "slot": "diagram-flat",
+          "file": "quotation-tiled-and-flat-roof/diagram-flat.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/diag_flat.jpg",
+          "sha256": "b9584c2a5452059a79dbe69deb3c04c1bab4199cb7be4c30189f0971622140fc"
+        },
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.email",
+        "customer.phone",
+        "property",
+        "quote.ref",
+        "quote.date",
+        "quote.validityDays",
+        "cover.title",
+        "cover.sub",
+        "intro",
+        "specCards",
+        "note",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "money.schedule",
+        "guarantee.years",
+        "signature"
+      ],
+      "wording": {
+        "sector": {
+          "residential": "Residential",
+          "commercial": "Commercial"
+        },
+        "specEyebrow": "Roof specification",
+        "specHeading": "The system we are installing",
+        "scopeHeading": "What we will do, step by step",
+        "diagram": {
+          "layout": "pair",
+          "items": [
+            {
+              "image": "diagram-pitched",
+              "label": "Inclined area"
+            },
+            {
+              "image": "diagram-flat",
+              "label": "Flat roof areas"
+            }
+          ],
+          "caption": "Example build-ups for illustration. The exact system is as set out in the scope of works."
+        },
+        "guaranteeBand": "The roofing system specified above has been selected specifically for this project, and allows {business} to provide a {years}-year guarantee on completion of the works."
+      }
+    },
+    {
+      "id": "fjc/quotation/commercial-roofing",
+      "documentType": "quotation",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_07 (commercial re-roof quotation)",
+      "images": [
+        {
+          "slot": "cover",
+          "file": "quotation-commercial-roofing/cover.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/ph_roofers.jpg",
+          "sha256": "e1191feb77ffe4a6d2956a7e62d461c0cbc7b7618dd0914a32d3d211ae9a88a7"
+        },
+        {
+          "slot": "diagram-pitched",
+          "file": "quotation-commercial-roofing/diagram-pitched.jpg",
+          "source": "reference DocPortal_Reference/1_FJC_Roofing/brand_assets/diag_pitched.jpg",
+          "sha256": "2367c77a0909874ab0680659ca6a63f2c1c82eeef9f65bdf0709c3b7b4e3c2ba"
+        },
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.email",
+        "customer.phone",
+        "property",
+        "quote.ref",
+        "quote.date",
+        "quote.validityDays",
+        "cover.title",
+        "cover.sub",
+        "intro",
+        "specCards",
+        "note",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "money.schedule",
+        "guarantee.years",
+        "signature"
+      ],
+      "wording": {
+        "sector": {
+          "residential": "Residential",
+          "commercial": "Commercial"
+        },
+        "specEyebrow": "Project summary",
+        "specHeading": "The project at a glance",
+        "scopeHeading": "What we will do, stage by stage",
+        "diagram": {
+          "layout": "single",
+          "image": "diagram-pitched",
+          "eyebrow": "Beneath the tiles",
+          "heading": "Every part has a job to do",
+          "body": [
+            "A pitched roof is made up of several parts working together to protect the property, manage moisture and support the roof covering.",
+            "When we inspect or replace a roof, we look at the whole system, not just the tiles you can see from the ground."
+          ],
+          "caption": ""
+        },
+        "guaranteeBand": "The roofing system specified above has been selected specifically for this project, and allows {business} to provide a {years}-year guarantee on completion of the works."
+      }
+    },
+    {
+      "id": "fjc/deposit-invoice/flat-roof",
+      "documentType": "deposit-invoice",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/balance-invoice/flat-roof",
+      "documentType": "balance-invoice",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-full/flat-roof",
+      "documentType": "invoice-full",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-stage/flat-roof",
+      "documentType": "invoice-stage",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/receipt/flat-roof",
+      "documentType": "receipt",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_11, FJC_12 (navy header, logo; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "document.number",
+        "document.date",
+        "invoice.ref",
+        "quote.ref",
+        "payment.method",
+        "money.paid",
+        "money.balance"
+      ]
+    },
+    {
+      "id": "fjc/deposit-invoice/tiled-roof",
+      "documentType": "deposit-invoice",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/balance-invoice/tiled-roof",
+      "documentType": "balance-invoice",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-full/tiled-roof",
+      "documentType": "invoice-full",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-stage/tiled-roof",
+      "documentType": "invoice-stage",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/receipt/tiled-roof",
+      "documentType": "receipt",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_11, FJC_12 (navy header, logo; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "document.number",
+        "document.date",
+        "invoice.ref",
+        "quote.ref",
+        "payment.method",
+        "money.paid",
+        "money.balance"
+      ]
+    },
+    {
+      "id": "fjc/deposit-invoice/tiled-and-flat-roof",
+      "documentType": "deposit-invoice",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/balance-invoice/tiled-and-flat-roof",
+      "documentType": "balance-invoice",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-full/tiled-and-flat-roof",
+      "documentType": "invoice-full",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-stage/tiled-and-flat-roof",
+      "documentType": "invoice-stage",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/receipt/tiled-and-flat-roof",
+      "documentType": "receipt",
+      "jobType": "tiled_roof",
+      "variant": "tiled-and-flat-roof",
+      "reference": "FJC_11, FJC_12 (navy header, logo; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "document.number",
+        "document.date",
+        "invoice.ref",
+        "quote.ref",
+        "payment.method",
+        "money.paid",
+        "money.balance"
+      ]
+    },
+    {
+      "id": "fjc/deposit-invoice/commercial-roofing",
+      "documentType": "deposit-invoice",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/balance-invoice/commercial-roofing",
+      "documentType": "balance-invoice",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-full/commercial-roofing",
+      "documentType": "invoice-full",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/invoice-stage/commercial-roofing",
+      "documentType": "invoice-stage",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_09, FJC_10 (navy header, logo, signature; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        },
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "customer.email",
+        "customer.phone",
+        "document.number",
+        "document.date",
+        "quote.ref",
+        "due",
+        "scope.sections",
+        "money.lines",
+        "money.totals",
+        "bank",
+        "paymentRef",
+        "guarantee.years",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/receipt/commercial-roofing",
+      "documentType": "receipt",
+      "jobType": "tiled_roof",
+      "variant": "commercial-roofing",
+      "reference": "FJC_11, FJC_12 (navy header, logo; no photo)",
+      "images": [
+        {
+          "slot": "logo-white",
+          "file": "brand/logo_white.png",
+          "source": "public/brands/fjc/logo_white.png (FJC brand pack)",
+          "sha256": "05599f1eecbc6314b855373cb64ec65bc46ea0231ca32a72b71cf5093793a5c5"
+        }
+      ],
+      "slots": [
+        "customer.name",
+        "customer.address",
+        "document.number",
+        "document.date",
+        "invoice.ref",
+        "quote.ref",
+        "payment.method",
+        "money.paid",
+        "money.balance"
+      ]
+    },
+    {
+      "id": "fjc/guarantee/flat-roof",
+      "documentType": "guarantee",
+      "jobType": "flat_roof",
+      "variant": "flat-roof",
+      "reference": "FJC_13 (20 year flat roof certificate); logo, signature and years seal, no photo",
+      "images": [
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "certificate.number",
+        "guarantee.years",
+        "roof",
+        "address",
+        "completed.date",
+        "signature"
+      ]
+    },
+    {
+      "id": "fjc/guarantee/tiled-roof",
+      "documentType": "guarantee",
+      "jobType": "tiled_roof",
+      "variant": "tiled-roof",
+      "reference": "FJC_14 (25 year tiled roof certificate); logo, signature and years seal, no photo",
+      "images": [
+        {
+          "slot": "logo-colour",
+          "file": "brand/logo.png",
+          "source": "public/brands/fjc/logo.png (FJC brand pack)",
+          "sha256": "c38eb83a88105c919be614877404ca5544cefb1545d47dac0097abf666babac1"
+        }
+      ],
+      "slots": [
+        "certificate.number",
+        "guarantee.years",
+        "roof",
+        "address",
+        "completed.date",
+        "signature"
+      ]
+    }
+  ]
+}

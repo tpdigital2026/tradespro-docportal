@@ -21,6 +21,8 @@ import { PAYMENT_METHOD_LABELS, type PaymentMethod } from '../payment';
 import { computeQuoteTotals, quoteLines } from '../quote-totals';
 import { toQuotationScope } from '../scope/to-quotation';
 import { normaliseQuote, type QuoteFormValues } from '../validation/quote';
+import { coverEyebrow, guaranteeBandText, quoteShape, specCardsWithGuarantee, templateVariant } from './quote-layout';
+import { templateFor, type TemplateDocType } from '../../templates/registry';
 
 export interface BusinessFacts {
   tenant: Tenant;
@@ -28,6 +30,8 @@ export interface BusinessFacts {
   disclaimer: string;
   validityDays: number;
   vatRateBp: number;
+  /** The business's slug: which template library it has (src/templates/registry.ts). Absent or null: none. */
+  slug?: string | null;
 }
 
 export interface CustomerFacts {
@@ -47,6 +51,8 @@ export interface DocumentFacts {
   quoteNumber: string;
   propertyAddress: string;
   jobTypeLabel: string;
+  /** The job type's key (flat_roof, tiled_roof, fascia, other, or the business's own); '' when the job has none. */
+  jobTypeKey: string;
   guaranteeYears: number | null;
   customer: CustomerFacts;
   /** The quote form the money and scope come from: for a quotation its own version, otherwise the latest issued quote version. */
@@ -206,26 +212,32 @@ export function mapQuotation(f: DocumentFacts, b: BusinessFacts): MapResult {
   if (missing.length > 0 || !m || !scope.ok || !terms) return { ok: false, missing };
 
   const s = scope.value;
+  const shape = quoteShape(f.jobTypeKey, s.coverTitle, s.coverSub);
+  const tpl = templateFor(b.slug, 'quotation', templateVariant(shape));
+  const w = tpl?.wording;
+  const guarantee = guaranteeOf(f, b);
   const input: QuotationInput = {
     ref: f.quoteNumber,
     dateLabel,
     validityDays: b.validityDays,
     customer: { name: f.customer.name, email: f.customer.email, phone: f.customer.phone },
     property,
-    coverEyebrow: f.jobTypeLabel ? `${f.jobTypeLabel} · Quotation` : 'Quotation',
+    coverEyebrow: w ? coverEyebrow(s.coverTitle, shape, w.sector) : f.jobTypeLabel ? `${f.jobTypeLabel} · Quotation` : 'Quotation',
     coverTitle: s.coverTitle,
     coverSub: s.coverSub,
     introText: s.introText,
-    specEyebrow: 'Specification',
-    specHeading: 'At a glance',
-    specCards: s.specCards,
-    diagram: null,
+    specEyebrow: w?.specEyebrow ?? 'Specification',
+    specHeading: w?.specHeading ?? 'At a glance',
+    specCards: w ? specCardsWithGuarantee(s.specCards, guarantee?.years ?? null) : s.specCards,
+    diagram: w?.diagram ?? null,
+    ...(tpl ? { template: tpl.id, stripClient: shape.commercial } : {}),
     callout: s.callout,
-    scopeHeading: 'What we will do',
+    scopeHeading: w?.scopeHeading ?? 'What we will do',
     scope: s.scope,
-    guarantee: guaranteeOf(f, b),
+    guarantee: guarantee && w ? { years: guarantee.years, text: guaranteeBandText(guarantee.years, b.tenant.name, w.guaranteeBand) } : guarantee,
     vatRateBp: b.vatRateBp,
-    lines: m.lines,
+    // The owner's price row is typed "Work" on his quotations.
+    lines: w ? m.lines.map((l) => (l.kind === 'Works' ? { ...l, kind: 'Work' } : l)) : m.lines,
     paymentSchedule: scheduleRows(f.plan, schedule, b.wording?.deposit_invoice.balanceDueLabel ?? 'Balance'),
     terms,
     disclaimer: b.disclaimer,
@@ -258,6 +270,12 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
   if (fo.number !== f.number) return { ok: false, missing: ['This document no longer matches the job. The quote or the payments changed after it was started.'] };
 
   const customer = partyCustomer(f.customer);
+  // The documents that follow a quote use the matching template for the same kind of job (ben-template-lock-rule.md).
+  const variant = templateVariant(quoteShape(f.jobTypeKey, scope.value.coverTitle, scope.value.coverSub));
+  const templated = (t: TemplateDocType) => {
+    const tpl = templateFor(b.slug, t, variant);
+    return tpl ? { template: tpl.id } : {};
+  };
   if (!customer.name.trim()) missing.push('The customer has no name.');
   const dateLabel = longDate(f.docDate);
   if (!dateLabel) missing.push('The document has no date.');
@@ -279,6 +297,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
     const previous = bl.payments.slice(0, order.indexOf(p.id)).map((x) => x.amountPence);
     const kind: ReceiptInput['kind'] = bl.kind === 'deposit' ? (fo.instalment === 1 ? 'deposit' : 'balance') : bl.kind === 'full' ? 'full' : 'stage';
     const input: ReceiptInput = {
+      ...templated('receipt'),
       receiptNo: f.number,
       invoiceRef: invoice.number,
       quoteRef: f.quoteNumber,
@@ -299,6 +318,7 @@ export function mapFollowOn(f: DocumentFacts, b: BusinessFacts): MapResult {
   // Invoices.
   if (!f.bank) missing.push('No bank account is set up yet, so the customer would not know how to pay. The owner can add one in Settings.');
   const common = {
+    ...templated(f.type as TemplateDocType),
     invoiceNo: f.number,
     quoteRef: f.quoteNumber,
     dateLabel,

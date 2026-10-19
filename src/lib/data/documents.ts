@@ -16,6 +16,7 @@ import { DocumentError, finaliseWith, pageFile, prepareLoaded, previewWith, retr
 import { mapDocument, redactMapped, type BusinessFacts, type DocumentFacts, type Mapped } from '../documents/map';
 import { allPagesRead, proofSecret, readToken } from '../documents/read-proof';
 import { demoRenderBrand } from '../documents/render-brand';
+import { applyTemplate, loadTemplate, logTemplateProblem, templateOf } from '../documents/template-lock';
 import { summarise, type SummarySection } from '../documents/summary';
 import { readIssued } from '../documents/issued';
 import { buildJobBilling, followOnFor, instalmentHeading, type RawDocument } from '../job-billing';
@@ -755,6 +756,7 @@ function demoLoad(id: string): Loaded | null {
     quoteNumber: r.form.quoteNumber,
     propertyAddress: r.form.propertyAddress,
     jobTypeLabel: r.form.jobTypeId === 'demo-jobtype-tiled' ? 'Tiled roof (demo)' : r.form.jobTypeId === 'demo-jobtype-fascia' ? 'Fascias and gutters (demo)' : 'Flat roof (demo)',
+    jobTypeKey: r.form.jobTypeId === 'demo-jobtype-tiled' ? 'tiled_roof' : r.form.jobTypeId === 'demo-jobtype-fascia' ? 'fascia' : 'flat_roof',
     guaranteeYears: r.form.jobTypeId === 'demo-jobtype-tiled' ? 25 : r.form.jobTypeId === 'demo-jobtype-fascia' ? null : 20,
     customer: demoCustomerFacts(r.customerId),
     quoteForm: r.form,
@@ -799,7 +801,14 @@ async function demoEnsureFinalFiles(head: DocumentHead): Promise<void> {
   if (!l?.facts) return;
   const m = mapDocument(l.facts, demoBusinessFacts());
   if (!m.ok) return;
-  const out = await (await render())(m.mapped, demoBusinessFacts().tenant, demoRenderBrand());
+  // The same locked template and checks as a preview (src/lib/documents/template-lock.ts).
+  const tid = templateOf(m.mapped.input);
+  const t = tid ? loadTemplate(tid) : null;
+  if (t && !t.ok) {
+    logTemplateProblem('demo-final', t.templateId, t.problems);
+    return;
+  }
+  const out = await (await render())(m.mapped, demoBusinessFacts().tenant, t ? applyTemplate(demoRenderBrand(), t) : demoRenderBrand());
   const folder = versionFolder('demo-tenant', head, last.versionId);
   await storage.put(last.pdfPath, out.pdf, 'application/pdf', { overwrite: true });
   for (let i = 0; i < out.pngPages.length; i += 1) await storage.put(`${folder}/${pageFile(i + 1)}`, out.pngPages[i], 'image/png', { overwrite: true });

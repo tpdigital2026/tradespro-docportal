@@ -8,6 +8,14 @@
 import type { GuaranteeInput } from '../../templates/guarantee';
 import { slashDate, type BusinessFacts } from '../documents/map';
 import { guaranteeErrors, parseYears, roofWords, type GuaranteeValues } from './model';
+import { templateFor } from '../../templates/registry';
+
+/** The certificate template for the roof: the owner's 20 year flat roof and 25 year tiled roof certificates (FJC_13, FJC_14). */
+function guaranteeTemplate(b: BusinessFacts, roof: string): { template: string } | Record<string, never> {
+  const variant = roof === 'flat' ? 'flat-roof' : roof === 'tiled' || roof === 'pitched' ? 'tiled-roof' : null;
+  const tpl = templateFor(b.slug, 'guarantee', variant);
+  return tpl ? { template: tpl.id } : {};
+}
 
 export interface GuaranteeFacts {
   number: string;
@@ -35,6 +43,7 @@ export function mapGuarantee(f: GuaranteeFacts, b: BusinessFacts, today: string)
   return {
     ok: true,
     input: {
+      ...guaranteeTemplate(b, v.roofType),
       certificateNo: f.number,
       years,
       workDescription: roofWords(v),

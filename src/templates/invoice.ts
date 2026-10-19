@@ -15,6 +15,8 @@ const REST_AREA_MM = 297 - 27 - 19; // .body: top 27mm, bottom 19mm
 const BODY_WIDTH_MM = 210 - 2 * 16;
 
 export interface InvoiceCommon {
+  /** The locked template this invoice is drawn from (src/templates/registry.ts); absent for the plain layout. */
+  template?: string;
   invoiceNo: string;
   quoteRef: string;
   dateLabel: string;
@@ -91,7 +93,7 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
   // The guarantee band goes at the foot of page 1 when it fits there (as on the owner's real invoices), else it stays with
   // the payment details on page 2. It is measured as the last item of the scope flow.
   const band = s.guarantee ? F.compactGuaranteeBand(s.guarantee.years, s.guarantee.text) : null;
-  const flow = await flowScope({ page, css, widthMm: BODY_WIDTH_MM, firstAreaMm: FIRST_AREA_MM, restAreaMm: REST_AREA_MM, headFirst, headRest, sections, compact: true, trailing: band ? [band] : [] });
+  const flow = await flowScope({ page, css, widthMm: BODY_WIDTH_MM, firstAreaMm: FIRST_AREA_MM, restAreaMm: REST_AREA_MM, headFirst, headRest, sections, compact: true, trailing: band ? [band] : [], split: { scope: s.scope, build: P.scopeSection } });
   const bandIndex = band ? flow.items.length - 1 : -1;
   const bandOnFirstPage = band !== null && flow.groups.length === 1 && flow.groups[0].includes(bandIndex);
   // Otherwise take the band out of the scope pages and show it on the payment page.

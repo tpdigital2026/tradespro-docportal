@@ -26,6 +26,7 @@ import { todayLondon } from '../london';
 import { surveyApprovalProblemsWith } from '../survey/approval-sql';
 import { parseSurveyInput } from '../survey/facts-sql';
 import { withoutApprovals } from '../survey/model';
+import { applyTemplate, loadTemplate, logTemplateProblem, OWNER_TEMPLATE_MESSAGE, templateOf, type ReadFile } from './template-lock';
 
 /** The issued survey's input with every approval taken off, for its correction. */
 function surveyCorrectionInput(input: unknown): unknown {
@@ -34,7 +35,7 @@ function surveyCorrectionInput(input: unknown): unknown {
 }
 
 /** Bumped whenever the templates change what a document looks like, so old preview images are never reused. */
-export const TEMPLATE_VERSION = 't1';
+export const TEMPLATE_VERSION = 't2';
 
 export interface RenderOut {
   pdf: Buffer;
@@ -62,8 +63,27 @@ export interface Actor {
 
 export type Prepared = { ok: true; mapped: Mapped; money: DocumentMoney; tenant: Tenant; brand: Brand; key: string; mappedJson: string } | { ok: false; missing: string[] };
 
+/**
+ * Facts to template input, plus the content key, with the document's locked template applied: its own images, checked
+ * by hash against the manifest. A template that is not intact blocks the document (ben-template-lock-rule.md).
+ */
+export function prepareLoaded(l: Loaded, secret: string, read?: ReadFile): Prepared {
+  const p = prepareUntemplated(l, secret);
+  if (!p.ok) return p;
+  const id = templateOf(p.mapped.input);
+  if (!id) return p;
+  const t = loadTemplate(id, read);
+  if (!t.ok) {
+    logTemplateProblem('prepare', t.templateId, t.problems);
+    return { ok: false, missing: [OWNER_TEMPLATE_MESSAGE] };
+  }
+  // The key covers the template's image hashes too, so a changed template never reuses old pages.
+  const print = t.template.images.map((i) => `${i.slot}:${i.sha256}`).join(',');
+  return { ...p, brand: applyTemplate(p.brand, t), key: contentKey(secret, JSON.stringify({ key: p.key, template: id, print }), TEMPLATE_VERSION) };
+}
+
 /** Facts to template input, plus the content key. Adds the checks that need the business (VAT number on a VAT invoice). */
-export function prepareLoaded(l: Loaded, secret: string): Prepared {
+function prepareUntemplated(l: Loaded, secret: string): Prepared {
   const missing = [...l.problems];
   if (l.head.type === 'survey') {
     if (!l.survey || !l.business || !l.brand) return { ok: false, missing: missing.length ? missing : ['This document could not be put together.'] };

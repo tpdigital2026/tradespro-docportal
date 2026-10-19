@@ -17,7 +17,7 @@ export interface BankDetails {
 }
 
 export function financeHeader(t: Tenant, b: Brand, title: string, meta: [string, string][]): Raw {
-  return html`<div class="fhead"><div class="l"><img src="${b.assets.logoWhite}" alt="${t.name}"><div class="addr">${contactLines(t)}</div></div><div class="r"><h1>${title}</h1><div class="meta">${meta.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div></div>`;
+  return html`<div class="fhead"><div class="l"><img src="${b.assets.logoWhite}" alt="${t.name}" data-slot="logo-white"><div class="addr">${contactLines(t)}</div></div><div class="r"><h1>${title}</h1><div class="meta">${meta.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div></div>`;
 }
 
 const reach = (c: Customer): string => [c.email, c.phone].filter((x) => x !== '').join(' · ');

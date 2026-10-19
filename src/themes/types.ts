@@ -20,6 +20,11 @@ export interface BrandAssets {
   coverPhoto: string | null;
   /** null: no build-up diagram on record; the diagram block is left out. */
   diagram: string | null;
+  /**
+   * A locked template's images by slot ("cover", "diagram-flat", ...), as data: URIs, set only by
+   * src/lib/documents/template-lock.ts from the template's own files after their hashes are checked.
+   */
+  templateImages?: Record<string, string>;
 }
 
 export interface Brand {

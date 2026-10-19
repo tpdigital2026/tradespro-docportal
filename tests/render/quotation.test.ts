@@ -3,10 +3,10 @@ import type { RenderBrowser as Browser, RenderPage as Page } from '../../src/pdf
 import { launchBrowser, newLockedPage } from '../../src/pdf/browser';
 import { renderPdf } from '../../src/pdf/render';
 import { buildQuotation } from '../../src/templates/quotation';
-import { fjcTenant, loadFjcBrand, referenceAvailable } from '../fixtures/fjc';
+import { fjcTenant, loadFjcBrand } from '../fixtures/fjc';
 import { quotationFixture } from '../fixtures/quotation';
 
-describe.skipIf(!referenceAvailable)('quotation', () => {
+describe('quotation', () => {
   let browser: Browser;
   let page: Page;
   beforeAll(async () => {
