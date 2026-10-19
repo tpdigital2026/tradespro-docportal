@@ -15,6 +15,8 @@ import { writeAudit } from '../../security/audit';
 import type { Db } from '../../security/login-guard';
 import { demoBankAccounts, demoBusiness } from '../demo-data';
 import { demoSlot, isDemo } from '../demo';
+import { applyPaymentWording, changedFields, paymentWordingOf, storedPaymentWording, type PaymentWording } from '../payment-wording';
+import { tenantWordingSchema } from '../../db/wording';
 import { DEFAULT_RETENTION_DAYS, safeRetentionDays } from '../retention';
 import { DEFAULT_LIMITS, limitsFrom, type SessionLimits } from '../session-policy-limits';
 import { signatureDataUri, type Reencoded } from '../signature-image';
@@ -52,6 +54,8 @@ export interface SettingsView {
   retentionDays: number;
   session: SessionLimits;
   signature: { consent: boolean; hasImage: boolean };
+  /** The payment wording on invoices: the business's own, with the agreed wording for anything not yet set. */
+  paymentWording: PaymentWording;
 }
 
 export class SettingsError extends Error {
@@ -77,7 +81,7 @@ export async function getSettingsWith(client: DataClient): Promise<SettingsView>
   const [t, banks, defaults, sig] = await Promise.all([
     client.from('tenants').select('name, company_number, vat_registered, vat_number, phone, email, website, address_lines, postcode, owner_name, owner_title').maybeSingle(),
     client.from('bank_accounts').select('id, account_name, bank_name, last4, is_default, archived_at, created_at').order('created_at', { ascending: true }).limit(50),
-    client.from('tenant_defaults').select('retention_days, idle_logout_minutes, max_session_days, signature_consent').maybeSingle(),
+    client.from('tenant_defaults').select('retention_days, idle_logout_minutes, max_session_days, signature_consent, terms').maybeSingle(),
     client.from('brand_assets').select('id').eq('kind', 'signature').limit(1),
   ]);
   if (t.error || !t.data || banks.error || defaults.error || sig.error) throw new SettingsError('failed', 'Could not load your settings');
@@ -107,6 +111,7 @@ export async function getSettingsWith(client: DataClient): Promise<SettingsView>
     retentionDays: safeRetentionDays(d.retention_days),
     session: limitsFrom(d),
     signature: { consent: d.signature_consent === true, hasImage: ((sig.data ?? []) as unknown[]).length > 0 },
+    paymentWording: paymentWordingOf(d.terms),
   };
 }
 
@@ -165,6 +170,25 @@ export async function addBankAccountWith(db: Db, actor: Actor, input: BankInput,
     const id = String(ins.rows[0].id);
     await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'bank.add', entity: 'bank_account', entityId: compactId(id), meta: { first: isDefault } });
     return { id, accountName: input.accountName, bankName: input.bankName, last4: enc.last4, isDefault, archived: false };
+  }, o);
+}
+
+/**
+ * Saves the payment wording (already checked by parsePaymentWording) into the business's stored wording, leaving everything
+ * else in it as it was. The result must still pass the strict wording schema. The audit entry names the fields that changed,
+ * never the wording. A business whose wording has not been set up at all is refused: that is done by TradesPro Digital.
+ */
+export async function setPaymentWordingWith(db: Db, actor: Actor, input: PaymentWording, o: TxOptions = {}): Promise<{ changed: string[] }> {
+  return inTx(db, async () => {
+    const r = await db.query(`select terms from public.tenant_defaults where tenant_id = $1 for update`, [actor.tenantId]);
+    const parsed = tenantWordingSchema.safeParse(r.rows[0]?.terms);
+    if (!parsed.success) throw new SettingsError('not_configured', 'Your document wording is not set up yet. Contact TradesPro Digital.');
+    const changed = changedFields(storedPaymentWording(parsed.data), input);
+    if (changed.length === 0) return { changed };
+    const next = applyPaymentWording(parsed.data, input);
+    await db.query(`update public.tenant_defaults set terms = $1::jsonb where tenant_id = $2`, [JSON.stringify(next), actor.tenantId]);
+    await writeAudit(db, { tenantId: actor.tenantId, userId: actor.userId, action: 'settings.payment_wording', entity: 'tenant_defaults', entityId: compactId(actor.tenantId), meta: { fields: changed } });
+    return { changed };
   }, o);
 }
 
@@ -330,6 +354,8 @@ interface DemoSettings {
   session: SessionLimits;
   consent: boolean;
   signature: Reencoded | null;
+  /** Demo mode: the payment wording the owner has typed this session (null: the demo business's own). */
+  paymentWording: PaymentWording | null;
 }
 
 const demoBox = demoSlot<DemoSettings>('settings', () => ({
@@ -341,6 +367,7 @@ const demoBox = demoSlot<DemoSettings>('settings', () => ({
   session: { ...DEFAULT_LIMITS },
   consent: false,
   signature: null,
+  paymentWording: null,
 }));
 export const demoSettings = (): DemoSettings => demoBox.get();
 export function resetDemoSettings(): void {
@@ -368,6 +395,7 @@ export function demoSettingsView(): SettingsView {
     retentionDays: st.retentionDays,
     session: { ...st.session },
     signature: { consent: st.consent, hasImage: st.signature !== null },
+    paymentWording: st.paymentWording ?? paymentWordingOf(demoBusiness.wording),
   };
 }
 
@@ -405,6 +433,19 @@ export function demoArchiveBankAccount(id: string): { newDefaultId: string | nul
   const next = wasDefault ? demoSettings().accounts.find((x) => !x.archived) : undefined;
   if (next) next.isDefault = true;
   return { newDefaultId: next?.id ?? null };
+}
+
+/** Demo mode: the demo business's wording with the payment wording typed this session applied, for the documents it makes. */
+export function demoWordingForDocuments() {
+  const typed = demoSettings().paymentWording;
+  return typed ? applyPaymentWording(demoBusiness.wording, typed) : demoBusiness.wording;
+}
+
+export function demoSetPaymentWording(input: PaymentWording): { changed: string[] } {
+  const st = demoSettings();
+  const changed = changedFields(st.paymentWording ?? storedPaymentWording(demoBusiness.wording), input);
+  st.paymentWording = { ...input };
+  return { changed };
 }
 
 /** Demo documents print the demo signature only with consent on and a picture stored, as in real mode. */

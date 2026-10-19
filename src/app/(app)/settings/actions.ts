@@ -12,16 +12,19 @@ import {
   demoArchiveBankAccount,
   demoRenameBankAccount,
   demoSetDefaultBankAccount,
+  demoSetPaymentWording,
   demoSettings,
   removeSignatureWith,
   renameBankAccountWith,
   setDefaultBankAccountWith,
+  setPaymentWordingWith,
   setRetentionWith,
   setSessionPolicyWith,
   setSignatureConsentWith,
   SettingsError,
 } from '../../../lib/data/settings';
 import { isDemo } from '../../../lib/demo';
+import { parsePaymentWording, type PaymentWordingField } from '../../../lib/payment-wording';
 import { requireSession, type Session } from '../../../lib/session';
 import { activityCookieName, readActivity, signActivity, type SessionLimits } from '../../../lib/session-policy';
 import { requireFreshStepUpForRequest, StepUpRequiredError } from '../../../lib/step-up-check';
@@ -193,5 +196,17 @@ export async function removeSignatureAction(): Promise<SettingsResult> {
     if (isDemo()) Object.assign(demoSettings(), { signature: null, consent: false });
     else await withServiceConnection((db) => removeSignatureWith(db, getStorage(), actor(s)));
     return 'Your signature picture is deleted and will not be printed.';
+  });
+}
+
+/** The wording on deposit and balance invoices (the Due line, the note and terms, and what the payment reference says). Owner only, fresh code, audited. */
+export async function setPaymentWordingAction(raw: Partial<Record<PaymentWordingField, unknown>>): Promise<SettingsResult> {
+  const s0 = await requireSession();
+  if (s0.role !== 'owner') return { status: 'error', message: OWNER_ONLY };
+  const parsed = parsePaymentWording(raw ?? {});
+  if (!parsed.ok) return { status: 'invalid', errors: parsed.errors };
+  return guarded({ stepUp: true }, async (s) => {
+    const r = isDemo() ? demoSetPaymentWording(parsed.value) : await withServiceConnection((db) => setPaymentWordingWith(db, actor(s), parsed.value));
+    return r.changed.length === 0 ? 'Nothing was different, so nothing changed.' : 'Saved. Invoices you finalise from now on use this wording. Invoices already finalised keep the wording they were made with.';
   });
 }

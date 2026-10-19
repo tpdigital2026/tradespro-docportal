@@ -10,7 +10,7 @@ import { bankLabel, demoBankOptions } from './settings';
 import { MAX_VAT_RATE_BP } from '../money';
 import { planToJson } from '../payment-plan';
 import { computeQuoteTotals, DEFAULT_VAT_RATE_BP } from '../quote-totals';
-import { suggestNextNumber } from '../quote-number';
+import { nextQuoteNumber, stemVariants, suggestJobCode } from '../doc-numbers';
 import { requireSession } from '../session';
 import { sanitiseIncomingScope } from '../scope/approval';
 import { convertLegacyNotes } from '../scope/items';
@@ -152,9 +152,29 @@ export async function recentNumbersWith(client: DataClient): Promise<string[]> {
 
 export async function numberIsFreeWith(client: DataClient, quoteNumber: string): Promise<boolean> {
   if (!NUMBER_RE.test(quoteNumber) || quoteNumberReserved(quoteNumber) !== null) return false;
-  const { data, error } = await client.from('used_numbers').select('number').eq('number', quoteNumber).maybeSingle();
+  // QT-GW-001 and GW-001 would give the same invoice numbers (INV-GW-001-D), so either one being used takes both.
+  const { data, error } = await client.from('used_numbers').select('number').in('number', stemVariants(quoteNumber)).limit(1);
   if (error) throw new QuoteError('failed', 'Could not check that number');
-  return !data;
+  return (data ?? []).length === 0;
+}
+
+/** The next free QT-{CODE}-{NNN} for the code taken from the property address (or the client's initials). Empty when no code can be made. */
+export async function suggestQuoteNumberWith(client: DataClient, propertyAddress: string, clientName: string): Promise<string> {
+  const code = suggestJobCode(propertyAddress, clientName);
+  if (!code) return '';
+  const { data, error } = await client.from('used_numbers').select('number').ilike('number', `QT-${code}-%`).limit(1000);
+  if (error) throw new QuoteError('failed', 'Could not load quote numbers');
+  return nextQuoteNumber(code, ((data ?? []) as { number: string }[]).map((r) => r.number));
+}
+
+/** Computed on the server from the numbers used so far, each time it is asked, so two people never get a stale answer from the page. */
+export async function suggestQuoteNumber(propertyAddress: string, clientName: string): Promise<string> {
+  await requireSession();
+  if (isDemo()) {
+    const code = suggestJobCode(propertyAddress, clientName);
+    return nextQuoteNumber(code, [...demoStore().map((d) => d.values.quoteNumber), ...demoUsedNumbers]);
+  }
+  return suggestQuoteNumberWith(await ownerClient(), propertyAddress, clientName);
 }
 
 export async function listDraftsWith(client: DataClient): Promise<DraftListItem[]> {
@@ -349,6 +369,12 @@ export async function saveDraftWith(client: DataClient, tenantId: string, rawFor
     return done({ id: jobId, reference: row.reference, customerId: row.customer_id });
   }
 
+  // The same number written the other way round (GW-001 for QT-GW-001) would give the same invoice numbers, so it counts as taken.
+  const other = stemVariants(input.quoteNumber).filter((v) => v !== input.quoteNumber);
+  if (other.length > 0) {
+    const clash = await client.from('used_numbers').select('number').in('number', other).limit(1);
+    if (!clash.error && (clash.data ?? []).length > 0) throw new QuoteError('number_used', 'That quote number has already been used. Choose another.', { quoteNumber: 'That quote number has already been used. Choose another.' });
+  }
   const ins = await client.from('jobs').insert({ tenant_id: tenantId, customer_id: input.customerId, reference: input.quoteNumber, ...columns }).select('id, reference, customer_id').single();
   if (!ins.error && ins.data) {
     const r = ins.data as Found;
@@ -440,23 +466,21 @@ const todayIso = () => todayLondon();
 export async function getQuoteContext(): Promise<QuoteContext> {
   await requireSession();
   if (isDemo()) {
-    const used = [...demoStore().map((d) => d.values.quoteNumber), ...demoUsedNumbers];
     return {
       customers: demoCustomers.map((c) => ({ id: c.id, name: c.name, postcode: c.postcode, addressLine: c.addressLines[0] ?? '' })),
       jobTypes: demoJobTypes,
       bankAccounts: demoBankOptions(),
       defaults: demoQuoteDefaults,
-      suggestedNumber: suggestNextNumber(used),
+      suggestedNumber: '',
       today: todayIso(),
     };
   }
   const client = await ownerClient();
-  const [custs, jobTypes, bankAccounts, defaults, numbers] = await Promise.all([
+  const [custs, jobTypes, bankAccounts, defaults] = await Promise.all([
     client.from('customers').select('id, name, postcode, address_lines').order('last_activity_at', { ascending: false }).limit(500),
     listJobTypesWith(client),
     listBankAccountsWith(client),
     getQuoteDefaultsWith(client),
-    recentNumbersWith(client),
   ]);
   if (custs.error) throw new QuoteError('failed', 'Could not load customers');
   return {
@@ -469,7 +493,7 @@ export async function getQuoteContext(): Promise<QuoteContext> {
     jobTypes,
     bankAccounts,
     defaults,
-    suggestedNumber: suggestNextNumber(numbers),
+    suggestedNumber: '',
     today: todayIso(),
   };
 }
@@ -494,7 +518,10 @@ export async function checkQuoteNumber(quoteNumber: string): Promise<boolean> {
   await requireSession();
   if (typeof quoteNumber !== 'string' || !NUMBER_RE.test(quoteNumber.trim()) || quoteNumberReserved(quoteNumber.trim()) !== null) return false;
   const n = quoteNumber.trim();
-  if (isDemo()) return !demoUsedNumbers.includes(n) && !demoStore().some((d) => d.values.quoteNumber === n);
+  if (isDemo()) {
+    const both = stemVariants(n);
+    return !demoUsedNumbers.some((u) => both.includes(u)) && !demoStore().some((d) => both.includes(d.values.quoteNumber));
+  }
   return numberIsFreeWith(await ownerClient(), n);
 }
 

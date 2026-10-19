@@ -7,7 +7,7 @@
  */
 import 'server-only';
 import { demoBusiness, demoCustomers, demoQuoteDefaults } from '../demo-data';
-import { demoSignatureForDocuments } from './settings';
+import { demoSignatureForDocuments, demoWordingForDocuments } from './settings';
 import { demoSlot, isDemo } from '../demo';
 import type { CoveringEmailFacts, EmailDocKind } from '../covering-email';
 import { confirmationFor, type Confirmation } from '../documents/confirmation';
@@ -589,7 +589,7 @@ const demoCustomerFacts = (id: string) => {
   return { name: c?.name ?? 'Customer', addressLines: c?.addressLines ?? [], postcode: c?.postcode ?? '', email: c?.email ?? '', phone: c?.phone ?? '' };
 };
 
-const demoBusinessFacts = (): BusinessFacts => ({ ...demoBusiness, vatRateBp: demoQuoteDefaults.vatRateBp });
+const demoBusinessFacts = (): BusinessFacts => ({ ...demoBusiness, wording: demoWordingForDocuments(), vatRateBp: demoQuoteDefaults.vatRateBp });
 
 function demoPlanOf(form: QuoteFormValues) {
   return normaliseQuote(form, 'draft', demoQuoteDefaults.vatRateBp).input.plan;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getDraftWith, listBankAccountsWith, listDraftsWith, listJobTypesWith, numberIsFreeWith, QuoteError, saveDraftWith } from '../../src/lib/data/quotes';
+import { getDraftWith, listBankAccountsWith, listDraftsWith, listJobTypesWith, numberIsFreeWith, QuoteError, saveDraftWith, suggestQuoteNumberWith } from '../../src/lib/data/quotes';
 import { emptyQuoteForm, type QuoteFormValues } from '../../src/lib/validation/quote';
 import type { DataClient } from '../../src/lib/data/customers';
 import { fakeClient } from '../fixtures/fake-quotes-client';
@@ -187,6 +187,26 @@ describe('lookups', () => {
     expect(await numberIsFreeWith(client, 'QT-0100')).toBe(false);
     expect(await numberIsFreeWith(client, 'QT-0101')).toBe(true);
     expect(await numberIsFreeWith(client, "x';")).toBe(false);
+  });
+  it('a number and its QT- form count as one: QT-GW-001 is taken when GW-001 is used, and the other way round', async () => {
+    const { client } = fakeClient({ used_numbers: [{ number: 'GW-001' }, { number: 'QT-MA-002' }] });
+    expect(await numberIsFreeWith(client, 'QT-GW-001')).toBe(false);
+    expect(await numberIsFreeWith(client, 'MA-002')).toBe(false);
+    expect(await numberIsFreeWith(client, 'QT-GW-002')).toBe(true);
+    expect(await numberIsFreeWith(client, 'FJC1003')).toBe(true);
+  });
+  it('saving refuses a number whose other form is already used, because both would give the same invoice numbers', async () => {
+    const { client, tables } = fakeClient({ used_numbers: [{ number: 'GW-001' }] });
+    await expect(saveDraftWith(client, TENANT, form({ quoteNumber: 'QT-GW-001' }), null, 2000, '2026-10-14')).rejects.toMatchObject({ code: 'number_used' });
+    expect(tables.jobs).toHaveLength(0);
+  });
+  it('suggests QT-{CODE}-{NNN} from the street, going one past the highest used for that code', async () => {
+    const { client } = fakeClient({ used_numbers: [{ number: 'QT-GW-001' }, { number: 'QT-GW-002' }, { number: 'QT-MA-009' }, { number: 'FJC1003' }, { number: 'INV-GW-002-D' }] });
+    expect(await suggestQuoteNumberWith(client, '33 Grafton Way, London, W1T 5DA', '')).toBe('QT-GW-003');
+    expect(await suggestQuoteNumberWith(client, '1 Montrose Avenue', '')).toBe('QT-MA-010');
+    expect(await suggestQuoteNumberWith(client, '5 Example Road', '')).toBe('QT-ER-001');
+    expect(await suggestQuoteNumberWith(client, '', 'Kingsley Roofing Southern')).toBe('QT-KRS-001');
+    expect(await suggestQuoteNumberWith(client, '', '')).toBe('');
   });
   it('job types carry their guarantee years; bank accounts show the last four only', async () => {
     const { client } = fakeClient({

@@ -17,7 +17,7 @@ import { demoSlot, isDemo } from '../demo';
 import { demoBusinessFacts } from '../demo-business';
 import { demoGuaranteeRows, type DemoGuarantee } from '../demo-guarantees';
 import { guaranteeErrors, nextCertificateSeq, parseGuaranteeInput, roofKeyOf, roofLabel, storedGuarantee, tidyGuarantee, type GuaranteeValues } from '../guarantee/model';
-import { documentNumberFor, MAX_GUARANTEES_PER_JOB } from '../job-stage';
+import { documentNumberFor, documentNumberForms, MAX_GUARANTEES_PER_JOB } from '../job-stage';
 import { todayLondon } from '../payment';
 import { requireSession } from '../session';
 import { NUMBER_RE, NUMBER_SUFFIX_MESSAGE, quoteNumberReserved } from '../validation/quote';
@@ -214,7 +214,7 @@ export async function saveGuaranteeWith(db: Db, actor: Actor, req: SaveGuarantee
       const clash = await roofConflictWith(db, actor.tenantId, jobId, null, key);
       if (clash) throw existsError(roofLabel(values), clash);
       // Numbers burnt are never reused (a certificate that was deleted still holds its number), so the registry is read too.
-      const candidates = Array.from({ length: MAX_GUARANTEES_PER_JOB }, (_, i) => documentNumberFor('guarantee', reference, 'full', 1, i + 1) as string);
+      const candidates = Array.from({ length: MAX_GUARANTEES_PER_JOB }, (_, i) => documentNumberForms('guarantee', reference, 'full', 1, i + 1)).flat();
       const used = await db.query(
         `select number from public.documents where job_id = $1 and tenant_id = $2 and type = 'guarantee'
          union select number from public.used_numbers where tenant_id = $2 and number = any ($3::text[])`,

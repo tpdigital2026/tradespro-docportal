@@ -1,5 +1,5 @@
 import type { RenderPage as Page } from '../pdf/engine';
-import type { Raw } from '../lib/html';
+import { html, type Raw } from '../lib/html';
 import { measureFragments, PX_PER_MM } from '../pdf/measure';
 import { paginate } from '../pdf/paginate';
 
@@ -20,6 +20,8 @@ export interface ScopeFlowOptions {
   sections: Raw[];
   /** Items placed after the sections (for example a guarantee band). They get no border allowance. */
   trailing?: Raw[];
+  /** Measure the sections at the compact size. The caller wraps the sections it places in `.scope-compact` itself. */
+  compact?: boolean;
 }
 
 export interface ScopeFlow {
@@ -29,7 +31,9 @@ export interface ScopeFlow {
 
 export async function flowScope(o: ScopeFlowOptions): Promise<ScopeFlow> {
   const items = [...o.sections, ...(o.trailing ?? [])];
-  const [hFirst, hRest, ...measured] = await measureFragments(o.page, o.css, o.widthMm, [o.headFirst, o.headRest, ...items]);
+  // Each fragment is measured alone (so each is :first-of-type and has no top border); the border is added back below.
+  const toMeasure = o.compact ? [...o.sections.map((s) => html`<div class="scope-compact">${s}</div>`), ...(o.trailing ?? [])] : items;
+  const [hFirst, hRest, ...measured] = await measureFragments(o.page, o.css, o.widthMm, [o.headFirst, o.headRest, ...toMeasure]);
   const heights = measured.map((h, i) => (i < o.sections.length ? h + SECTION_BORDER_PX : h));
   const groups = paginate(heights, {
     first: o.firstAreaMm * PX_PER_MM - hFirst - SAFETY_PX,

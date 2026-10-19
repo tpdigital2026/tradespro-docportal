@@ -38,6 +38,11 @@ export function fakeClient(seed: Record<string, Row[]> = {}, opts: { failOn?: (t
         eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), b),
         is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), b),
         in: (c: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[c])), b),
+        ilike: (c: string, pattern: string) => {
+          const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`, 'i');
+          filters.push((r) => re.test(String(r[c] ?? '')));
+          return b;
+        },
         order: () => b,
         limit: (x: number) => ((limit = x), b),
         single: () => {

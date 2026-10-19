@@ -24,6 +24,7 @@ import {
   removeSignatureAction,
   renameBankAccountAction,
   setDefaultBankAccountAction,
+  setPaymentWordingAction,
   setRetentionAction,
   setSessionPolicyAction,
   setSignatureConsentAction,
@@ -31,7 +32,9 @@ import {
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import SettingsPage, { metadata } from '../../src/app/(app)/settings/page';
-import { bankLabel, demoBankOptions, demoSettings, demoSettingsView, demoSignatureForDocuments, getSettingsWith, resetDemoSettings } from '../../src/lib/data/settings';
+import { bankLabel, demoBankOptions, demoSettings, demoSettingsView, demoSignatureForDocuments, demoWordingForDocuments, getSettingsWith, resetDemoSettings } from '../../src/lib/data/settings';
+import { paymentWordingOf } from '../../src/lib/payment-wording';
+import { FJC_WORDING } from '../../src/db/wording';
 import { normaliseAccountNumber, normaliseSortCode } from '../../src/security/bank-crypto';
 import { ACCOUNT_NUMBER_ERROR, parseBankAccount, parseBankNames, retentionSchema, sessionPolicySchema, SORT_CODE_ERROR } from '../../src/lib/validation/settings';
 
@@ -141,6 +144,7 @@ describe('settings actions', () => {
       await setDefaultBankAccountAction('demo-bank-second'),
       await archiveBankAccountAction('demo-bank-main'),
       await setRetentionAction({ days: '60' }),
+      await setPaymentWordingAction(paymentWordingOf(FJC_WORDING)),
       await setSessionPolicyAction({ idleMinutes: '15', maxDays: '3' }),
       await setSignatureConsentAction(false),
       await removeSignatureAction(),
@@ -191,6 +195,24 @@ describe('settings actions', () => {
     expect(demoSettingsView().session).toEqual({ idleMinutes: 15, maxDays: 3 });
   });
 
+  it('payment wording is owner only, checked first, needs a fresh code, then reaches the documents the demo makes', async () => {
+    const typed = { ...paymentWordingOf(FJC_WORDING), depositDueLabel: 'On acceptance', paymentReference: 'invoice_number' as const };
+    expect(await setPaymentWordingAction({ ...typed, balanceTerms: '' })).toMatchObject({ status: 'invalid', errors: { balanceTerms: expect.any(String) } });
+    expect(await setPaymentWordingAction({ ...typed, depositTerms: 'Pay {amount}.' })).toMatchObject({ status: 'invalid', errors: { depositTerms: expect.stringMatching(/curly/) } });
+    expect(stepUp.calls).toBe(0);
+    expect(await setPaymentWordingAction(typed)).toEqual({ status: 'step-up' });
+    expect(demoSettingsView().paymentWording.depositDueLabel).toBe('Before works start');
+    stepUp.fresh = true;
+    const r = await setPaymentWordingAction(typed);
+    expect(r.status === 'ok' && r.message).toMatch(/Invoices you finalise from now on use this wording/);
+    expect(demoSettingsView().paymentWording).toMatchObject({ depositDueLabel: 'On acceptance', paymentReference: 'invoice_number' });
+    expect(demoWordingForDocuments().deposit_invoice.dueLabel).toBe('On acceptance');
+    expect(demoWordingForDocuments().paymentReference).toBe('invoice_number');
+    expect(FJC_WORDING.deposit_invoice.dueLabel).toBe('Before works start');
+    const same = await setPaymentWordingAction(typed);
+    expect(same.status === 'ok' && same.message).toBe('Nothing was different, so nothing changed.');
+  });
+
   it('printing the signature needs a picture and a fresh code to switch on; switching off needs neither', async () => {
     stepUp.fresh = true;
     expect(await setSignatureConsentAction(true)).toEqual({ status: 'error', message: 'Add a picture of your signature first.' });
@@ -236,6 +258,9 @@ describe('getSettingsWith (the signed-in session, safe columns only)', () => {
     expect(v.business).toMatchObject({ name: 'FJC', vatNumber: '', addressLines: ['1 Road'], postcode: 'ME3 9UD' });
     expect(v.bankAccounts.map((a) => [a.id, a.isDefault, a.archived])).toEqual([['b1', true, false], ['b2', false, true]]);
     expect(v).toMatchObject({ retentionDays: 120, session: { idleMinutes: 15, maxDays: 3 }, signature: { consent: true, hasImage: true } });
+    // The stored payment wording is read too; with none stored the agreed wording is shown.
+    expect(asked.tenant_defaults).toMatch(/\bterms\b/);
+    expect(v.paymentWording).toEqual(paymentWordingOf(FJC_WORDING));
   });
 });
 
@@ -255,6 +280,8 @@ describe('the Settings page', () => {
     expect(out.match(/<h1/g)).toHaveLength(1);
     expect(out).toContain('Add a bank account');
     expect(out).toContain('Change how long customer data is kept');
+    expect(out).toContain('Change the payment wording');
+    expect(out).toContain('Before works start');
     expect(out).toContain('To change these, contact TradesPro Digital.');
     expect(out).toContain('ending </span>0000');
   });
@@ -262,7 +289,7 @@ describe('the Settings page', () => {
     sessionMock.role = 'staff';
     const out = await html();
     expect(out).toContain('Only the owner can change these settings.');
-    for (const control of ['Add a bank account', 'Make default', 'Rename', 'Archive', 'Change how long', 'Change when people', 'Add a picture of your signature</label>', 'Delete the picture']) expect(out).not.toContain(control);
+    for (const control of ['Add a bank account', 'Make default', 'Rename', 'Archive', 'Change how long', 'Change the payment wording', 'Change when people', 'Add a picture of your signature</label>', 'Delete the picture']) expect(out).not.toContain(control);
     expect(out).toMatch(/role="switch"[^>]*disabled=""/);
   });
 });

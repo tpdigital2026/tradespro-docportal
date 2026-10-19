@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { PageHeader } from '../../../components/PageHeader';
 import { BankAccounts } from '../../../components/settings/BankAccounts';
+import { PaymentWordingSettings } from '../../../components/settings/PaymentWordingSettings';
 import { RetentionSettings, SessionSettings } from '../../../components/settings/PolicySettings';
 import { SignatureSettings } from '../../../components/settings/SignatureSettings';
 import { getSettings, type BusinessDetails } from '../../../lib/data/settings';
@@ -8,7 +9,7 @@ import { isDemo } from '../../../lib/demo';
 import { requireSession } from '../../../lib/session';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Settings', description: 'Bank accounts, your signature, how long customer data is kept and when people are signed out.' };
+export const metadata: Metadata = { title: 'Settings', description: 'Bank accounts, the payment wording on invoices, your signature, how long customer data is kept and when people are signed out.' };
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
@@ -61,6 +62,14 @@ export default async function SettingsPage() {
               <p className="section-sub">Where your customers pay. Invoices use the default account unless you pick another on the quote.</p>
             </div>
             <BankAccounts accounts={settings.bankAccounts} {...common} />
+          </section>
+
+          <section className="set-sec" id="wording" aria-labelledby="wording-h">
+            <div className="sec-head">
+              <h2 id="wording-h" className="section-title">Payment wording</h2>
+              <p className="section-sub">What your invoices say about when and how to pay. You write it; nothing here is filled in for you.</p>
+            </div>
+            <PaymentWordingSettings wording={settings.paymentWording} {...common} />
           </section>
 
           <section className="set-sec" id="signature" aria-labelledby="sig-h">

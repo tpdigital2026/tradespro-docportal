@@ -8,7 +8,9 @@ import * as F from './finance-parts';
 import * as P from './parts';
 import { flowScope } from './scope-flow';
 
-const FIRST_AREA_MM = 297 - 58 - 8 - 19; // below .fhead (58mm) and .fbody top padding (8mm), above the footer reserve
+// Below .fhead (58mm) and .fbody top padding (8mm), above the footer (9mm tall). The owner's real invoices end their scope, or the guarantee
+// band, about 6mm above the footer, so the reserve is 14mm and the measuring safety margin takes the rest.
+const FIRST_AREA_MM = 297 - 58 - 8 - 14;
 const REST_AREA_MM = 297 - 27 - 19; // .body: top 27mm, bottom 19mm
 const BODY_WIDTH_MM = 210 - 2 * 16;
 
@@ -27,8 +29,13 @@ export interface InvoiceCommon {
   guarantee: { years: number; text: string } | null;
   bank: F.BankDetails;
   paymentRef: string;
-  /** Payment terms wording, supplied by the caller. */
+  /**
+   * Payment terms wording, supplied by the caller. A "{balance}" in it becomes the amount still to pay after this
+   * invoice (deposit invoices only), so the wording can say "The remaining balance of {balance} is due on completion".
+   */
   terms: string;
+  /** The "Due" line in the header ("On receipt"). The business supplies it; with none on record the row is left out, never invented. */
+  dueLabel?: string;
   disclaimer: string;
 }
 
@@ -78,16 +85,21 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
   const sections = s.scope.map((sec, i) => P.scopeSection(i + 1, sec));
   const headFirst = html`<div class="parties">${F.partyBlock('Invoice for', s.customer)}${F.dueBox(s.due.label, formatGBP(s.due.amountPence), s.due.note)}</div><span class="eyebrow">Scope of works</span><h2>${s.jobTitle}</h2><div class="rule"></div>`;
   const headRest = html`<span class="eyebrow">Scope of works, continued</span><div style="height:3mm"></div>`;
-  const { items, groups } = await flowScope({
-    page,
-    css,
-    widthMm: BODY_WIDTH_MM,
-    firstAreaMm: FIRST_AREA_MM,
-    restAreaMm: REST_AREA_MM,
-    headFirst,
-    headRest,
-    sections,
-  });
+  // The owner's real invoices set the repeated scope in the compact size every time (a 12mm number column, 12pt numerals,
+  // tight bullets), so that the scope fills page 1 and the money fits page 2, whatever the length. A scope too long even
+  // for that carries on to extra pages (numbering continues), and the overflow check still runs on every page.
+  // The guarantee band goes at the foot of page 1 when it fits there (as on the owner's real invoices), else it stays with
+  // the payment details on page 2. It is measured as the last item of the scope flow.
+  const band = s.guarantee ? F.compactGuaranteeBand(s.guarantee.years, s.guarantee.text) : null;
+  const flow = await flowScope({ page, css, widthMm: BODY_WIDTH_MM, firstAreaMm: FIRST_AREA_MM, restAreaMm: REST_AREA_MM, headFirst, headRest, sections, compact: true, trailing: band ? [band] : [] });
+  const bandIndex = band ? flow.items.length - 1 : -1;
+  const bandOnFirstPage = band !== null && flow.groups.length === 1 && flow.groups[0].includes(bandIndex);
+  // Otherwise take the band out of the scope pages and show it on the payment page.
+  const groupsNoBand = bandOnFirstPage ? flow.groups : flow.groups.map((g) => g.filter((i) => i !== bandIndex)).filter((g) => g.length > 0);
+  flow.groups = groupsNoBand;
+  const { items, groups } = flow;
+  // On page 1 the real invoices start the first section 1.9mm closer to the rule than the continuation pages do.
+  const scopeBox = (g: number[], first: boolean) => html`<div class="scope-compact"${first ? raw(' style="margin-top:-1.9mm"') : null}>${g.filter((i) => i !== bandIndex).map((i) => items[i])}</div>${bandOnFirstPage && g.includes(bandIndex) ? band : null}`;
 
   const total = groups.length + 1;
   const header = P.runningHeader(tenant, brand, s.title, s.invoiceNo);
@@ -95,15 +107,15 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
 
   const first = F.financePage(
     F.financeHeader(tenant, brand, s.title, [['Date', s.dateLabel], ['Invoice no.', s.invoiceNo], ...s.metaRows]),
-    html`${headFirst}<div>${groups[0].map((i) => items[i])}</div>`,
+    html`${headFirst}${scopeBox(groups[0], true)}`,
     footer(1, true),
   );
   const continuation = groups
     .slice(1)
-    .map((g, gi) => P.page(html`${headRest}<div>${g.map((i) => items[i])}</div>`, header, footer(gi + 2)));
+    .map((g, gi) => P.page(html`${headRest}${scopeBox(g, false)}`, header, footer(gi + 2)));
 
   const pricing = P.page(
-    html`<span class="eyebrow">Amount due</span><h2>Pricing &amp; payment</h2><div class="rule"></div>${s.note ? html`<div class="callout" style="margin-bottom:6mm">${s.note}</div>` : null}${P.priceTable(s.rows, s.showVat)}${P.totalsBlock(s.totalRows, s.grandLabel, formatGBP(s.grandPence), s.afterRows)}${s.guarantee ? F.compactGuaranteeBand(s.guarantee.years, s.guarantee.text) : null}<div style="margin-top:9mm">${F.payCard(s.bank, s.paymentRef)}</div><div class="terms" style="margin-top:9mm"><div class="t"><h5>Terms and conditions</h5><p>${s.terms}</p></div>${s.showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div>${s.disclaimer.trim() ? html`<div class="fine" data-reserved style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${s.disclaimer}</div>` : null}`,
+    html`<span class="eyebrow">Amount due</span><h2>Pricing &amp; payment</h2><div class="rule"></div>${s.note ? html`<div class="callout" style="margin-bottom:6mm">${s.note}</div>` : null}${P.priceTable(s.rows, s.showVat)}${P.totalsBlock(s.totalRows, s.grandLabel, formatGBP(s.grandPence), s.afterRows)}${band && !bandOnFirstPage ? band : null}<div style="margin-top:9mm">${F.payCard(s.bank, s.paymentRef)}</div><div class="terms" style="margin-top:9mm"><div class="t"><h5>Terms and conditions</h5><p>${s.terms}</p></div>${s.showVat && tenant.vatNo ? html`<div class="t"><h5>VAT registration number</h5><p class="mono">${tenant.vatNo}</p></div>` : null}</div>${s.disclaimer.trim() ? html`<div class="fine" data-reserved style="position:absolute;bottom:0;left:0;right:0"><b>Important information</b>${s.disclaimer}</div>` : null}`,
     header,
     footer(total),
   );
@@ -114,6 +126,8 @@ async function renderInvoice(page: Page, tenant: Tenant, brand: Brand, s: Invoic
     body: raw([first, ...continuation, pricing].map((p) => p.value).join('')),
   });
 }
+
+const dueRow = (label: string | undefined): [string, string][] => (label && label.trim() !== '' ? [['Due', label]] : []);
 
 function assertUniformVat(lines: MoneyLine[]): void {
   if (lines.some((l) => l.vatApplies) && lines.some((l) => !l.vatApplies)) {
@@ -160,7 +174,7 @@ export async function buildDepositInvoice(page: Page, input: DepositInvoiceInput
     guarantee: input.guarantee,
     bank: input.bank,
     paymentRef: input.paymentRef,
-    terms: input.terms,
+    terms: input.terms.split('{balance}').join(formatGBP(balance)),
     disclaimer: input.disclaimer,
   });
 }
@@ -182,7 +196,7 @@ export async function buildBalanceInvoice(page: Page, input: BalanceInvoiceInput
     title: 'Balance Invoice',
     invoiceNo: input.invoiceNo,
     dateLabel: input.dateLabel,
-    metaRows: [['Quote ref.', input.quoteRef]],
+    metaRows: [['Quote ref.', input.quoteRef], ...dueRow(input.dueLabel)],
     customer: input.customer,
     due: { label: 'Total due', amountPence: st.balance.grossPence, note: input.dueNote },
     jobTitle: input.jobTitle,
@@ -226,7 +240,7 @@ export async function buildFullInvoice(page: Page, input: FullInvoiceInput, tena
     title: 'Invoice',
     invoiceNo: input.invoiceNo,
     dateLabel: input.dateLabel,
-    metaRows: [['Quote ref.', input.quoteRef]],
+    metaRows: [['Quote ref.', input.quoteRef], ...dueRow(input.dueLabel)],
     customer: input.customer,
     due: { label: 'Total due', amountPence: quote.grossPence, note: input.dueNote },
     jobTitle: input.jobTitle,
@@ -279,7 +293,7 @@ export async function buildStageInvoice(page: Page, input: StageInvoiceInput, te
     title: 'Stage Invoice',
     invoiceNo: input.invoiceNo,
     dateLabel: input.dateLabel,
-    metaRows: [['Quote ref.', input.quoteRef], ['Stage', `${st.index} of ${input.stageCount}`]],
+    metaRows: [['Quote ref.', input.quoteRef], ...dueRow(input.dueLabel), ['Stage', `${st.index} of ${input.stageCount}`]],
     customer: input.customer,
     due: { label: 'Total due', amountPence: st.grossPence, note: input.dueNote },
     jobTitle: input.jobTitle,

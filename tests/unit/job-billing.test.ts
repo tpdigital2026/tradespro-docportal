@@ -137,7 +137,7 @@ describe('payments map to instalments through their invoice', () => {
   it('payableInvoice needs a final or sent invoice', () => {
     const j = demoIssuedJobs[1];
     const mk = (status: RawDocument['status']) => {
-      const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: [{ id: 'd', type: 'invoice-full', number: 'INV-DEMO-3002', status }], payments: [] });
+      const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: [{ id: 'd', type: 'invoice-full', number: 'INV-BR-002', status }], payments: [] });
       return r.ok ? payableInvoice(r.billing, 1) : null;
     };
     expect(mk('final')?.id).toBe('d');
@@ -157,14 +157,14 @@ describe('headings and follow-on prefill', () => {
 
   it('a balance invoice is prefilled from the recomputed schedule, with the deposit listed as received', () => {
     const r = followOnFor(demoBilling(0), 'balance-invoice', null, null);
-    expect(r.ok && r.followOn).toMatchObject({ number: 'INV-DEMO-3001-B', grossPence: 705600, heading: 'Balance', exists: false });
+    expect(r.ok && r.followOn).toMatchObject({ number: 'INV-BR-001-B', grossPence: 705600, heading: 'Balance', exists: false });
     expect(r.ok && r.followOn.receivedEarlier.map((p) => p.amountPence)).toEqual([302400]);
   });
 
   it('a stage invoice needs its stage and carries the owner\'s label', () => {
     expect(followOnFor(demoBilling(2), 'invoice-stage', null, null).ok).toBe(false);
     const r = followOnFor(demoBilling(2), 'invoice-stage', 4, null);
-    expect(r.ok && r.followOn).toMatchObject({ number: 'INV-DEMO-3003-S4', grossPence: 600000, heading: 'Stage 4 of 5: Roof covering complete' });
+    expect(r.ok && r.followOn).toMatchObject({ number: 'INV-BR-003-S4', grossPence: 600000, heading: 'Stage 4 of 5: Roof covering complete' });
     expect(r.ok && r.followOn.receivedEarlier).toHaveLength(3);
   });
 
@@ -179,10 +179,10 @@ describe('headings and follow-on prefill', () => {
     const b = demoBilling(2);
     expect(followOnFor(b, 'receipt', 1, null).ok).toBe(false); // its only payment already has a receipt
     const r = followOnFor(b, 'receipt', 1, 'demo-payment-3003-1');
-    expect(r.ok && r.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S1', grossPence: 600000, netPence: 500000, vatPence: 100000, exists: true });
+    expect(r.ok && r.followOn).toMatchObject({ number: 'RCP-BR-003-S1', grossPence: 600000, netPence: 500000, vatPence: 100000, exists: true });
     expect(r.ok && r.followOn.payment?.amountPence).toBe(600000);
     const byPayment = followOnFor(b, 'receipt', null, 'demo-payment-3003-3');
-    expect(byPayment.ok && byPayment.followOn).toMatchObject({ instalment: 3, number: 'RCP-DEMO-3003-S3' });
+    expect(byPayment.ok && byPayment.followOn).toMatchObject({ instalment: 3, number: 'RCP-BR-003-S3' });
     expect(byPayment.ok && byPayment.followOn).toMatchObject({ grossPence: 300000, netPence: 250000, vatPence: 50000 });
     expect(followOnFor(b, 'receipt', 4, null).ok).toBe(false); // nothing paid on stage 4
     expect(followOnFor(b, 'receipt', null, 'someone-elses').ok).toBe(false);
@@ -204,8 +204,8 @@ describe('a receipt for each payment', () => {
     const b = withParts([333333, 416667]);
     const one = followOnFor(b, 'receipt', 3, 'part-1');
     const two = followOnFor(b, 'receipt', 3, 'part-2');
-    expect(one.ok && one.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3', grossPence: 333333 });
-    expect(two.ok && two.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3-P2', grossPence: 416667 });
+    expect(one.ok && one.followOn).toMatchObject({ number: 'RCP-BR-003-S3', grossPence: 333333 });
+    expect(two.ok && two.followOn).toMatchObject({ number: 'RCP-BR-003-S3-P2', grossPence: 416667 });
     if (!one.ok || !two.ok) throw new Error('unreachable');
     // Net and VAT of the parts add up to the stage's own net and VAT exactly.
     expect(one.followOn.netPence + two.followOn.netPence).toBe(625000);
@@ -217,18 +217,18 @@ describe('a receipt for each payment', () => {
   it('with no payment named it takes the first one without a receipt, and its number stays put on a retry', () => {
     const b = withParts([100000, 200000]);
     const a = followOnFor(b, 'receipt', 3, null);
-    expect(a.ok && a.followOn.number).toBe('RCP-DEMO-3003-S3');
+    expect(a.ok && a.followOn.number).toBe('RCP-BR-003-S3');
     const again = followOnFor(b, 'receipt', 3, 'part-2');
-    expect(again.ok && again.followOn.number).toBe('RCP-DEMO-3003-S3-P2');
+    expect(again.ok && again.followOn.number).toBe('RCP-BR-003-S3-P2');
   });
 
   it('a linked payment shows its existing receipt, and cannot be given a second', () => {
     const b = withParts([100000]);
     b.payments.find((p) => p.id === 'part-1')!.receiptDocumentId = 'r';
-    b.documents.push({ id: 'r', type: 'receipt', number: 'RCP-DEMO-3003-S3', status: 'draft', instalment: 3 });
+    b.documents.push({ id: 'r', type: 'receipt', number: 'RCP-BR-003-S3', status: 'draft', instalment: 3 });
     expect(followOnFor(b, 'receipt', 3, null).ok).toBe(false);
     const named = followOnFor(b, 'receipt', 3, 'part-1');
-    expect(named.ok && named.followOn).toMatchObject({ number: 'RCP-DEMO-3003-S3', exists: true });
+    expect(named.ok && named.followOn).toMatchObject({ number: 'RCP-BR-003-S3', exists: true });
   });
 
   it('refuses a 100th receipt on one instalment, cleanly', () => {
@@ -237,7 +237,7 @@ describe('a receipt for each payment', () => {
     const r = buildJobBilling({ quoteNumber: j.form.quoteNumber, plan: planOf(j.form), form: j.form, vatRateBp: RATE, documents: j.documents, payments: pays });
     if (!r.ok) throw new Error(r.message);
     const last99 = followOnFor(r.billing, 'receipt', 1, 'p99');
-    expect(last99.ok && last99.followOn.number).toBe('RCP-DEMO-3002-P99');
+    expect(last99.ok && last99.followOn.number).toBe('RCP-BR-002-P99');
     const last = followOnFor(r.billing, 'receipt', 1, 'p100');
     expect(last.ok).toBe(false);
     expect(!last.ok && last.message).toMatch(/up to 99/);

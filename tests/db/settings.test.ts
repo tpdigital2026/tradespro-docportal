@@ -8,12 +8,15 @@ import {
   renameBankAccountWith,
   saveSignatureWith,
   setDefaultBankAccountWith,
+  setPaymentWordingWith,
   setRetentionWith,
   setSessionPolicyWith,
   setSignatureConsentWith,
   signaturePath,
 } from '../../src/lib/data/settings';
+import { FJC_WORDING, tenantWordingSchema } from '../../src/db/wording';
 import { signatureWith } from '../../src/lib/documents/facts-sql';
+import { paymentWordingOf } from '../../src/lib/payment-wording';
 import { InMemoryStorage } from '../../src/lib/storage';
 import { decryptBankDetails } from '../../src/security/bank-crypto';
 import { connect } from '../../src/db/connect';
@@ -241,6 +244,58 @@ describe.skipIf(!dbAvailable)('owner settings: retention, session policy, signat
       // An impossible size makes the insert fail after the upload: the file must go again.
       await expect(saveSignatureWith(c, ok, b.actor, { png: Buffer.from('x'), width: 3_000_000_000, height: 1 }, nested)).rejects.toThrow();
       expect(ok.blobs.size).toBe(0);
+    });
+  });
+});
+
+describe.skipIf(!dbAvailable)('owner settings: payment wording', () => {
+  const typed = { ...paymentWordingOf(FJC_WORDING), depositDueLabel: 'On acceptance', balanceTerms: 'Pay within 7 days of this invoice.', paymentReference: 'invoice_number' as const };
+
+  async function withWording(c: Client, wording: unknown) {
+    const b = await business(c);
+    await c.query(`update public.tenant_defaults set terms = $1::jsonb where tenant_id = $2`, [JSON.stringify(wording), b.tenantId]);
+    return b;
+  }
+
+  it('saves the payment wording into the stored wording, leaves the rest alone, and audits the field names only', async () => {
+    await withRollback(async (c) => {
+      const b = await withWording(c, FJC_WORDING);
+      const r = await setPaymentWordingWith(c, b.actor, typed, nested);
+      expect(r.changed.sort()).toEqual(['balanceTerms', 'depositDueLabel', 'paymentReference']);
+      const stored = tenantWordingSchema.parse((await c.query(`select terms from public.tenant_defaults where tenant_id = $1`, [b.tenantId])).rows[0].terms);
+      expect(stored.deposit_invoice).toMatchObject({ dueLabel: 'On acceptance', balanceDueLabel: FJC_WORDING.deposit_invoice.balanceDueLabel });
+      expect(stored.balance_invoice).toMatchObject({ terms: 'Pay within 7 days of this invoice.', dueLabel: 'On receipt' });
+      expect(stored.paymentReference).toBe('invoice_number');
+      expect(stored.quote).toEqual(FJC_WORDING.quote);
+      expect(stored.guarantee).toEqual(FJC_WORDING.guarantee);
+      const audit = await c.query(`select action, entity, meta::text from public.audit_log where tenant_id = $1`, [b.tenantId]);
+      expect(audit.rows).toHaveLength(1);
+      expect(audit.rows[0]).toMatchObject({ action: 'settings.payment_wording', entity: 'tenant_defaults' });
+      expect(audit.rows[0].meta).not.toMatch(/On acceptance|Pay within/);
+    });
+  });
+
+  it('wording stored before the new fields existed gains them when the owner saves; saving the same thing again changes nothing', async () => {
+    await withRollback(async (c) => {
+      const { dueLabel: _d, ...balance } = FJC_WORDING.balance_invoice;
+      const { paymentReference: _p, ...rest } = FJC_WORDING;
+      const b = await withWording(c, { ...rest, balance_invoice: balance });
+      const first = await setPaymentWordingWith(c, b.actor, paymentWordingOf(FJC_WORDING), nested);
+      expect(first.changed.sort()).toEqual(['balanceDueLabel', 'paymentReference']);
+      const again = await setPaymentWordingWith(c, b.actor, paymentWordingOf(FJC_WORDING), nested);
+      expect(again.changed).toEqual([]);
+      expect((await c.query(`select count(*)::int n from public.audit_log where tenant_id = $1`, [b.tenantId])).rows[0].n).toBe(1);
+    });
+  });
+
+  it('refuses a business whose document wording has not been set up, and never touches another business', async () => {
+    await withRollback(async (c) => {
+      const empty = await business(c);
+      await expect(setPaymentWordingWith(c, empty.actor, typed, nested)).rejects.toMatchObject({ code: 'not_configured' });
+      const other = await withWording(c, FJC_WORDING);
+      await setPaymentWordingWith(c, empty.actor, typed, nested).catch(() => undefined);
+      const stored = (await c.query(`select terms from public.tenant_defaults where tenant_id = $1`, [other.tenantId])).rows[0].terms;
+      expect(tenantWordingSchema.parse(stored)).toEqual(FJC_WORDING);
     });
   });
 });

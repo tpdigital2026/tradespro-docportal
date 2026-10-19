@@ -157,7 +157,7 @@ export const demoBankAccounts = [
 export const demoQuoteDefaults = { vatDefault: true, vatRateBp: 2000, depositPctBp: 3000 };
 
 /** Quote numbers already used in demo mode, newest first. */
-export const demoUsedNumbers = ['DEMO-3003', 'DEMO-3002', 'DEMO-3001', 'DEMO-2003', 'DEMO-2002', 'DEMO-2001', 'DEMO-1006', 'DEMO-1005', 'DEMO-1004', 'DEMO-1003', 'DEMO-1002', 'DEMO-1001'];
+export const demoUsedNumbers = ['QT-BR-003', 'QT-BR-002', 'QT-BR-001', 'DEMO-2003', 'DEMO-2002', 'DEMO-2001', 'DEMO-1006', 'DEMO-1005', 'DEMO-1004', 'DEMO-1003', 'DEMO-1002', 'DEMO-1001'];
 
 const demoForm = (over: Partial<QuoteFormValues>): QuoteFormValues => ({
   quoteNumber: '',
@@ -250,21 +250,21 @@ const dPay = (id: string, documentId: string, amountPence: number, paidOn: strin
 
 /**
  * Three jobs whose quotes have been issued, one for each way of being paid. Figures are made up:
- *  DEMO-3001 deposit plan, deposit paid, balance not yet raised
- *  DEMO-3002 pay in full, invoice raised and not yet paid
- *  DEMO-3003 five stages, stages 1 and 2 paid, stage 3 invoiced and part paid
+ *  QT-BR-001 deposit plan, deposit paid, balance not yet raised
+ *  QT-BR-002 pay in full, invoice raised and not yet paid
+ *  QT-BR-003 five stages, stages 1 and 2 paid, stage 3 invoiced and part paid
  */
 export const demoIssuedJobs: DemoIssuedJob[] = [
   {
     jobId: 'demo-job-3001',
-    form: demoForm({ quoteNumber: 'DEMO-3001', customerId: 'demo-customer-1', price: '8400', date: '2026-10-08', propertyAddress: '123 Bromley Road, BR2 8BG', scope: demoScope('Flat roof replacement') }),
-    documents: [dDoc('demo-doc-3001-q', 'quotation', 'DEMO-3001'), dDoc('demo-doc-3001-d', 'deposit-invoice', 'INV-DEMO-3001-D')],
+    form: demoForm({ quoteNumber: 'QT-BR-001', customerId: 'demo-customer-1', price: '8400', date: '2026-10-08', propertyAddress: '123 Bromley Road, BR2 8BG', scope: demoScope('Flat roof replacement') }),
+    documents: [dDoc('demo-doc-3001-q', 'quotation', 'QT-BR-001'), dDoc('demo-doc-3001-d', 'deposit-invoice', 'INV-BR-001-D')],
     payments: [dPay('demo-payment-3001-1', 'demo-doc-3001-d', 302400, '2026-10-11', 'bank transfer')],
   },
   {
     jobId: 'demo-job-3002',
     form: demoForm({
-      quoteNumber: 'DEMO-3002',
+      quoteNumber: 'QT-BR-002',
       customerId: 'demo-customer-2',
       jobTypeId: 'demo-jobtype-fascia',
       price: '1850',
@@ -273,13 +273,13 @@ export const demoIssuedJobs: DemoIssuedJob[] = [
       propertyAddress: '9 Sample Close, AB1 2CD',
       scope: demoScope('Fascia and gutter replacement'),
     }),
-    documents: [dDoc('demo-doc-3002-q', 'quotation', 'DEMO-3002'), dDoc('demo-doc-3002-f', 'invoice-full', 'INV-DEMO-3002')],
+    documents: [dDoc('demo-doc-3002-q', 'quotation', 'QT-BR-002'), dDoc('demo-doc-3002-f', 'invoice-full', 'INV-BR-002')],
     payments: [],
   },
   {
     jobId: 'demo-job-3003',
     form: demoForm({
-      quoteNumber: 'DEMO-3003',
+      quoteNumber: 'QT-BR-003',
       customerId: 'demo-customer-1',
       jobTypeId: 'demo-jobtype-tiled',
       price: '25000',
@@ -299,11 +299,11 @@ export const demoIssuedJobs: DemoIssuedJob[] = [
       },
     }),
     documents: [
-      dDoc('demo-doc-3003-q', 'quotation', 'DEMO-3003'),
-      dDoc('demo-doc-3003-s1', 'invoice-stage', 'INV-DEMO-3003-S1'),
-      dDoc('demo-doc-3003-s2', 'invoice-stage', 'INV-DEMO-3003-S2'),
-      dDoc('demo-doc-3003-s3', 'invoice-stage', 'INV-DEMO-3003-S3'),
-      dDoc('demo-doc-3003-r1', 'receipt', 'RCP-DEMO-3003-S1'),
+      dDoc('demo-doc-3003-q', 'quotation', 'QT-BR-003'),
+      dDoc('demo-doc-3003-s1', 'invoice-stage', 'INV-BR-003-S1'),
+      dDoc('demo-doc-3003-s2', 'invoice-stage', 'INV-BR-003-S2'),
+      dDoc('demo-doc-3003-s3', 'invoice-stage', 'INV-BR-003-S3'),
+      dDoc('demo-doc-3003-r1', 'receipt', 'RCP-BR-003-S1'),
     ],
     payments: [
       dPay('demo-payment-3003-1', 'demo-doc-3003-s1', 600000, '2026-10-01', 'bank transfer', 'demo-doc-3003-r1'),

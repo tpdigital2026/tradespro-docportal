@@ -1,6 +1,6 @@
 'use server';
 
-import { checkQuoteNumber, getQuoteVatRateBp, isKnownId, QuoteError, saveQuoteDraft, type QuoteErrorCode } from '../../../../lib/data/quotes';
+import { checkQuoteNumber, getQuoteVatRateBp, isKnownId, QuoteError, saveQuoteDraft, suggestQuoteNumber, type QuoteErrorCode } from '../../../../lib/data/quotes';
 import { APPROVAL_MESSAGES, checkApprovedScope, upgradeLegacyApproval } from '../../../../lib/data/scope';
 import { requireSession } from '../../../../lib/session';
 import { approvalState } from '../../../../lib/scope/model';
@@ -81,6 +81,22 @@ export async function checkNumberAction(numberRaw: unknown): Promise<NumberCheck
     return { status: free ? 'free' : 'taken' };
   } catch {
     return { status: 'error' };
+  }
+}
+
+/**
+ * The next free quote number for the property: QT- then the street's initials and the running number for them
+ * (QT-GW-001). Worked out here from the numbers already used, each time. It is only a suggestion; the number is
+ * claimed when the draft is saved, and the database refuses a duplicate.
+ */
+export async function suggestNumberAction(addressRaw: unknown, nameRaw: unknown): Promise<{ number: string }> {
+  await requireSession();
+  const address = typeof addressRaw === 'string' ? addressRaw.slice(0, 200) : '';
+  const name = typeof nameRaw === 'string' ? nameRaw.slice(0, 120) : '';
+  try {
+    return { number: await suggestQuoteNumber(address, name) };
+  } catch {
+    return { number: '' };
   }
 }
 
