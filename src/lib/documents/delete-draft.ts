@@ -33,7 +33,7 @@ export interface DeleteActor {
 export const DELETE_DRAFT_MESSAGES: Record<Exclude<DeleteDraftStatus, 'deleted'>, string> = {
   not_found: 'That draft could not be found. It may have been deleted already.',
   issued: 'This document has been issued, so it cannot be deleted. Only a draft that was never issued can be deleted.',
-  in_use: 'This draft is linked to a recorded payment, so it cannot be deleted.',
+  in_use: 'A payment is recorded against this invoice, so it cannot be deleted.',
   not_allowed: 'Only the owner or staff of this business can delete drafts.',
 };
 
@@ -41,6 +41,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Owner and staff of the business. TradesPro admins and anyone else are refused before the database is touched. */
 export const mayDeleteDrafts = (role: string) => role === 'owner' || role === 'staff';
+
+/**
+ * Locks the job, then the document (the order finalise and revise use), and clears the payment's link to a receipt that
+ * is still a draft. True when it did. Anything else (an invoice with a payment against it, an issued receipt) is left.
+ */
+async function unlinkDraftReceipt(db: Db, tenantId: string, documentId: string): Promise<boolean> {
+  await db.query(`select j.id from public.jobs j where j.tenant_id = $1 and j.id = (select d.job_id from public.documents d where d.id = $2 and d.tenant_id = $1) for update`, [tenantId, documentId]);
+  const d = await db.query(`select type::text as type, status::text as status from public.documents where id = $2 and tenant_id = $1 for update`, [tenantId, documentId]);
+  if (d.rows[0]?.type !== 'receipt' || d.rows[0]?.status !== 'draft') return false;
+  if ((await db.query(`select 1 from public.payments where tenant_id = $1 and document_id = $2`, [tenantId, documentId])).rows.length) return false;
+  const u = await db.query(`update public.payments set receipt_document_id = null where tenant_id = $1 and receipt_document_id = $2 returning id`, [tenantId, documentId]);
+  return u.rows.length > 0;
+}
 
 export async function deleteDraftWith(db: Db, storage: StorageDeleter, actor: DeleteActor, documentId: string, o: { nested?: boolean } = {}): Promise<DeleteDraftResult> {
   if (!mayDeleteDrafts(actor.role)) return { status: 'not_allowed' };
@@ -52,8 +65,15 @@ export async function deleteDraftWith(db: Db, storage: StorageDeleter, actor: De
     await db.query('reset role');
     await db.query(`select set_config('request.jwt.claims', '', true)`);
     await db.query(`set local statement_timeout = '30s'`);
-    const r = await db.query('select private.delete_draft_document($1, $2) as r', [actor.tenantId, documentId]);
+    let r = await db.query('select private.delete_draft_document($1, $2) as r', [actor.tenantId, documentId]);
     out = (r.rows[0]?.r ?? {}) as typeof out;
+    if (out.status === 'in_use' && (await unlinkDraftReceipt(db, actor.tenantId, documentId))) {
+      // A receipt draft made for a payment: the payment stays exactly as recorded and simply has no receipt yet, so
+      // "Create receipt" is offered for it again. (The database lets the server change a payment's receipt link while
+      // that receipt is a draft.)
+      r = await db.query('select private.delete_draft_document($1, $2) as r', [actor.tenantId, documentId]);
+      out = (r.rows[0]?.r ?? {}) as typeof out;
+    }
     if (out.status !== 'deleted') {
       await db.query(nested ? 'rollback to savepoint delete_draft' : 'rollback');
       const s = out.status;

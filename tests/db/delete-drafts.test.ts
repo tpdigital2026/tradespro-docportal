@@ -133,4 +133,29 @@ describe.skipIf(!dbAvailable)('deleting a draft', () => {
       expect([...storage.blobs.keys()].some((p) => p.includes(`/${t.versionId}/preview-`))).toBe(true);
     });
   });
+
+  it('a receipt draft made for a payment can be deleted: the payment stays, with no receipt yet; an invoice with a payment cannot', async () => {
+    await withRollback(async (c) => {
+      const t = await seedTenant(c, 'Delp');
+      const ref = (await c.query(`select reference from public.jobs where id = $1`, [t.jobId])).rows[0].reference as string;
+      const stem = ref.replace(/^QT-/, '');
+      const inv = await c.query(`insert into public.documents (tenant_id, job_id, type, number, status) values ($1, $2, 'invoice_full', $3, 'final') returning id`, [t.tenantId, t.jobId, `INV-${stem}`]);
+      const pay = await c.query(`insert into public.payments (tenant_id, job_id, document_id, amount_pence, paid_on, method) values ($1, $2, $3, 100, current_date, 'cash') returning id`, [t.tenantId, t.jobId, inv.rows[0].id]);
+      const rcp = await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'receipt', $3) returning id`, [t.tenantId, t.jobId, `RCP-${stem}`]);
+      await c.query(`update public.payments set receipt_document_id = $2 where id = $1`, [pay.rows[0].id, rcp.rows[0].id]);
+      const r = await deleteDraftWith(c, new InMemoryStorage(), owner(t), String(rcp.rows[0].id), { nested: true });
+      expect(r.status).toBe('deleted');
+      const p = await c.query(`select amount_pence, receipt_document_id from public.payments where id = $1`, [pay.rows[0].id]);
+      expect(p.rows[0]).toEqual({ amount_pence: '100', receipt_document_id: null });
+      // A draft invoice that a payment points at (not possible through the app, but refused all the same).
+      const draftInv = await c.query(`insert into public.documents (tenant_id, job_id, type, number) values ($1, $2, 'deposit_invoice', $3) returning id`, [t.tenantId, t.jobId, `INV-${stem}-D`]);
+      await c.query('savepoint p');
+      await c.query(`insert into public.payments (tenant_id, job_id, document_id, amount_pence, paid_on, method) values ($1, $2, $3, 50, current_date, 'cash')`, [t.tenantId, t.jobId, draftInv.rows[0].id]).then(
+        () => c.query('release savepoint p'),
+        () => c.query('rollback to savepoint p'),
+      );
+      const has = (await c.query(`select 1 from public.payments where document_id = $1`, [draftInv.rows[0].id])).rowCount;
+      if (has) expect((await deleteDraftWith(c, new InMemoryStorage(), owner(t), String(draftInv.rows[0].id), { nested: true })).status).toBe('in_use');
+    });
+  });
 });

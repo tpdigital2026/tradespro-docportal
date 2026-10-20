@@ -49,7 +49,10 @@ export function ReviewPreview({
 }) {
   const H = headingLevel === 2 ? 'h2' : 'h3';
   const [view, setView] = useState<View>(() => (memory?.current ? { kind: 'loading', last: memory.current } : { kind: 'waiting' }));
-  const [imgState, setImgState] = useState<'loading' | 'ok' | 'failed'>('loading');
+  // Which image URL has loaded or failed. Derived per URL, never reset in an effect: a page image the browser already
+  // has (coming back to this page) fires its load event before any effect runs, and a reset would then wipe it,
+  // leaving the page "being drawn" for ever.
+  const [loaded, setLoaded] = useState<{ url: string; ok: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const seq = useRef(0);
   const first = useRef(true);
@@ -78,9 +81,12 @@ export function ReviewPreview({
 
   const ready = view.kind === 'shown' && view.preview.state === 'ready' ? view.preview : view.kind === 'loading' ? view.last : null;
   const url = ready?.imageUrl;
-  useEffect(() => setImgState('loading'), [url]);
+  const imgState: 'loading' | 'ok' | 'failed' = url && loaded?.url === url ? (loaded.ok ? 'ok' : 'failed') : 'loading';
   const updating = view.kind === 'loading' || (view.kind === 'waiting');
-  const retry = () => setAttempt((a) => a + 1);
+  const retry = () => {
+    setLoaded(null);
+    setAttempt((a) => a + 1);
+  };
 
   const problem = view.kind === 'shown' && (view.preview.state === 'error' || view.preview.state === 'busy') ? view.preview : null;
   const missing = view.kind === 'shown' && view.preview.state === 'missing' ? view.preview : null;
@@ -140,8 +146,12 @@ export function ReviewPreview({
                 width={794}
                 height={1123}
                 decoding="async"
-                onLoad={() => setImgState('ok')}
-                onError={() => setImgState('failed')}
+                ref={(el) => {
+                  // Already complete from the cache before React attached onLoad.
+                  if (el && el.complete && el.naturalWidth > 0 && loaded?.url !== ready.imageUrl) setLoaded({ url: ready.imageUrl, ok: true });
+                }}
+                onLoad={() => setLoaded({ url: ready.imageUrl, ok: true })}
+                onError={() => setLoaded({ url: ready.imageUrl, ok: false })}
                 className={imgState === 'ok' ? 'is-in' : undefined}
               />
             ) : null}

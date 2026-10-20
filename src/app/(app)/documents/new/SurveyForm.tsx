@@ -363,7 +363,7 @@ export function SurveyForm({ ctx, draft, initialStep, presetJobId }: { ctx: Surv
         <ol>
           {SURVEY_STEPS.map((s, i) => (
             <li key={s}>
-              <button type="button" className={`qt-stepbtn${i === stepIx ? ' is-now' : i < stepIx ? ' is-done' : ''}`} aria-current={i === stepIx ? 'step' : undefined} disabled={i > 0 && !locked} onClick={() => goTo(i)}>
+              <button type="button" className={`qt-stepbtn${i === stepIx ? ' is-now' : i < stepIx ? ' is-done' : ''}`} aria-current={i === stepIx ? 'step' : undefined} aria-disabled={i === stepIx || undefined} disabled={i > 0 && !locked} onClick={() => (i === stepIx ? undefined : goTo(i))}>
                 <span className="qt-stepnum" aria-hidden="true">
                   {i < stepIx ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg> : i + 1}
                 </span>

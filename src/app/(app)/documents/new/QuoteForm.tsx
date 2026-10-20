@@ -390,8 +390,9 @@ export function QuoteForm({
                 type="button"
                 className={`qt-stepbtn${i === stepIx ? ' is-now' : i < stepIx ? ' is-done' : ''}`}
                 aria-current={i === stepIx ? 'step' : undefined}
+                aria-disabled={i === stepIx || undefined}
                 disabled={i > reachable}
-                onClick={() => goTo(i)}
+                onClick={() => (i === stepIx ? undefined : goTo(i))}
               >
                 <span className="qt-stepnum" aria-hidden="true">
                   {i < stepIx ? (

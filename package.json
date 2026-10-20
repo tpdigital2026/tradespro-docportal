@@ -21,7 +21,8 @@
     "dev:demo": "DEMO_MODE=1 next dev",
     "ci": "npm run typecheck && npm test && npm run test:render && npm run check:render-bundle && npm audit",
     "check:home-fold": "tsx scripts/check-home-fold.ts",
-    "check:fjc-readiness": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/check-fjc-readiness.ts"
+    "check:fjc-readiness": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/check-fjc-readiness.ts",
+    "check:clicks": "tsx scripts/check-app-clicks.ts"
   },
   "keywords": [],
   "author": "",

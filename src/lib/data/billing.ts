@@ -161,14 +161,17 @@ export function demoBillingState(): Readonly<Pick<DemoState, 'jobs' | 'documents
   return demo();
 }
 
-/** Demo mode only: a draft invoice or receipt is deleted, unless a recorded payment points at it. */
+/** Demo mode only: a draft invoice or receipt is deleted (an invoice with a payment against it is refused). */
 export function demoDeleteFollowOn(jobId: string, documentId: string): 'deleted' | 'in_use' | 'not_found' | 'issued' {
   const st = demo();
   const docs = st.documents.get(jobId) ?? [];
   const d = docs.find((x) => x.id === documentId);
   if (!d) return 'not_found';
   if (d.status !== 'draft') return 'issued';
-  if ((st.payments.get(jobId) ?? []).some((p) => p.documentId === documentId || p.receiptDocumentId === documentId)) return 'in_use';
+  const pays = st.payments.get(jobId) ?? [];
+  if (pays.some((p) => p.documentId === documentId)) return 'in_use';
+  // A receipt draft: its payment stays and simply has no receipt yet.
+  for (const p of pays) if (p.receiptDocumentId === documentId) p.receiptDocumentId = null;
   st.documents.set(jobId, docs.filter((x) => x.id !== documentId));
   return 'deleted';
 }
