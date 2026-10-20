@@ -37,7 +37,7 @@
 }
 .newdoc-menu[hidden], .newdoc-backdrop[hidden] { display: none; }
 /* Group headers are navy bands with white text; the items beneath are plain rows divided by hairlines. */
-.newdoc-label { padding: var(--space-2) var(--space-4); background: var(--navy-900); color: var(--w); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); text-transform: uppercase; }
+.newdoc-label { padding: var(--space-2) var(--space-4); background: var(--navy-900); border-bottom: var(--stroke) solid var(--hero-lead); color: var(--w); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); text-transform: uppercase; }
 .newdoc-item + .newdoc-item { border-top: var(--hairline) solid var(--border); }
 .newdoc-item {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--tap); padding: 0 var(--space-4);
