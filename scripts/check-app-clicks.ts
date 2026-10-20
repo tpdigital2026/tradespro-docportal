@@ -488,10 +488,10 @@ async function timing(browser: Browser): Promise<string> {
   const heading = (re: RegExp) => (p: Page) => p.waitForFunction(`(() => ${re}.test(document.querySelector('h1')?.innerText ?? '') && !document.querySelector('.skel'))()`, undefined, { timeout: 60000 });
   await measure('Tab: Home to Customers', '/', (p) => p.locator('.bottomnav a[href="/customers"]').click(), heading(/Customers/));
   await measure('Tab: Home to Documents', '/', (p) => p.locator('.bottomnav a[href="/documents"]').click(), heading(/Documents/));
-  await measure('More, then Pipeline', '/', (p) => p.locator('.more-panel a[href="/pipeline"]').click(), heading(/Pipeline/), (p) => p.locator('.bottomnav button.more-btn').click());
-  await measure('More, then Money', '/', (p) => p.locator('.more-panel a[href="/money"]').click(), heading(/Money/), (p) => p.locator('.bottomnav button.more-btn').click());
-  await measure('New document tile: Quotation', '/documents/new', (p) => p.locator('main a[href="/documents/new?type=quotation"]').first().click(), heading(/quotation|customer/i));
-  await measure('Home: open a job row', '/?view=all', (p) => p.locator('.jobs-table a.jt-open').first().click(), heading(/QT-|Job/));
+  await measure('More, then Pipeline', '/', (p) => p.locator('.more-panel a[href="/pipeline"]').click(), heading(/pipeline/i), (p) => p.locator('.bottomnav button.more-btn').click());
+  await measure('More, then Money', '/', (p) => p.locator('.more-panel a[href="/money"]').click(), heading(/money/i), (p) => p.locator('.bottomnav button.more-btn').click());
+  await measure('New document tile: Quotation', '/documents/new', (p) => p.locator('main a[href="/documents/new?type=quotation"]').first().click(), (p) => p.waitForFunction(`/type=quotation/.test(location.search) && !!document.querySelector('.qt-steps') && !document.querySelector('.skel')`, undefined, { timeout: 60000 }));
+  await measure('Home: open a job row', '/?view=all', (p) => p.locator('.jobs-table a.jt-open').first().click(), (p) => p.waitForFunction(`/\\/documents\\/jobs\\//.test(location.pathname) && !!document.querySelector('.job-total, .inst, h1') && !document.querySelector('.skel')`, undefined, { timeout: 60000 }));
   await measure('Home: Mark invoice as paid', '/?view=waiting', (p) => p.locator('.jobs-table a[href*="/documents/jobs/"]').filter({ hasText: /paid|record/i }).first().click(), (p) => p.waitForSelector('dialog.pay-dialog[open], .inst', { timeout: 60000 }));
   await measure('Save payment', '/?view=waiting', (p) => p.locator('dialog.pay-dialog[open] button[type="submit"]').click(), (p) => p.waitForSelector('dialog.pay-dialog[open] .pay-tick', { timeout: 60000 }), async (p) => {
     await p.locator('.jobs-table a[href*="/documents/jobs/"]').filter({ hasText: /paid|record/i }).first().click();
@@ -503,7 +503,7 @@ async function timing(browser: Browser): Promise<string> {
   await measure('Create receipt (after a payment)', '/?view=waiting', async (p) => {
     const b = p.locator('dialog.pay-dialog[open] .btn-primary, dialog.pay-dialog[open] a.btn-primary').first();
     await b.click();
-  }, (p) => p.waitForURL(/\/documents\/(new|[^/]+\/preview|[^/]+)/, { timeout: 60000 }), async (p) => {
+  }, (p) => p.waitForURL(/\/documents\/(new\?|[^/]+\/preview)/, { timeout: 60000 }), async (p) => {
     await p.locator('.jobs-table a[href*="/documents/jobs/"]').filter({ hasText: /paid|record/i }).first().click();
     await p.waitForURL(/documents\/jobs/);
     await settled(p, 20000);

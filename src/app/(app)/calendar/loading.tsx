@@ -1,5 +1,5 @@
 import { PageSkeleton } from '../../../components/PageSkeleton';
 
 export default function Loading() {
-  return <PageSkeleton title="Calendar" rows={6} />;
+  return <PageSkeleton muted="Your" title="calendar" rows={6} />;
 }
