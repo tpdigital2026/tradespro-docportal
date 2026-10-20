@@ -16,7 +16,7 @@ export function contactLines(t: Tenant): Raw {
 }
 
 export function runningHeader(t: Tenant, b: Brand, label: string, ref: string): Raw {
-  return html`<div class="rh"><img src="${b.assets.logoColour}" alt="${t.name}"><div class="meta"><span class="eyebrow">${label}</span><div class="ref">${ref}</div></div></div>`;
+  return html`<div class="rh"><img src="${b.assets.logoColour}" alt="${t.name}" data-slot="logo-colour"><div class="meta"><span class="eyebrow">${label}</span><div class="ref">${ref}</div></div></div>`;
 }
 
 export function runningFooter(t: Tenant, n: number, total: number, reserved = false): Raw {
@@ -53,8 +53,8 @@ export function coverHero(
   b: Brand,
   c: { eyebrow: string; title: string; sub: string; strip: [string, string][] },
 ): Raw {
-  const photo = b.assets.coverPhoto ? html`<div class="ph" style="background-image:url(&quot;${b.assets.coverPhoto}&quot;)"></div>` : null;
-  return html`<div class="cover-hero">${photo}<div class="shade"></div><div class="in" data-fit><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}"><div class="contact">${contactLines(t)}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
+  const photo = b.assets.coverPhoto ? html`<div class="ph" data-slot="cover" style="background-image:url(&quot;${b.assets.coverPhoto}&quot;)"></div>` : null;
+  return html`<div class="cover-hero">${photo}<div class="shade"></div><div class="in" data-fit><img class="logo" src="${b.assets.logoWhite}" alt="${t.name}" data-slot="logo-white"><div class="contact">${contactLines(t)}</div><div class="spacer"></div><span class="eyebrow w">${c.eyebrow}</span><h1>${c.title}</h1><div class="rule"></div><div class="sub">${c.sub}</div><div class="strip">${c.strip.map(([a, v]) => html`<div>${a}<b>${v}</b></div>`)}</div></div></div>`;
 }
 
 export interface PriceRow {

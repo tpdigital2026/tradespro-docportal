@@ -7,6 +7,8 @@ import * as F from './finance-parts';
 import * as P from './parts';
 
 export interface ReceiptInput {
+  /** The locked template this receipt is drawn from (src/templates/registry.ts); absent for the plain layout. */
+  template?: string;
   receiptNo: string;
   invoiceRef: string;
   quoteRef: string;

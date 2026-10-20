@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { dataUri } from '../../src/pdf/assets';
 import type { Brand, Tenant } from '../../src/themes/types';
+import { greyPng } from './png';
 
 export const REFERENCE_ASSETS = path.join(
   process.cwd(),
@@ -43,16 +44,27 @@ export const fjcColours = {
   paper: '#f4f6fa',
 };
 
+/** FJC's committed files: the brand logos, and the flat roof quotation template's photo and diagram (src/templates/library/fjc). */
+export const FJC_PUBLIC = path.join(process.cwd(), 'public', 'brands', 'fjc');
+const FLAT_TEMPLATE = path.join(process.cwd(), 'src', 'templates', 'library', 'fjc', 'quotation-flat-roof');
+
+/**
+ * A stand-in for a stored signature: a plain grey strip the size of the owner's. His real signature is never committed;
+ * the templates print whatever picture is stored, so this proves the line is filled.
+ */
+export const STAND_IN_SIGNATURE = `data:image/png;base64,${greyPng(526, 114, 90).toString('base64')}`;
+
+/** The FJC brand from committed files only (so these render tests run on any checkout), for the plain layout's tests. */
 export function loadFjcBrand(): Brand {
-  const f = (name: string) => dataUri(path.join(REFERENCE_ASSETS, name));
+  const f = (name: string) => dataUri(path.join(FJC_PUBLIC, name));
   return {
     colours: fjcColours,
     assets: {
       logoColour: f('logo.png'),
       logoWhite: f('logo_white.png'),
-      signature: f('sig_rgba.png'),
-      coverPhoto: f('ph_flat.jpg'),
-      diagram: f('diag_flat.jpg'),
+      signature: STAND_IN_SIGNATURE,
+      coverPhoto: dataUri(path.join(FLAT_TEMPLATE, 'cover.jpg')),
+      diagram: dataUri(path.join(FLAT_TEMPLATE, 'diagram-flat.jpg')),
     },
   };
 }

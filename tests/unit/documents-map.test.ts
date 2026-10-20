@@ -16,7 +16,7 @@ function factsFor(jobIx: number, over: Partial<DocumentFacts> = {}): DocumentFac
   const c = demoCustomers.find((x) => x.id === j.form.customerId)!;
   return {
     type: 'quotation', number: j.form.quoteNumber, docDate: j.form.date, quoteNumber: j.form.quoteNumber, propertyAddress: j.form.propertyAddress,
-    jobTypeLabel: 'Flat roof', guaranteeYears: 20, customer: { name: c.name, addressLines: c.addressLines, postcode: c.postcode, email: '', phone: '' },
+    jobTypeLabel: 'Flat roof', jobTypeKey: 'flat_roof', guaranteeYears: 20, customer: { name: c.name, addressLines: c.addressLines, postcode: c.postcode, email: '', phone: '' },
     quoteForm: j.form, plan: normaliseQuote(j.form, 'draft', 2000).input.plan, documents: j.documents, payments: j.payments, followOn: null, bank, ...over,
   };
 }
@@ -39,7 +39,9 @@ describe('mapQuotation', () => {
     expect(q.ref).toBe('QT-BR-001');
     expect(q.dateLabel).toBe('8 October 2026');
     expect(q.terms).toBe(biz.wording.quote.terms);
-    expect(q.diagram).toBeNull();
+    // A flat roof job is drawn from FJC's flat roof quotation template, with its build-up diagram (src/templates/registry.ts).
+    expect(q.diagram).toMatchObject({ layout: 'single', image: 'diagram-flat' });
+    expect(q.template).toBe('fjc/quotation/flat-roof');
     expect(q.paymentSchedule).toEqual([['Deposit (30%)', '£3,024.00'], ['Balance due on completion', '£7,056.00']]);
     expect(r.money).toMatchObject({ netPence: 840000, vatPence: 168000, grossPence: 1008000 });
     expect(r.money.schedule?.map((i) => i.grossPence)).toEqual([302400, 705600]);

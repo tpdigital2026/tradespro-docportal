@@ -86,6 +86,8 @@ export const demoBusiness = {
   wording: FJC_WORDING,
   disclaimer: '',
   validityDays: 30,
+  /** FJC's locked document templates (src/templates/registry.ts). */
+  slug: 'fjc',
 };
 
 /**

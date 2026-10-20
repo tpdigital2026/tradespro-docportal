@@ -18,9 +18,10 @@ export const quotationFixture: QuotationInput = {
     { big: '20 Years', label: 'Guarantee', accent: true },
   ],
   diagram: {
+    layout: 'single',
     eyebrow: 'Beneath the finish',
     heading: 'Every layer has a job to do',
-    body: 'A 2mm perforated tack-down layer, a 3mm fully bonded underlay and a 5mm mineral cap sheet work together as one system, finished with Code 4 lead flashing to the perimeter wall.',
+    body: ['A 2mm perforated tack-down layer, a 3mm fully bonded underlay and a 5mm mineral cap sheet work together as one system, finished with Code 4 lead flashing to the perimeter wall.'],
     caption: 'Example felt flat roofing build-up. The exact system can vary depending on the roof and specification required.',
   },
   callout: null,

@@ -175,6 +175,7 @@ export async function businessWith(db: Db, tenantId: string): Promise<{ business
     slug: typeof t.slug === 'string' ? t.slug : null,
     problems,
     business: {
+      slug: typeof t.slug === 'string' ? t.slug : null,
       tenant,
       wording: wording.success ? wording.data : null,
       disclaimer: str(t.disclaimer_text),
@@ -255,7 +256,7 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
   const newest = head.versions[0] ?? null;
 
   const jr = await db.query(
-    `select j.property_address, j.payment_plan, jt.label as job_type_label, jt.guarantee_years
+    `select j.property_address, j.payment_plan, jt.label as job_type_label, jt.key as job_type_key, jt.guarantee_years
        from public.jobs j left join public.job_types jt on jt.id = j.job_type_id and jt.tenant_id = j.tenant_id
       where j.id = $1 and j.tenant_id = $2`,
     [head.jobId, tenantId],
@@ -323,6 +324,7 @@ export async function loadWith(db: Db, tenantId: string, documentId: string, opt
           quoteNumber: head.quoteNumber,
           propertyAddress: typeof job.property_address === 'string' ? job.property_address : '',
           jobTypeLabel: typeof job.job_type_label === 'string' ? job.job_type_label : '',
+          jobTypeKey: typeof job.job_type_key === 'string' ? job.job_type_key : '',
           guaranteeYears: Number.isInteger(job.guarantee_years) ? Number(job.guarantee_years) : null,
           customer: { name: String(cust.name ?? ''), addressLines: (cust.address_lines as string[] | null) ?? [], postcode: cust.postcode ?? '', email: cust.email ?? '', phone: cust.phone ?? '' },
           quoteForm,

@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { FJC_COLOURS } from '../../db/seed-fjc';
-import { dataUri } from '../../pdf/assets';
+import { cachedDataUri } from '../../pdf/assets';
 import type { Brand } from '../../themes/types';
 import { isValidSlug } from '../slug';
 
@@ -38,7 +38,7 @@ export function publicBrandFile(slug: string | null, tenantId: string, storagePa
 
 export type BrandResult = { ok: true; brand: Brand } | { ok: false; missing: string[] };
 
-export function renderBrandFrom(args: { slug: string | null; tenantId: string; colours: unknown; assets: AssetRow[] }, read: (file: string) => string = dataUri, exists?: (p: string) => boolean): BrandResult {
+export function renderBrandFrom(args: { slug: string | null; tenantId: string; colours: unknown; assets: AssetRow[] }, read: (file: string) => string = cachedDataUri, exists?: (p: string) => boolean): BrandResult {
   const missing: string[] = [];
   const c = (args.colours && typeof args.colours === 'object' ? args.colours : {}) as Record<string, unknown>;
   const colours: Record<string, string> = {};
@@ -71,7 +71,7 @@ export function renderBrandFrom(args: { slug: string | null; tenantId: string; c
 }
 
 /** Demo mode: the real FJC logo files with the approved FJC colours, and the demo signature when switched on. */
-export function demoRenderBrand(read: (file: string) => string = dataUri, signature: string | null = null): Brand {
+export function demoRenderBrand(read: (file: string) => string = cachedDataUri, signature: string | null = null): Brand {
   const dir = path.join(process.cwd(), 'public', 'brands', 'fjc');
   return {
     colours: { ...FJC_COLOURS },

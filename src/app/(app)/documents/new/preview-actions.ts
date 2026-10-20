@@ -5,6 +5,7 @@ import { getPreview } from '../../../../lib/data/documents';
 import { isKnownId } from '../../../../lib/data/quotes';
 import { missingFacts, pageImageUrl, type DraftPreview } from '../../../../lib/documents/draft-preview';
 import { logRenderFailure } from '../../../../pdf/diagnostics';
+import { OWNER_TEMPLATE_MESSAGE, TemplateLockError } from '../../../../lib/documents/template-lock';
 import { requireSession } from '../../../../lib/session';
 
 /**
@@ -34,6 +35,7 @@ export async function previewDraftPageAction(documentIdRaw: unknown): Promise<Dr
   } catch (e) {
     // One safe log line (stage, error class and code; never the document).
     logRenderFailure('draft-preview', e);
+    if (e instanceof TemplateLockError) return { state: 'error', message: OWNER_TEMPLATE_MESSAGE, diag: 'PV-TEMPLATE' };
     return { state: 'error', message: 'We could not draw the preview just now. Your draft is safe.', diag: 'PV-RENDER' };
   }
 }

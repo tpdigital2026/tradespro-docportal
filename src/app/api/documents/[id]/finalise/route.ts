@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { DocumentError, finaliseDocument } from '../../../../../lib/data/documents';
 import { getSession } from '../../../../../lib/session';
 import { isSameOrigin } from '../../../../../lib/same-origin';
+import { OWNER_TEMPLATE_MESSAGE, TemplateLockError } from '../../../../../lib/documents/template-lock';
 import { logRenderFailure } from '../../../../../pdf/diagnostics';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   } catch (e) {
     if (e instanceof DocumentError) return NextResponse.json({ ok: false, code: e.code, message: e.message, missing: e.missing }, { status: STATUS[e.code] });
     logRenderFailure('finalise', e);
+    if (e instanceof TemplateLockError) return NextResponse.json({ ok: false, code: 'template', message: OWNER_TEMPLATE_MESSAGE }, { status: 500 });
     return NextResponse.json({ ok: false, code: 'failed', message: 'We could not finalise that just now. Nothing was changed. Please try again.' }, { status: 500 });
   }
 }

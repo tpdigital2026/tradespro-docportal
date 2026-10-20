@@ -20,6 +20,7 @@ import { launchBrowser, newLockedPage, type RenderBrowser, type RenderPage } fro
 import { inStage, logRenderOk } from '../pdf/diagnostics';
 import { renderRuntime } from '../pdf/engine';
 import { renderPdf, screenshotEachPage } from '../pdf/render';
+import { templateOf, verifyRenderedImages } from './documents/template-lock';
 import { buildBalanceInvoice, buildDepositInvoice, buildFullInvoice, buildStageInvoice } from '../templates/invoice';
 import { buildGuarantee } from '../templates/guarantee';
 import { buildQuotation } from '../templates/quotation';
@@ -137,6 +138,9 @@ export function renderMapped(mapped: Mapped, tenant: Tenant, brand: Brand, open:
         t = Date.now();
         const pdf = await renderPdf(page, docHtml);
         ms.pdf = Date.now() - t;
+        // A document from a locked template: every image slot must have loaded and be the template's own file.
+        const templateId = templateOf(mapped.input);
+        if (templateId) await verifyRenderedImages(page, templateId);
         t = Date.now();
         const pngPages = await screenshotEachPage(page);
         ms.screenshot = Date.now() - t;
