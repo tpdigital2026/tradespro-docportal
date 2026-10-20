@@ -32,12 +32,13 @@
 .newdoc-backdrop { display: none; }
 .newdoc-menu {
   position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 30; width: var(--menu-w);
-  padding: var(--space-2) 0; background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius);
+  padding: 0; overflow: clip; background: var(--surface); border: var(--hairline) solid var(--border); border-radius: var(--ws-radius);
   box-shadow: var(--shadow-menu);
 }
 .newdoc-menu[hidden], .newdoc-backdrop[hidden] { display: none; }
-.newdoc-group + .newdoc-group { margin-top: var(--space-1); padding-top: var(--space-1); border-top: var(--hairline) solid var(--border); }
-.newdoc-label { padding: var(--space-2) var(--space-4) var(--space-1); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); color: var(--ink-muted); }
+/* Group headers are navy bands with white text; the items beneath are plain rows divided by hairlines. */
+.newdoc-label { padding: var(--space-2) var(--space-4); background: var(--navy-900); color: var(--w); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); text-transform: uppercase; }
+.newdoc-item + .newdoc-item { border-top: var(--hairline) solid var(--border); }
 .newdoc-item {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--tap); padding: 0 var(--space-4);
   color: var(--ink); font-size: var(--fs-14); font-weight: 500; text-decoration: none;
@@ -49,7 +50,7 @@
   .newdoc-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: var(--backdrop); }
   .newdoc-menu {
     position: fixed; inset: auto 0 0 0; top: auto; z-index: 41; width: auto; max-height: var(--sheet-max-h); overflow-y: auto;
-    padding: var(--space-3) 0 calc(var(--space-4) + env(safe-area-inset-bottom, 0)); border: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 0 0 env(safe-area-inset-bottom, 0); border: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     animation: sheet-up var(--dur) var(--ease);
   }
   .newdoc-item { min-height: var(--row-min); font-size: var(--fs-16); }
