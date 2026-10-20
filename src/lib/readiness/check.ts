@@ -27,7 +27,7 @@ function facts(type: DocType, number: string, followOn: DocumentFacts['followOn'
   const c = demoCustomers.find((x) => x.id === j.form.customerId) ?? demoCustomers[0];
   return {
     type, number, docDate: j.form.date, quoteNumber: j.form.quoteNumber, propertyAddress: j.form.propertyAddress,
-    jobTypeLabel: 'Flat roof', guaranteeYears: 20, customer: { name: c.name, addressLines: c.addressLines, postcode: c.postcode, email: '', phone: '' },
+    jobTypeLabel: 'Flat roof', jobTypeKey: 'flat_roof', guaranteeYears: 20, customer: { name: c.name, addressLines: c.addressLines, postcode: c.postcode, email: '', phone: '' },
     quoteForm: j.form, plan: normaliseQuote(j.form, 'draft', 2000).input.plan, documents: j.documents, payments: j.payments, followOn, bank: BANK,
   };
 }
