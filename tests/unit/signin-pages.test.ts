@@ -54,11 +54,11 @@ describe('sign-in pages', () => {
     expect(signin(TRADESPRO_BRAND)).not.toContain('/brands/fjc/van');
     for (const html of [fjc, other, signin(TRADESPRO_BRAND)]) expect(html).not.toContain('login-sample.png');
   });
-  it('access is invite only and says nothing about it; the wide hero band sits in the FJC brand panel only', () => {
+  it('access is invite only and says nothing about it; no banner image sits over the brand photo', () => {
     for (const html of [signin(DEMO_BRAND), signin(TRADESPRO_BRAND)]) {
       expect(html).not.toMatch(/Not invited|by invitation/i);
     }
-    expect(signin(DEMO_BRAND)).toContain('/brands/fjc/hero-wide-1400.jpg');
+    expect(signin(DEMO_BRAND)).not.toContain('hero-wide');
     expect(signin({ ...DEMO_BRAND, isOwnBrand: true })).not.toContain('signin-foot');
     expect(signin(TRADESPRO_BRAND)).not.toContain('hero-wide');
   });

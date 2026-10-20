@@ -53,7 +53,6 @@ export function SignIn({ brand, children }: { brand: TenantBrand; children: Reac
       {photo ? (
         <aside className="signin-art is-photo">
           <BrandPhoto img={photo} className="signin-photo" sizes="50vw" />
-          {brand.heroImage ? <BrandPhoto img={brand.heroImage} className="signin-hero" sizes="50vw" /> : null}
           <p className="signin-photo-cap">Quotes, invoices, receipts and guarantees, ready to send.</p>
         </aside>
       ) : (

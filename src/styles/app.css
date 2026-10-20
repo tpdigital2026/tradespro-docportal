@@ -792,9 +792,6 @@ a.mini-row:hover { box-shadow: inset 0 0 0 var(--stroke) var(--accent); }
   .signin-art.is-photo { position: relative; padding: 0; align-content: end; }
   .signin-photo { position: absolute; inset: 0; display: block; }
   .signin-art.is-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, color-mix(in srgb, var(--navy-900) 92%, transparent) 0%, color-mix(in srgb, var(--navy-900) 40%, transparent) 28%, transparent 55%); }
-  .signin-hero { position: absolute; inset: 0 0 auto 0; z-index: 1; display: block; height: var(--signin-hero-h); overflow: clip; background: var(--navy-900); }
-  .signin-hero img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .signin-hero::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--navy-900) 55%, transparent); }
   .signin-photo-cap { position: relative; z-index: 1; padding: var(--space-7) var(--space-8); font-family: var(--font-head); font-size: var(--fs-h3); font-weight: 600; max-width: var(--cap-w); color: var(--on-dark); text-wrap: balance; }
   .signin-art .sheet { width: var(--sample-w); max-width: 100%; height: auto; display: block; transform: rotate(-2deg); box-shadow: var(--shadow-art); border-radius: var(--space-1); }
   .sheet-paper { fill: var(--paper); }
