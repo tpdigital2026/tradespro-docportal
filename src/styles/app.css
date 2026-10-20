@@ -106,7 +106,8 @@ img { max-width: 100%; }
   .rail-brand .brand-logo { height: auto; max-height: var(--space-7); max-width: var(--rail-logo-w); width: auto; object-fit: contain; object-position: left center; }
   .rail-org { font-size: var(--fs-14); font-weight: 500; line-height: var(--lh-snug); color: var(--on-dark-muted); }
   .rail-groups { display: grid; gap: var(--space-4); }
-  .rail-label { padding: 0 var(--space-3) var(--space-1); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); color: var(--on-dark-muted); }
+  /* Each group is a section: a lifted navy band with white capitals, then its links. */
+  .rail-label { margin-bottom: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--navy-800); border-radius: var(--radius-sm); font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--track-label); text-transform: uppercase; color: var(--on-dark); }
   .rail .navlist { display: grid; gap: 0; }
   .rail .navlink { gap: var(--space-3); padding: 0 var(--space-3); min-height: var(--tap); border-radius: var(--radius-sm); font-size: var(--fs-14); color: var(--on-dark-muted); transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease); }
   .rail .navlink svg { width: var(--rail-icon); height: var(--rail-icon); }
