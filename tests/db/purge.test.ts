@@ -76,7 +76,7 @@ async function committedFixture() {
     const ver = await setup.query(`insert into public.document_versions (tenant_id, document_id, version) values ($1, $2, 1) returning id`, [tenantId, documentId]);
     const versionId = ver.rows[0].id as string;
     await setup.query(`insert into public.job_photos (id, tenant_id, job_id, storage_path) select g, $1, $2, $1::uuid::text || '/' || $3::uuid::text || '/' || $2::uuid::text || '/' || g::text || '.jpg' from gen_random_uuid() g`, [tenantId, jobId, customerId]);
-    await setup.query(`insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, 'lock-hash', now() + interval '1 day')`, [tenantId, documentId]);
+    await setup.query(`insert into public.share_links (tenant_id, document_id, token_hash, expires_at) values ($1, $2, $3, now() + interval '1 day')`, [tenantId, documentId, `lock-hash-${randomUUID()}`]);
     await setup.query(`insert into public.document_emails (tenant_id, document_id) values ($1, $2)`, [tenantId, documentId]);
     await setup.query(`insert into public.ai_runs (tenant_id, document_id, model) values ($1, $2, 'm')`, [tenantId, documentId]);
     const inv = await setup.query(`insert into public.documents (tenant_id, job_id, type, number, status) values ($1, $2, 'invoice_full', 'INV-QT-LOCK-001', 'final') returning id`, [tenantId, jobId]);
